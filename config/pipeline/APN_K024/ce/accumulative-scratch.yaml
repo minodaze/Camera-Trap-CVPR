@@ -1,0 +1,39 @@
+module_name: accumulative-scratch
+log_path: log/pipeline/APN_K024/ce/accumulative-scratch
+class_names:
+  - wildebeestblue
+  - zebraburchells
+  - steenbok
+  - impala
+  - giraffe
+  - baboon
+  - warthog
+  - kudu
+  - duikercommongrey
+  - elephant
+  - buffalo
+common_config:
+  model: bioclip
+  train_data_config_path: config/data/APN_K024/train.json
+  eval_data_config_path: config/data/APN_K024/test.json
+  train_batch_size: 128
+  eval_batch_size: 512
+  optimizer_name: AdamW
+  optimizer_params:
+    lr: 0.0001
+    weight_decay: 0.0001
+  chop_head: false
+  scheduler: CosineAnnealingLR
+  scheduler_params:
+    T_max: 30
+    eta_min: 0.00001
+pretrain_config:
+  pretrain: false
+ood_config:
+  method: all
+al_config:
+  method: all
+cl_config:
+  method: accumulative-scratch
+  epochs: 30
+  loss_type: ce

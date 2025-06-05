@@ -1,0 +1,58 @@
+module_name: CO2L
+log_path: log/pipeline/MAD_MAD05_new/ce/CO2L
+class_names:
+  - aardvark
+  - africanwildcat
+  - baboon
+  - birdother
+  - buffalo
+  - bushpig
+  - caracal
+  - elephant
+  - giraffe
+  - harecape
+  - hyenabrown
+  - hyenaspotted
+  - impala
+  - jackalblackbacked
+  - kudu
+  - leopard
+  - lionfemale
+  - mongoosebanded
+  - mongooseunknown
+  - porcupine
+  - reedbuck
+  - rhinocerosblack
+  - rhinoceroswhite
+  - springhare
+  - steenbok
+  - tortoise
+  - warthog
+  - wildebeestblue
+  - zebraplains
+common_config:
+  model: bioclip
+  train_data_config_path: config/data/MAD_MAD05_new/train.json
+  eval_data_config_path: config/data/MAD_MAD05_new/test.json
+  train_batch_size: 128
+  eval_batch_size: 512
+  optimizer_name: AdamW
+  optimizer_params:
+    lr: 0.0001
+    weight_decay: 0.0001
+  chop_head: false
+  scheduler: CosineAnnealingLR
+  scheduler_params:
+    T_max: 30
+    eta_min: 0.00001
+pretrain_config:
+  pretrain: false
+ood_config:
+  method: all
+al_config:
+  method: all
+cl_config:
+  method: co2l
+  buffer_size: 500
+  epochs: 30
+  loss_type: supcon

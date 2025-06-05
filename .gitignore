@@ -1,0 +1,6 @@
+_bioclip/
+_stale/
+log/
+*.pyc
+data
+_scripts/

@@ -1,0 +1,40 @@
+module_name: accumulative-scratch
+log_path: log/pipeline/PLN_D01/ce/accumulative-scratch
+class_names:
+  - impala
+  - warthog
+  - wildebeestblue
+  - baboon
+  - rhinoceroswhite
+  - rhinocerosblack
+  - zebraburchells
+  - kudu
+  - giraffe
+  - hartebeestred
+  - elephant
+  - tsessebe
+common_config:
+  model: bioclip
+  train_data_config_path: config/data/PLN_D01/train.json
+  eval_data_config_path: config/data/PLN_D01/test.json
+  train_batch_size: 128
+  eval_batch_size: 512
+  optimizer_name: AdamW
+  optimizer_params:
+    lr: 0.0001
+    weight_decay: 0.0001
+  chop_head: false
+  scheduler: CosineAnnealingLR
+  scheduler_params:
+    T_max: 30
+    eta_min: 0.00001
+pretrain_config:
+  pretrain: false
+ood_config:
+  method: all
+al_config:
+  method: all
+cl_config:
+  method: accumulative-scratch
+  epochs: 30
+  loss_type: ce
