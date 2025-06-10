@@ -72,6 +72,7 @@ def get_f_loss(loss_type, samples, n_classes, device, alpha=None, beta=None, gam
     elif loss_type == 'kd':
         def f_loss(logits, labels, images=None, feats=None):
             alpha = 1.0
+            assert ref_model is not None, "Reference model must be provided for KD loss."
             with torch.no_grad():
                 ref_outputs = ref_model(images)
             loss  = F.cross_entropy(logits, labels)

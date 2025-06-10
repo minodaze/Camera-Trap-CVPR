@@ -51,22 +51,6 @@ class Sample:
     ckp: str
     timestamp: datetime
 
-class BufferDataset(Dataset):
-    def __init__(self, samples):
-        self.samples = samples
-        self.transform = _TRAIN_TRANSFORM
-
-    def __len__(self):
-        return len(self.samples)
-    
-    def __getitem__(self, idx):
-        sample = self.samples[idx]
-        file_path = sample.file_path
-        label = sample.label
-        image = Image.open(file_path).convert("RGB")
-        image = self.transform(image)
-        return image, label
-
 class SamplesDataset(Dataset):
     def __init__(self, samples):
         self.samples = samples
@@ -83,6 +67,10 @@ class SamplesDataset(Dataset):
         image = self.transform(image)
         return image, label
 
+class BufferDataset(SamplesDataset):
+    def __init__(self, samples):
+        self.samples = samples
+        self.transform = _TRAIN_TRANSFORM
 
 class ClassBalancedSampler(Sampler):
     def __init__(self, dataset):

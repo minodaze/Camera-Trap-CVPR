@@ -84,6 +84,10 @@ class CLModule(ABC):
         pass
 
     @abstractmethod
+    def refresh_buffer(self, new_samples):
+        pass
+
+    @abstractmethod
     def incremental_step(self, model):
         pass
     
@@ -162,7 +166,7 @@ class CLReplay(CLModule):
             return self.buffer + dup
 
     def _rebalance_buffer(self, buf_size):
-        """Make the private  self.buffer  class-balanced and ≤ buf_size."""
+        """Make the  self.buffer class-balanced and ≤ buf_size."""
         if len(self.buffer) == 0:
             return                                            # nothing to rebalance
         by_cls = defaultdict(list)
@@ -198,7 +202,11 @@ class CLReplay(CLModule):
         # 1) collect *new* samples for this round
         cl_train_dset = copy.deepcopy(train_dset)
         cl_train_dset.apply_mask(train_mask)
+        new_samples   = cl_train_dset.samples
         n_new         = len(cl_train_dset)
+
+        # 2) refresh the buffer if needed
+        self.refresh_buffer(new_samples)
 
         # 2) replay: draw the same number of samples from the buffer -> expected 50 : 50 ratio in every DataLoader epoch
         replay_samples = self._sample_from_buffer(n_new)
@@ -212,9 +220,15 @@ class CLReplay(CLModule):
                     eval_dset, eval_per_epoch, eval_loader)
         
         # 5) after training
-        self._after_train(classifier, train_dset, eval_dset, train_mask)  # implement this if needed
+        self._after_train(classifier, train_dset, eval_dset, train_mask)
 
         return classifier
+
+    def incremental_step(self, model):
+        pass
+    
+    def refresh_buffer(self, new_samples):
+        pass
 
 class CLLWF(CLReplay):
     """LWF-style replay:
@@ -226,6 +240,44 @@ class CLLWF(CLReplay):
     def incremental_step(self, model):
         self.ref_model = copy.deepcopy(model)  # update the reference model
         self.ref_model.eval()                  # no training on it, just inference
+
+class CLRandReplaceOld(CLReplay):
+    """
+    Replay with *Random Replace Old*:
+      • before training, replace <replace_rate>% of the buffer
+        entries of every *old* class with fresh images of the
+        same class that arrive in the current mini-batch stream.
+      • then fall back to ordinary replay (50:50 mix, etc.).
+    """
+    def refresh_buffer(self, new_samples):
+        """new_samples is the list returned by train_dset.samples
+           AFTER train_mask is applied.  Each element has .label."""
+        r = self.cl_config.get("replace_rate", 0.2)
+        if r <= 0 or len(self.buffer) == 0:
+            return                                        # nothing to do
+
+        # organise current buffer by class
+        old_by_cls = defaultdict(list)
+        for idx, s in enumerate(self.buffer):
+            old_by_cls[s.label].append(idx)
+
+        # organise incoming new data replacements by class
+        new_by_cls = defaultdict(list)
+        for s in new_samples:
+            if s.label in old_by_cls:                        # only OLD classes
+                new_by_cls[s.label].append(s)
+
+        # loop over each old class and swap
+        for cls, idx_list in old_by_cls.items():
+            n_rep = int(len(idx_list) * r)
+            if n_rep == 0 or len(new_by_cls[cls]) == 0:
+                continue
+            # choose which buffer slots to evict and which new samples to insert
+            evict_idx   = random.sample(idx_list, n_rep)
+            insert_pool = random.choices(new_by_cls[cls], k=n_rep) if len(new_by_cls[cls]) < n_rep else random.sample(new_by_cls[cls], n_rep)
+            # perform in-place replacement
+            for buf_pos, new_s in zip(evict_idx, insert_pool):
+                self.buffer[buf_pos] = new_s
 
 class CLCO2L(CLReplay):
     """Contrastive Replay (Co2L) with IRD regularisation."""
@@ -379,6 +431,7 @@ CL_METHODS = {
     'accumulative': CLAccumulative,
     'accumulative-scratch': CLAccumulativeScratch,
     'replay': CLReplay,
+    'rand-replace-old': CLRandReplaceOld,
     'lwf': CLLWF,
     'co2l': CLCO2L,
     # 'accumulative-scratch-local': CLAccumulativeScratchLocal,
