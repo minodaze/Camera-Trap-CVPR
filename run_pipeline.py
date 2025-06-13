@@ -14,38 +14,9 @@ import pickle
 
 from core import *
 from core.module import get_al_module, get_cl_module, get_ood_module
+from utils.misc import method_name
 
-
-def parse_args():
-    """Parse command-line arguments for the adaptive learning pipeline.
-        
-        Returns:
-            args (argparse.Namespace): Parsed command-line arguments.
-    
-    """
-    # Configurations
-    parser = argparse.ArgumentParser(description='Adaptive Workflow')
-    parser.add_argument('--c', type=str, help='Configuration file')
-    parser.add_argument('--device', type=str, default='cuda', help='Device')
-    parser.add_argument('--debug', action='store_true', help='Debug mode')
-    parser.add_argument('--seed', type=int, default=9527, help='Random seed')
-    parser.add_argument('--eval_per_epoch', action='store_true', help='Evaluate per epoch')
-    parser.add_argument('--no_save', action='store_true', help='Do not save model')
-    parser.add_argument('--eval_only', action='store_true', help='Evaluate only')
-    parser.add_argument('--gpu_id', type=int, default=0, help='GPU ID')
-    args = parser.parse_args()
-
-    # Override configurations
-    if args.c:
-        with open(args.c, 'r') as f:
-            yml = yaml.YAML(typ='rt')
-            config = yml.load(f)
-        for k, v in config.items():
-            setattr(args, k, v)
-    args.gpu_id = None
-    return args
-
-def setup_logging(log_path, debug):
+def setup_logging(log_path, debug, params):
     """Setup logging for the training process.
     
         Args:
@@ -57,6 +28,8 @@ def setup_logging(log_path, debug):
     """
     # Setup logging
     logger = logging.getLogger()
+    petl_method_name = method_name(params)
+    log_path = os.path.join(log_path, petl_method_name)
     if not debug:
         logger.setLevel(logging.INFO)
         log_path = os.path.join(log_path, 'log')
@@ -158,7 +131,7 @@ def run(args):
     is_crop = True if cl_config['method'] == 'co2l' else False
     
     # Load model
-    classifier = build_classifier(common_config['model'], class_names, args.device)
+    classifier = build_classifier(args, class_names, args.device)
     
     # Pretrain
     if pretrain_config['pretrain']:
@@ -245,6 +218,171 @@ def run(args):
         with open(mask_path, 'wb') as f:
             pickle.dump((ood_mask, al_mask), f)
 
+def parse_args():
+    """Parse command-line arguments for the adaptive learning pipeline.
+        
+        Returns:
+            args (argparse.Namespace): Parsed command-line arguments.
+    
+    """
+    # Configurations
+    parser = argparse.ArgumentParser(description='Adaptive Workflow')
+    parser.add_argument('--c', type=str, help='Configuration file')
+    parser.add_argument('--device', type=str, default='cuda', help='Device')
+    parser.add_argument('--debug', action='store_true', help='Debug mode')
+    parser.add_argument('--seed', type=int, default=9527, help='Random seed')
+    parser.add_argument('--eval_per_epoch', action='store_true', help='Evaluate per epoch')
+    parser.add_argument('--no_save', action='store_true', help='Do not save model')
+    parser.add_argument('--eval_only', action='store_true', help='Evaluate only')
+    parser.add_argument('--gpu_id', type=int, default=0, help='GPU ID')
+
+    ###########################Model Configurations#########################
+    parser.add_argument('--pretrained_weights', type=str, default='bioclip',
+                        choices=['vit_base_patch16_224_in21k', 'vit_base_mae', 'vit_base_patch14_dinov2',
+                                 'vit_base_patch16_clip_224', 'bioclip'],
+                        help='pretrained weights name')
+    parser.add_argument('--drop_path_rate', default=0.,
+                        type=float,
+                        help='Drop Path Rate (default: %(default)s)')
+    # parser.add_argument('--model', type=str, default='vit', choices=['vit', 'swin'],
+    #                     help='pretrained model name')
+
+    ########################PETL#########################
+    parser.add_argument('--ft_attn_module', default=None, choices=['adapter', 'convpass', 'repadapter'],
+                        help='Module used to fine-tune attention module. (default: %(default)s)')
+    parser.add_argument('--ft_attn_mode', default='parallel',
+                        choices=['parallel', 'sequential_after', 'sequential_before'],
+                        help='fine-tune mode for attention module. (default: %(default)s)')
+    parser.add_argument('--ft_attn_ln', default='before',
+                        choices=['before', 'after'],
+                        help='fine-tune mode for attention module before layer norm or after. (default: %(default)s)')
+
+    parser.add_argument('--ft_mlp_module', default=None, choices=['adapter', 'convpass', 'repadapter'],
+                        help='Module used to fine-tune mlp module. (default: %(default)s)')
+    parser.add_argument('--ft_mlp_mode', default='parallel',
+                        choices=['parallel', 'sequential_after', 'sequential_before'],
+                        help='fine-tune mode for mlp module. (default: %(default)s)')
+    parser.add_argument('--ft_mlp_ln', default='before',
+                        choices=['before', 'after'],
+                        help='fine-tune mode for attention module before layer norm or after. (default: %(default)s)')
+
+    ########################AdaptFormer/Adapter#########################
+    parser.add_argument('--adapter_bottleneck', type=int, default=64,
+                        help='adaptformer bottleneck middle dimension. (default: %(default)s)')
+    parser.add_argument('--adapter_init', type=str, default='lora_kaiming',
+                        choices=['lora_kaiming', 'xavier', 'zero', 'lora_xavier'],
+                        help='how adapter is initialized')
+    parser.add_argument('--adapter_scaler', default=0.1,
+                        help='adaptformer scaler. (default: %(default)s)')
+
+    ########################ConvPass#########################
+    parser.add_argument('--convpass_xavier_init', action='store_true',
+                        help='whether apply xavier_init to the convolution layer in ConvPass')
+    parser.add_argument('--convpass_bottleneck', type=int, default=8,
+                        help='convpass bottleneck middle dimension. (default: %(default)s)')
+    parser.add_argument('--convpass_init', type=str, default='lora_xavier',
+                        choices=['lora_kaiming', 'xavier', 'zero', 'lora_xavier'],
+                        help='how convpass is initialized')
+    parser.add_argument('--convpass_scaler', default=10, type=float,
+                        help='ConvPass scaler. (default: %(default)s)')
+
+    ########################VPT#########################
+    parser.add_argument('--vpt_mode', type=str, default=None, choices=['deep', 'shallow'],
+                        help='VPT mode, deep or shallow')
+    parser.add_argument('--vpt_num', default=10, type=int,
+                        help='Number of prompts (default: %(default)s)')
+    parser.add_argument('--vpt_layer', default=None, type=int,
+                        help='Number of layers to add prompt, start from the last layer (default: %(default)s)')
+    parser.add_argument('--vpt_dropout', default=0.1, type=float,
+                        help='VPT dropout rate for deep mode. (default: %(default)s)')
+
+    ########################SSF#########################
+    parser.add_argument('--ssf', action='store_true',
+                        help='whether turn on Scale and Shift the deep Features (SSF) tuning')
+
+    ########################lora_kaiming#########################
+    parser.add_argument('--lora_bottleneck', type=int, default=0,
+                        help='lora bottleneck middle dimension. (default: %(default)s)')
+
+    ########################FacT#########################
+    parser.add_argument('--fact_dim', type=int, default=8,
+                        help='FacT dimension. (default: %(default)s)')
+    parser.add_argument('--fact_type', type=str, default=None, choices=['tk', 'tt'],
+                        help='FacT method')
+    parser.add_argument('--fact_scaler', type=float, default=1.0,
+                        help='FacT scaler. (default: %(default)s)')
+
+    ########################repadapter#########################
+    parser.add_argument('--repadapter_bottleneck', type=int, default=8,
+                        help='repadapter bottleneck middle dimension. (default: %(default)s)')
+    parser.add_argument('--repadapter_init', type=str, default='lora_xavier',
+                        choices=['lora_xavier', 'lora_kaiming', 'xavier', 'zero'],
+                        help='how repadapter is initialized')
+    parser.add_argument('--repadapter_scaler', default=1, type=float,
+                        help='repadapter scaler. (default: %(default)s)')
+    parser.add_argument('--repadapter_group', type=int, default=2,
+                        help='repadapter group')
+
+    ########################BitFit#########################
+    parser.add_argument('--bitfit', action='store_true',
+                        help='whether turn on BitFit')
+
+    ########################VQT#########################
+    parser.add_argument('--vqt_num', default=0, type=int,
+                        help='Number of query prompts (default: %(default)s)')
+    parser.add_argument('--vqt_dropout', default=0.1, type=float,
+                        help='VQT dropout rate for deep mode. (default: %(default)s)')
+
+    ########################MLP#########################
+    parser.add_argument('--mlp_index', default=None, type=int, nargs='+',
+                        help='indexes of mlp to tune (default: %(default)s)')
+    parser.add_argument('--mlp_type', type=str, default='full',
+                        choices=['fc1', 'fc2', 'full'],
+                        help='how mlps are tuned')
+
+    ########################Attention#########################
+    parser.add_argument('--attention_index', default=None, type=int, nargs='+',
+                        help='indexes of attention to tune (default: %(default)s)')
+    parser.add_argument('--attention_type', type=str, default='full',
+                        choices=['qkv', 'proj', 'full'],
+                        help='how attentions are tuned')
+
+    ########################LayerNorm#########################
+    parser.add_argument('--ln', action='store_true',
+                        help='whether turn on LayerNorm fit')
+
+    ########################DiffFit#########################
+    parser.add_argument('--difffit', action='store_true',
+                        help='whether turn on DiffFit')
+
+    ########################full#########################
+    parser.add_argument('--full', action='store_true',
+                        help='whether turn on full finetune')
+
+    ########################block#########################
+    parser.add_argument('--block_index', default=None, type=int, nargs='+',
+                        help='indexes of block to tune (default: %(default)s)')
+
+    ########################domain generalization#########################
+    parser.add_argument('--generalization_test', type=str, default='a',
+                        choices=['v2', 's', 'a'],
+                        help='domain generalization test set for imagenet')
+    parser.add_argument('--merge_factor', default=1, type=float,
+                        help='merge factor')
+
+    args = parser.parse_args()
+
+    # Override configurations
+    if args.c:
+        with open(args.c, 'r') as f:
+            yml = yaml.YAML(typ='rt')
+            config = yml.load(f)
+        for k, v in config.items():
+            setattr(args, k, v)
+    args.gpu_id = None
+
+    return args
+
 if __name__ == '__main__':
     # Parse arguments
     args = parse_args()
@@ -259,7 +397,7 @@ if __name__ == '__main__':
         save_dir = os.path.join(args.log_path, f"debug-{ts}")
 
     # Setup logging
-    args.save_dir = setup_logging(args.log_path, args.debug)
+    args.save_dir = setup_logging(args.log_path, args.debug, args)
     logging.info(f'Saving to {save_dir}. ')
 
     # Save configuration
@@ -274,3 +412,4 @@ if __name__ == '__main__':
 
     # Print elapsed time
     logging.info(f'Elapsed time: {end_time - start_time:.2f} seconds. ')
+

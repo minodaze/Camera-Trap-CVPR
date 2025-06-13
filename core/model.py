@@ -14,8 +14,9 @@ import json
 import numpy as np
 import os
 
+import timm
+from .petl_model.vision_transformer import VisionTransformerPETL
 from .open_clip import create_model_and_transforms, get_cast_dtype, get_tokenizer
-
 
 OPENAI_IMAGENET_TEMPLATE = [
     'a photo of {CLZ_NAME}.',
@@ -141,7 +142,8 @@ class CLIPClassifier(nn.Module):
         return F.normalize(self.proj_head(feats), dim=1)
     
     def forward(self, images, return_feats=False):
-        x = self.visual_model(images)
+        x = self.visual_model.forward_features(images)
+        x = self.visual_model.forward_head(x, pre_logits=True) # get the features
         feats = F.normalize(x, dim=-1)
         x = self.head(feats)
         if return_feats:
@@ -151,7 +153,8 @@ class CLIPClassifier(nn.Module):
     
     def forward_features(self, images):
         """Forward pass to get the features from the visual model."""
-        x = self.visual_model(images)
+        x = self.visual_model.forward_features(images)
+        x = self.visual_model.forward_head(x)
         feats = F.normalize(x, dim=-1)
         return feats
 
@@ -166,15 +169,17 @@ class CLIPClassifier(nn.Module):
         logging.info(f'Loading classifier from {path}... ')
         self.load_state_dict(torch.load(path))
 
-
-def build_classifier(model_name, class_name_idx, device): 
-    assert model_name in ['bioclip', 'open_clip']
+def build_classifier(params, class_name_idx, device): 
     if isinstance(class_name_idx, list):
         class_name_idx = {c: i for i, c in enumerate(class_name_idx)}
-    if model_name == 'bioclip':
-        model, preprocess_train, preprocess_val = create_model_and_transforms(
+    class_num = len(class_name_idx)
+    # Get the model and tune parameters
+    model, tune_parameters, model_grad_params_no_head = get_model(params, class_num)
+
+    # Load the BIOCLIP model to get the class embeddings
+    bioclip_model, preprocess_train, preprocess_val = create_model_and_transforms(
             'ViT-B-16',
-            'pretrained_weight/bioclip/open_clip_pytorch_model.bin',
+            'pretrained_weights/bioclip/open_clip_pytorch_model.bin',
             precision='amp',
             device=device,
             jit=False,
@@ -188,20 +193,18 @@ def build_classifier(model_name, class_name_idx, device):
             aug_cfg={},
             output_dict=True,
         )
-        tokenizer = AutoTokenizer.from_pretrained('pretrained_weight/bioclip')
-        # img_size = model.visual.image_size
-        classifier = CLIPClassifier(model.visual, model.embed_dim)
-        class_embedding = get_class_embedding(model, tokenizer, class_name_idx)
-        classifier.init_head(class_embedding)
-        classifier = classifier.to(device)
-    elif model_name == 'open_clip':
-        assert False, 'Not implemented yet'
-    return classifier
+    tokenizer = AutoTokenizer.from_pretrained('pretrained_weights/bioclip')
+    ###################################################################
 
+    classifier = CLIPClassifier(model, model.embed_dim)
+    class_embedding = get_class_embedding(bioclip_model, tokenizer, class_name_idx)
+    del bioclip_model, tokenizer
+    classifier.init_head(class_embedding)
+    classifier = classifier.to(device)
+    return classifier
 
 _LOOKUP_PATH = 'config/common_name_lookup.json'
 _lookup = json.load(open(_LOOKUP_PATH))
-
 
 def get_texts(c):
     use_bioclip_template = True
@@ -253,3 +256,140 @@ def get_class_embedding(model, tokenizer, class_name_idx):
             _class_embedding = F.normalize(_class_embedding, dim=-1)
             class_embedding[class_idx] = _class_embedding
     return class_embedding
+
+TUNE_MODULES = ['ft_attn_module', 'ft_mlp_module', 'head', 'vpt', 'ssf_scale', 'ssf_shift', 'lora', 'fact', 'vqt',
+                'difffit']
+
+def get_model(params, class_num):
+    # if torch.cuda.is_available():
+    #     params.device = torch.cuda.current_device()
+    # else:
+    #     raise Exception("No GPU available")
+
+    model = get_base_model(params, class_num)
+
+    ##########
+    tune_parameters = []
+    if params.debug:
+        logging.info("Trainable params:")
+
+    if params.bitfit or params.difffit:
+        TUNE_MODULES.append('bias')
+
+    if params.ln or params.difffit:
+        TUNE_MODULES.append('norm')
+
+    if params.mlp_index:
+        if isinstance(params.mlp_index, str):
+            params.mlp_index = eval(params.mlp_index)
+        for i in params.mlp_index:
+            if params.mlp_type == 'fc1':
+                TUNE_MODULES.append(str(i) + '.mlp.fc1')
+            elif params.mlp_type == 'fc2':
+                TUNE_MODULES.append(str(i) + '.mlp.fc2')
+            elif params.mlp_type == 'full':
+                TUNE_MODULES.append(str(i) + '.mlp.fc1')
+                TUNE_MODULES.append(str(i) + '.mlp.fc2')
+            else:
+                raise NotImplementedError
+
+    if params.attention_index:
+        if isinstance(params.attention_index, str):
+            params.attention_index = eval(params.attention_index)
+        for i in params.attention_index:
+            if params.attention_type == 'qkv':
+                TUNE_MODULES.append(str(i) + '.attn.qkv')
+            elif params.attention_type == 'proj':
+                TUNE_MODULES.append(str(i) + '.attn.proj')
+            elif params.attention_type == 'full':
+                TUNE_MODULES.append(str(i) + '.attn.qkv')
+                TUNE_MODULES.append(str(i) + '.attn.proj')
+            else:
+                raise NotImplementedError
+
+    if params.block_index:
+        if isinstance(params.block_index, str):
+            params.block_index = eval(params.block_index)
+        for i in params.block_index:
+            TUNE_MODULES.append('blocks.' + str(i))
+
+    for name, parameter in model.named_parameters():
+        if params.full:
+            parameter.requires_grad = True
+            tune_parameters.append(parameter)
+            if params.debug:
+                logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
+        else:
+            if any(m in name for m in TUNE_MODULES):
+                parameter.requires_grad = True
+                tune_parameters.append(parameter)
+                if params.debug:
+                    logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
+            else:
+                parameter.requires_grad = False
+
+    model_grad_params_no_head = log_model_info(model)
+
+    model = model.cuda(device=params.device)
+    return model, tune_parameters, model_grad_params_no_head
+
+def get_base_model(params, class_num):
+    if params.pretrained_weights == "vit_base_patch16_224_in21k":
+        params.patch_size = 16
+        model = timm.create_model("vit_base_patch16_224_in21k_petl", drop_path_rate=params.drop_path_rate,
+                                  pretrained=False, params=params)
+        model.load_pretrained(
+            'pretrained_weights/ViT-B_16_in21k.npz', model_type='clip')
+        model.reset_classifier(class_num)
+    elif params.pretrained_weights == "vit_base_mae":
+        model = timm.create_model("vit_base_patch16_224_in21k_petl", drop_path_rate=params.drop_path_rate,
+                                  pretrained=False,
+                                  params=params)
+        model.load_pretrained(
+            'pretrained_weights/mae_pretrain_vit_base.pth', model_type='clip')
+        model.reset_classifier(class_num)
+    elif params.pretrained_weights == "vit_base_patch14_dinov2":
+        params.patch_size = 14
+        model = timm.create_model("vit_base_patch14_dinov2_petl", drop_path_rate=params.drop_path_rate,
+                                  pretrained=False,
+                                  params=params)
+        model.load_pretrained(
+            'pretrained_weights/ViT-B_14_dinov2.pth', model_type='dinov2')
+        model.reset_classifier(class_num)
+    elif params.pretrained_weights == 'vit_base_patch16_clip_224':
+        params.patch_size = 16
+        model = timm.create_model("vit_base_patch16_clip_224_petl", drop_path_rate=params.drop_path_rate,
+                                  pretrained=False,
+                                  params=params)
+        model.load_pretrained(
+            'pretrained_weights/ViT-B_16_clip.bin', model_type='clip')
+        model.reset_classifier(class_num)
+    ## Bioclip, we can tried other models as well
+    elif params.pretrained_weights == 'bioclip':
+        params.patch_size = 16
+        model = timm.create_model("vit_base_patch16_clip_224_petl", drop_path_rate=params.drop_path_rate,
+                                  pretrained=False, params=params)
+        model.load_pretrained(
+            'pretrained_weights/bioclip/open_clip_pytorch_model.bin', model_type='bioclip')
+        model.reset_classifier(class_num)
+    else:
+        raise NotImplementedError
+    return model
+
+def log_model_info(model, verbose=False):
+    """Logs model info"""
+    if verbose:
+        logging.info(f"Classification Model:\n{model}")
+    model_total_params = sum(p.numel() for p in model.parameters())
+    model_grad_params = sum(
+        p.numel() for p in model.parameters() if p.requires_grad)
+    model_grad_params_no_head = sum(p.numel() for n, p in model.named_parameters() if p.requires_grad and 'head' not in n)
+    logging.info("Total Parameters: {0}\t Gradient Parameters: {1}\t Gradient Parameters No Head: {2}".format(
+        model_total_params, model_grad_params, model_grad_params_no_head))
+    logging.info(f"total tuned percent:{(model_grad_params/model_total_params*100):.2f} %")
+    logging.info(f"total tuned percent no head:{(model_grad_params_no_head / model_total_params * 100):.2f} %")
+    ## Freeze the head
+    for name, param in model.named_parameters():
+        if 'head' in name:
+            param.requires_grad = False
+    return model_grad_params_no_head

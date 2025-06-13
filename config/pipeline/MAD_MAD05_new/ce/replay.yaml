@@ -54,5 +54,5 @@ al_config:
 cl_config:
   method: replay
   buffer_size: 500
-  epochs: 30
+  epochs: 40
   loss_type: ce

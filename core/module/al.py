@@ -49,7 +49,6 @@ def extract_logits_features(classifier, dset, device):
         return [], []
     return logits, features
 
-
 class ALModule(ABC):
     """Abstract base class for active learning modules.
 
@@ -248,7 +247,6 @@ class ALMLS(ALModule):
             if i in sample_ids:
                 mls_mask[ind] = 1
         return classifier, mls_mask
-
 
 class ALMSP(ALModule):
     """Select samples with minimum maximum softmax probability.
