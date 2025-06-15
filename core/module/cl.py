@@ -10,6 +10,7 @@ from ..data import BufferDataset
 from abc import ABC, abstractmethod
 import random
 from collections import defaultdict
+from torch.nn import functional as F
 
 """
 
@@ -112,7 +113,6 @@ class CLNaiveFT(CLModule):
         self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader)
         return classifier
 
-
 class CLAccumulative(CLModule):
     """Accumulative training. Fine-tune the classifier on all samples seen so far.
     """
@@ -126,7 +126,6 @@ class CLAccumulative(CLModule):
         # Process buffer
         self.buffer.extend(train_dset.samples)
         return classifier
-
 
 class CLAccumulativeScratch(CLModule):
     """Accumulative training with scratch. Fine-tune the classifier on all samples seen so far, but use a new classifier each time.
@@ -153,7 +152,7 @@ class CLReplay(CLModule):
         • on every round mix NEW : REPLAY samples in a 50 : 50 ratio
         • after training update the buffer and re-balance it
     """
-    def _sample_from_buffer(self, n):
+    def _sample_from_buffer(self, n, classifier, train_dset):
         """Return `n` samples from the buffer (with or without replacement)."""
         if len(self.buffer) == 0:
             return []
@@ -181,18 +180,19 @@ class CLReplay(CLModule):
             if len(samples) > per_class:                 # down-sample
                 new_buf.extend(random.sample(samples, per_class))
             else:                                        # keep them all
+                k = per_class - len(samples)
                 new_buf.extend(samples)
+                new_buf.extend(random.choices(samples, k=k))  # duplicate to fill
+        self.buffer = new_buf
 
-        # if rounding left us short, pad with random picks (rare)
-        while len(new_buf) < min(buf_size, len(self.buffer)):
-            new_buf.append(random.choice(self.buffer))
+        for s in self.buffer:
+            s.is_buf = True                     # mark as buffer sample
 
-        self.buffer = new_buf[:buf_size]                 # hard cut to limit
-    
     def _after_train(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
         # update the buffer with **new** data then re-balance it
         for msk, sample in zip(train_mask, train_dset.samples):
-            self.buffer.append(sample)
+            if not sample.is_buf:  # add only new samples, not buffer ones
+                self.buffer.append(sample)
         buf_size = self.cl_config.get('buffer_size', 500)
         self._rebalance_buffer(buf_size)                       # trim/balance
 
@@ -205,11 +205,11 @@ class CLReplay(CLModule):
         new_samples   = cl_train_dset.samples
         n_new         = len(cl_train_dset)
 
-        # 2) refresh the buffer if needed
+        # refresh the buffer if needed
         self.refresh_buffer(new_samples)
 
         # 2) replay: draw the same number of samples from the buffer -> expected 50 : 50 ratio in every DataLoader epoch
-        replay_samples = self._sample_from_buffer(n_new)
+        replay_samples = self._sample_from_buffer(n_new, classifier, train_dset)
         cl_train_dset.add_samples(replay_samples)
 
         # 3) incremental step: update the reference model
@@ -240,6 +240,83 @@ class CLLWF(CLReplay):
     def incremental_step(self, model):
         self.ref_model = copy.deepcopy(model)  # update the reference model
         self.ref_model.eval()                  # no training on it, just inference
+
+class CLDerpp(CLReplay):
+    """DERPP-style replay:
+        • keep a fixed-size, class-balanced buffer
+        • on every round mix NEW : REPLAY samples in a 50 : 50 ratio
+        • after training update the buffer and re-balance it
+        • Use mse_loss to provide stability using the old logits.
+    """
+    def _after_train(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
+        # update the buffer with **new** data then re-balance it
+        for msk, sample in zip(train_mask, train_dset.samples):
+            self.buffer.append(sample)
+        buf_size = self.cl_config.get('buffer_size', 500)
+        self._rebalance_buffer(buf_size)                       # trim/balance
+
+        # compute logits for the buffer samples
+        if len(self.buffer) == 0:
+            logging.info('No samples in buffer, skipping buffer logits computing.')
+        else:
+            logging.info('Computing logits for the buffer samples')
+            cl_buffer_dset = BufferDataset(self.buffer)
+            for sample, data in zip(self.buffer, cl_buffer_dset):
+                image, label, _, is_buf = data
+                image = image.to(self.device)
+                if is_buf:
+                    with torch.no_grad():
+                        logits = classifier(image.unsqueeze(0).to(self.device))[0].cpu()
+                        sample.logits = logits
+
+class CLMIR(CLReplay):
+    """MIR-style replay:
+        • keep a fixed-size, class-balanced buffer
+        • select a subset of the buffer samples with the highest scores
+        • on every round mix NEW : REPLAY samples in a 50 : 50 ratio
+        • after training update the buffer and re-balance it
+    """
+    def _sample_from_buffer(self, n, classifier, train_dset):
+        """Return `n` samples from the buffer picked by the MIR criterion."""
+        if len(self.buffer) == 0:
+            return []
+        
+        if n <= len(self.buffer):
+            logging.info(f'Selecting {n} samples from the buffer of size {len(self.buffer)} by the MIR criterion.')
+            cl_train_loader = DataLoader(train_dset, batch_size=self.common_config['train_batch_size'], shuffle=True)
+            optimizer = get_optimizer(classifier, self.common_config['optimizer_name'], self.common_config['optimizer_params'])
+            self._classifier = copy.deepcopy(classifier).to(self.device)
+            self._classifier.train()
+            # Train one epoch is enough
+            for inputs, labels, _, _ in cl_train_loader:
+                # Forward
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
+                logits = self._classifier(inputs)
+                loss = F.cross_entropy(logits, labels)
+                # Backward
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+            buf_dset = BufferDataset(self.buffer)
+            buf_loader = DataLoader(buf_dset, batch_size=self.common_config['train_batch_size'], shuffle=False)
+            scores = []
+            self._classifier.eval()
+            classifier.eval()
+            with torch.no_grad():
+                for imgs, labels, _, _ in buf_loader:
+                    imgs, labels = imgs.to(self.device), labels.to(self.device)
+                    prev_loss = F.cross_entropy(classifier(imgs), labels, reduction='none').cpu().numpy()
+                    curr_loss = F.cross_entropy(self._classifier(imgs), labels, reduction='none').cpu().numpy()
+                    scores.append(prev_loss - curr_loss)
+            scores = np.concatenate(scores)
+            selected_idx = np.argsort(scores)[::-1][:n]  # pick the n highest scores
+            selected_samples = [self.buffer[i] for i in selected_idx]
+        else:
+            # not enough → duplicate some to reach n
+            k    = n - len(self.buffer)
+            dup  = random.choices(self.buffer, k=k)
+            selected_samples = self.buffer + dup
+        return selected_samples
 
 class CLRandReplaceOld(CLReplay):
     """
@@ -279,6 +356,8 @@ class CLRandReplaceOld(CLReplay):
             for buf_pos, new_s in zip(evict_idx, insert_pool):
                 self.buffer[buf_pos] = new_s
 
+## CLCO2L: Only useful if these's novel classes, current pipeline does not suit this algorithm.
+
 class CLCO2L(CLReplay):
     """Contrastive Replay (Co2L) with IRD regularisation."""
     def __init__(self, classifier, cl_config, common_config,
@@ -286,9 +365,9 @@ class CLCO2L(CLReplay):
         super().__init__(classifier, cl_config, common_config,
                          class_names, args, device)
 
-        # ---- (a) SupCon head and loss --------------------------------
+        # ---- SupCon head and loss --------------------------------
         dim_in   = self._classifier.head.in_features
-        proj_dim = self.cl_config.get('proj_dim', 128)
+        proj_dim = self.cl_config.get('proj_dim', 512)
         proj_head = nn.Sequential(
             nn.Linear(dim_in, dim_in),
             nn.ReLU(inplace=True),
@@ -302,66 +381,6 @@ class CLCO2L(CLReplay):
     def incremental_step(self, model):
         self.ref_model = copy.deepcopy(model)  # update the reference model
         self.ref_model.eval()                  # no training on it, just inference
-
-    #  inner training loop
-    def _train(self, classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader):
-        if len(cl_train_dset) == 0:
-            logging.info('No samples to train classifier, skipping. ')
-        else:
-            logging.info(f'Training classifier with {len(cl_train_dset)} samples. ')
-            cl_train_loader = DataLoader(cl_train_dset, batch_size=self.common_config['train_batch_size'], shuffle=True)
-            optimizer = get_optimizer(classifier, self.common_config['optimizer_name'], self.common_config['optimizer_params'])
-            if self.common_config['scheduler'] is not None:
-                scheduler = get_scheduler(optimizer, self.common_config['scheduler'], self.common_config['scheduler_params'])
-            else:
-                scheduler = None
-            f_loss = get_f_loss(
-                self.cl_config['loss_type'], 
-                cl_train_loader.dataset.samples, 
-                len(self.class_names),
-                self.device,
-                alpha=self.cl_config.get('loss_alpha', None),
-                beta=self.cl_config.get('loss_beta', None),
-                gamma=self.cl_config.get('loss_gamma', None),
-                ref_model=self.ref_model,
-            )
-            classifier.train()
-            epochs = self.cl_config['epochs']
-            for epoch in range(epochs):
-                classifier.train()
-                loss_arr = []
-                correct_arr = []
-                # for inputs, labels in tqdm(loader):
-                for inputs, labels in cl_train_loader:
-                    if isinstance(inputs, list):
-                        inputs = torch.cat(inputs, dim=0)
-                    # Forward
-                    inputs, labels = inputs.to(self.device), labels.to(self.device)
-                    bsz = labels.size(0)
-                    i1, i2 = torch.split(inputs, [bsz, bsz], dim=0)
-                    logits = classifier(i1)
-                    preds = logits.argmax(dim=1)
-                    correct = preds == labels
-                    # SupCon loss
-                    proj_features = classifier.proj_features(inputs)
-                    loss = f_loss(logits, labels, images=inputs, features=proj_features)
-                    # Backward
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
-                    # Append
-                    loss_arr.append(loss.cpu().item())
-                    correct_arr.append(correct.cpu().numpy())
-                loss_arr = np.array(loss_arr)
-                correct_arr = np.concatenate(correct_arr, axis=0)
-                logging.info(f'Epoch {epoch}, loss: {loss_arr.mean():.4f}, acc: {correct_arr.mean():.4f}, lr: {optimizer.param_groups[0]["lr"]:.8f}. ')
-
-            if scheduler is not None:
-                scheduler.step()
-            
-            if eval_per_epoch:
-                loss_arr, preds_arr, labels_arr = eval(classifier, eval_loader, device)
-                print_metrics(loss_arr, preds_arr, labels_arr, len(loader.dataset.class_names), log_predix=f'Epoch {epoch}, ')
     
     def _after_train(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
         # update the buffer with **new** data then re-balance it
@@ -400,7 +419,8 @@ class CLCO2L(CLReplay):
                     f_loss, 
                     eval_per_epoch=eval_per_epoch, 
                     eval_loader=eval_loader,
-                    scheduler=scheduler)
+                    scheduler=scheduler,
+                    train_head_only=True)
         
 
 # No need anymore.
@@ -433,6 +453,8 @@ CL_METHODS = {
     'replay': CLReplay,
     'rand-replace-old': CLRandReplaceOld,
     'lwf': CLLWF,
+    'mir': CLMIR,
+    'derpp' : CLDerpp,
     'co2l': CLCO2L,
     # 'accumulative-scratch-local': CLAccumulativeScratchLocal,
 }

@@ -1,5 +1,6 @@
 import json
 from PIL import Image
+import torch
 from torch.utils.data import Dataset, Sampler
 from torchvision.transforms import Normalize, Compose, InterpolationMode, ToTensor, Resize, RandomHorizontalFlip, RandomResizedCrop
 from collections import defaultdict
@@ -9,6 +10,7 @@ import copy
 import random
 from datetime import datetime
 from dataclasses import dataclass
+from typing import Optional
 
 _IMAGENET_DEFAULT_MEAN = [0.485, 0.456, 0.406]
 _IMAGENET_DEFAULT_STD = [0.229, 0.224, 0.225]
@@ -37,12 +39,10 @@ _VAL_TRANSFORM = Compose([
     Normalize(mean=_IMAGENET_DEFAULT_MEAN, std=_IMAGENET_DEFAULT_STD),
 ])
 
-
 _VAL_TRANSFORM_SPECIESNET = Compose([
     Resize((480, 480), interpolation=InterpolationMode.BICUBIC),
-    ToTensor(),
+    ToTensor(),1
 ])
-
 
 @dataclass
 class Sample:
@@ -50,6 +50,8 @@ class Sample:
     label: int
     ckp: str
     timestamp: datetime
+    logits: torch.Tensor = torch.empty(0)
+    is_buf: bool = False
 
 class SamplesDataset(Dataset):
     def __init__(self, samples):
@@ -63,9 +65,11 @@ class SamplesDataset(Dataset):
         sample = self.samples[idx]
         file_path = sample.file_path
         label = sample.label
+        logits = sample.logits
+        is_buf = sample.is_buf
         image = Image.open(file_path).convert("RGB")
         image = self.transform(image)
-        return image, label
+        return image, label, logits, is_buf
 
 class BufferDataset(SamplesDataset):
     def __init__(self, samples):
@@ -118,6 +122,9 @@ class CkpDataset(Dataset):
         self.class_name_idx = {class_name: idx for idx, class_name in enumerate(self.class_names)}
         
         self.samples = self._get_samples(data)
+        class_num = len(self.class_names)
+        for sample in self.samples:
+            sample.logits = torch.empty(class_num)
         self.ckp_samples = self._get_ckp_samples(self.samples)
         self._sort_samples()
 
@@ -174,6 +181,8 @@ class CkpDataset(Dataset):
         sample = self.samples[idx]
         file_path = sample.file_path
         label = sample.label
+        logits = sample.logits
+        is_buf = sample.is_buf
         if file_path in self.cache:
             image = self.cache[file_path]
         else:
@@ -183,7 +192,7 @@ class CkpDataset(Dataset):
             image = [self.transform(image), self.transform(image)]
         else:
             image = self.transform(image)
-        return image, label
+        return image, label, logits, is_buf
 
     def get_ckp_list(self):
         ckp_keys = list(self.ckp_samples.keys())

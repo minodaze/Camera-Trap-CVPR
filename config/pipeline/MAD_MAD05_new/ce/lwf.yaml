@@ -53,6 +53,6 @@ al_config:
   method: all
 cl_config:
   method: lwf
-  buffer_size: 500
+  buffer_size: 1000
   epochs: 30
   loss_type: kd

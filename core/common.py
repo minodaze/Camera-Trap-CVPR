@@ -58,19 +58,19 @@ def get_f_loss(loss_type, samples, n_classes, device, alpha=None, beta=None, gam
         samples_per_cls[cls] += 1
     samples_per_cls[samples_per_cls == 0] = 1
     if loss_type == 'ce':
-        def f_loss(logits, labels, images=None, feats=None):
+        def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
             return F.cross_entropy(logits, labels)
     elif loss_type == 'cb-ce':
-        def f_loss(logits, labels, images=None, feats=None):
+        def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
             # CB_loss(logits, labels, samples_per_cls, no_of_classes, loss_type, beta, gamma, device)
             loss = CB_loss(logits, labels, samples_per_cls, n_classes, 'softmax', beta, gamma, device)
             return loss
     elif loss_type == 'cb-focal':
-        def f_loss(logits, labels, images=None, feats=None):
+        def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
             loss = CB_loss(logits, labels, samples_per_cls, n_classes, 'focal', beta, gamma, device)
             return loss
     elif loss_type == 'kd':
-        def f_loss(logits, labels, images=None, feats=None):
+        def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
             alpha = 1.0
             assert ref_model is not None, "Reference model must be provided for KD loss."
             with torch.no_grad():
@@ -79,9 +79,9 @@ def get_f_loss(loss_type, samples, n_classes, device, alpha=None, beta=None, gam
             loss += loss_fn_kd(logits, ref_outputs)
             return loss
     elif loss_type == 'supcon':
-        def f_loss(logits, labels, images=None, features=None):
+        def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
             bsz = labels.shape[0]
-            f1, f2 = torch.split(features, [bsz, bsz], dim=0)
+            f1, f2 = torch.split(proj_features, [bsz, bsz], dim=0)
             ff = torch.cat(
                     [f1.unsqueeze(1), f2.unsqueeze(1)], dim=1)
             train_loss = SupConLoss(
@@ -90,9 +90,25 @@ def get_f_loss(loss_type, samples, n_classes, device, alpha=None, beta=None, gam
                 ref_features = F.normalize(ref_model.proj_features(images), dim=1)
 
                 logits2 = compute_IRD(ref_features, 0.01, device)
-                logits1 = compute_IRD(features,     0.2 , device)
+                logits1 = compute_IRD(proj_features,     0.2 , device)
                 train_loss += (-logits2 * torch.log(logits1)).sum(1).mean()
             return train_loss
+    elif loss_type == 'derpp':
+        def f_loss(outputs, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
+            alpha = 1.0
+            beta  = 1.0
+            is_buf = is_buf.bool()
+            is_new = ~is_buf
+            loss  = F.cross_entropy(outputs[is_new], labels[is_new])
+            # buffer logits may be empty for new-data rows → mask first dim
+            if is_buf.any():
+                buf_logits = outputs[is_buf]
+                ref_logits = old_logits[is_buf].to(buf_logits.device)
+                loss += alpha * F.mse_loss(
+                            buf_logits[:, :old_logits.shape[1]],
+                            ref_logits.float())
+                loss += beta  * F.cross_entropy(buf_logits, labels[is_buf])
+            return loss
     else:
         raise ValueError(f'Unknown loss type {loss_type}. ')
     return f_loss
@@ -124,19 +140,34 @@ def get_scheduler(optimizer, scheduler_name, scheduler_params):
     return scheduler
 
 
-def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None):
+def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False):
     for epoch in range(epochs):
-        classifier.train()
+        if train_head_only:
+            classifier.visual_model.eval()
+            classifier.head.train()
+        else:
+            classifier.train()
         loss_arr = []
         correct_arr = []
         # for inputs, labels in tqdm(loader):
-        for inputs, labels in loader:
+        for inputs, labels, old_logits, is_buf in loader:
+            if isinstance(inputs, list):  # for TwoCropTransform
+                inputs = torch.cat(inputs, dim=0)
             # Forward
             inputs, labels = inputs.to(device), labels.to(device)
-            logits = classifier(inputs)
+            bsz = labels.size(0)
+            if inputs.size(0) == 2*bsz:
+                i1, i2 = torch.split(inputs, [bsz, bsz], dim=0)
+                logits = classifier(i1)
+            else:
+                logits = classifier(inputs)
             preds = logits.argmax(dim=1)
             correct = preds == labels
-            loss = f_loss(logits, labels, inputs)
+            proj_features = None
+            if hasattr(classifier, 'proj_head'):
+                # For SupCon loss, we need to get the features
+                proj_features = classifier.proj_features(inputs)
+            loss = f_loss(logits, labels, images=inputs, proj_features=proj_features, old_logits=old_logits, is_buf=is_buf)
             # Backward
             optimizer.zero_grad()
             loss.backward()
@@ -183,7 +214,7 @@ def eval(classifier, loader, device, chop_head=False, return_logits=False):
     
     classifier.eval()
     with torch.no_grad():
-        for inputs, labels in loader:
+        for inputs, labels, _, _ in loader:
             # Forward
             inputs, labels = inputs.to(device), labels.to(device)
             logits = classifier(inputs)

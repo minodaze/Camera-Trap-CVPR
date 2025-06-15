@@ -154,7 +154,7 @@ class CLIPClassifier(nn.Module):
     def forward_features(self, images):
         """Forward pass to get the features from the visual model."""
         x = self.visual_model.forward_features(images)
-        x = self.visual_model.forward_head(x)
+        x = self.visual_model.forward_head(x, pre_logits=True)
         feats = F.normalize(x, dim=-1)
         return feats
 

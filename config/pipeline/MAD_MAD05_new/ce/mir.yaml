@@ -1,5 +1,5 @@
-module_name: CO2L
-log_path: log/pipeline/MAD_MAD05_new/ce/CO2L
+module_name: MIR
+log_path: log/pipeline/MAD_MAD05_new/ce/mir
 class_names:
   - aardvark
   - africanwildcat
@@ -52,7 +52,7 @@ ood_config:
 al_config:
   method: all
 cl_config:
-  method: co2l
+  method: mir
   buffer_size: 1000
   epochs: 30
-  loss_type: supcon
+  loss_type: ce
