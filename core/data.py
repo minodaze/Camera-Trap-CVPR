@@ -227,6 +227,9 @@ class CkpDataset(Dataset):
             sub_dataset.transform = self.crop_train_transform if self.is_crop else self.train_transform
         else:
             sub_dataset.transform = self.val_transform
+        sub_dataset.val_transform = self.val_transform
+        sub_dataset.train_transform = self.train_transform
+        sub_dataset.crop_train_transform = self.crop_train_transform
         sub_dataset.samples = filtered_samples
         sub_dataset.cache = self.cache
         logging.info(f"Subset length: {len(sub_dataset)}")
