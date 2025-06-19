@@ -16,9 +16,9 @@ from torch.utils.checkpoint import checkpoint
 from .hf_model import HFTextEncoder
 from .modified_resnet import ModifiedResNet
 from .timm_model import TimmModel
-from .transformer import LayerNormFp32, LayerNorm, QuickGELU, Attention, VisionTransformer, TextTransformer
+from .transformer import LayerNormFp32, LayerNorm, QuickGELU, Attention, VisionTransformer, TextTransformer, TextTransformerPETL
 from .utils import to_2tuple
-
+from typing import Any, Optional
 
 @dataclass
 class CLIPVisionCfg:
@@ -59,7 +59,7 @@ class CLIPTextCfg:
     proj: str = 'mlp'
     pooler_type: str = 'mean_pooler'
     embed_cls: bool = False
-    pad_id: int = 0
+    pad_id: int = 0 ## padding token id for text sequences
     output_tokens: bool = False
 
 
@@ -139,6 +139,7 @@ def _build_text_tower(
         text_cfg: CLIPTextCfg,
         quick_gelu: bool = False,
         cast_dtype: Optional[torch.dtype] = None,
+        params: Optional[Any] = None,
 ):
     if isinstance(text_cfg, dict):
         text_cfg = CLIPTextCfg(**text_cfg)
@@ -156,20 +157,37 @@ def _build_text_tower(
         act_layer = QuickGELU if quick_gelu else nn.GELU
         norm_layer = LayerNormFp32 if cast_dtype in (torch.float16, torch.bfloat16) else LayerNorm
 
-        text = TextTransformer(
-            context_length=text_cfg.context_length,
-            vocab_size=text_cfg.vocab_size,
-            width=text_cfg.width,
-            heads=text_cfg.heads,
-            layers=text_cfg.layers,
-            ls_init_value=text_cfg.ls_init_value,
-            output_dim=embed_dim,
-            embed_cls=text_cfg.embed_cls,
-            output_tokens=text_cfg.output_tokens,
-            pad_id=text_cfg.pad_id,
-            act_layer=act_layer,
-            norm_layer=norm_layer,
-        )
+        if params is not None:
+            text = TextTransformerPETL(
+                context_length=text_cfg.context_length,
+                vocab_size=text_cfg.vocab_size,
+                width=text_cfg.width,
+                heads=text_cfg.heads,
+                layers=text_cfg.layers,
+                ls_init_value=text_cfg.ls_init_value,
+                output_dim=embed_dim,
+                embed_cls=text_cfg.embed_cls,
+                output_tokens=text_cfg.output_tokens,
+                pad_id=text_cfg.pad_id,
+                act_layer=act_layer,
+                norm_layer=norm_layer,
+                params=params,
+            )
+        else:
+            text = TextTransformer(
+                context_length=text_cfg.context_length,
+                vocab_size=text_cfg.vocab_size,
+                width=text_cfg.width,
+                heads=text_cfg.heads,
+                layers=text_cfg.layers,
+                ls_init_value=text_cfg.ls_init_value,
+                output_dim=embed_dim,
+                embed_cls=text_cfg.embed_cls,
+                output_tokens=text_cfg.output_tokens,
+                pad_id=text_cfg.pad_id,
+                act_layer=act_layer,
+                norm_layer=norm_layer,
+            )
     return text
 
 
@@ -184,12 +202,13 @@ class CLIP(nn.Module):
             quick_gelu: bool = False,
             cast_dtype: Optional[torch.dtype] = None,
             output_dict: bool = False,
+            params: Optional[Any] = None,
     ):
         super().__init__()
         self.output_dict = output_dict
         self.visual = _build_vision_tower(embed_dim, vision_cfg, quick_gelu, cast_dtype)
 
-        text = _build_text_tower(embed_dim, text_cfg, quick_gelu, cast_dtype)
+        text = _build_text_tower(embed_dim, text_cfg, quick_gelu, cast_dtype, params)
         self.embed_dim = embed_dim
         self.context_length = text.context_length
         self.transformer = text.transformer

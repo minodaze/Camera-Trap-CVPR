@@ -237,13 +237,15 @@ def parse_args():
     parser.add_argument('--gpu_id', type=int, default=0, help='GPU ID')
 
     ###########################Model Configurations#########################
-    parser.add_argument('--pretrained_weights', type=str, default='bioclip',
-                        choices=['vit_base_patch16_224_in21k', 'vit_base_mae', 'vit_base_patch14_dinov2',
-                                 'vit_base_patch16_clip_224', 'bioclip'],
+    parser.add_argument('--pretrained_weights', type=str, default='bioclip2',
+                        choices=['bioclip', 'bioclip2'],
                         help='pretrained weights name')
     parser.add_argument('--drop_path_rate', default=0.,
                         type=float,
                         help='Drop Path Rate (default: %(default)s)')
+    parser.add_argument('--text', type=str, default='full',
+                        choices=['head', 'full', 'petl'],
+                        help='text encoder type, head for head only, full for full text encoder')
     # parser.add_argument('--model', type=str, default='vit', choices=['vit', 'swin'],
     #                     help='pretrained model name')
 
