@@ -1,4 +1,5 @@
 import logging
+import wandb  # Ensure wandb is imported
 
 import os
 from contextlib import suppress
@@ -149,14 +150,13 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             classifier.train()
         loss_arr = []
         correct_arr = []
-        # for inputs, labels in tqdm(loader):
         for inputs, labels, old_logits, is_buf in loader:
             if isinstance(inputs, list):  # for TwoCropTransform
                 inputs = torch.cat(inputs, dim=0)
             # Forward
             inputs, labels = inputs.to(device), labels.to(device)
             bsz = labels.size(0)
-            if inputs.size(0) == 2*bsz:
+            if inputs.size(0) == 2 * bsz:
                 i1, i2 = torch.split(inputs, [bsz, bsz], dim=0)
                 logits = classifier(i1)
             else:
@@ -177,7 +177,17 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             correct_arr.append(correct.cpu().numpy())
         loss_arr = np.array(loss_arr)
         correct_arr = np.concatenate(correct_arr, axis=0)
-        logging.info(f'Epoch {epoch}, loss: {loss_arr.mean():.4f}, acc: {correct_arr.mean():.4f}, lr: {optimizer.param_groups[0]["lr"]:.8f}. ')
+        avg_loss = loss_arr.mean()
+        avg_acc = correct_arr.mean()
+        logging.info(f'Epoch {epoch}, loss: {avg_loss:.4f}, acc: {avg_acc:.4f}, lr: {optimizer.param_groups[0]["lr"]:.8f}. ')
+
+        # Log training loss and accuracy to wandb if initialized
+        if wandb.run is not None:  # Check if wandb is initialized
+            wandb.log({
+                "train_loss": avg_loss,
+                "train_accuracy": avg_acc,
+                "epoch": epoch
+            })
 
         if scheduler is not None:
             scheduler.step()
