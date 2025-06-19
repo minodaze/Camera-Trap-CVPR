@@ -101,6 +101,15 @@ class CLNone(CLModule):
     """
     def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
         return classifier
+    
+    def refresh_buffer(self, new_samples):
+        pass
+
+    def incremental_step(self, model):
+        pass
+    
+    def _after_train(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
+        pass
 
 
 class CLNaiveFT(CLModule):
@@ -112,6 +121,15 @@ class CLNaiveFT(CLModule):
         # Train
         self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader)
         return classifier
+
+    def refresh_buffer(self, new_samples):
+        pass
+
+    def incremental_step(self, model):
+        pass
+
+    def _after_train(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
+        pass
 
 class CLAccumulative(CLModule):
     """Accumulative training. Fine-tune the classifier on all samples seen so far.
@@ -126,6 +144,15 @@ class CLAccumulative(CLModule):
         # Process buffer
         self.buffer.extend(train_dset.samples)
         return classifier
+
+    def refresh_buffer(self, new_samples):
+        pass
+
+    def incremental_step(self, model):
+        pass
+    
+    def _after_train(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
+        pass
 
 class CLAccumulativeScratch(CLModule):
     """Accumulative training with scratch. Fine-tune the classifier on all samples seen so far, but use a new classifier each time.
@@ -144,6 +171,15 @@ class CLAccumulativeScratch(CLModule):
             if msk:
                 self.buffer.append(sample)
         return classifier
+    
+    def refresh_buffer(self, new_samples):
+        pass
+
+    def incremental_step(self, model):
+        pass
+    
+    def _after_train(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
+        pass
 
 class CLReplay(CLModule):
     """
