@@ -29,6 +29,7 @@ def setup_logging(log_path, debug, params):
     # Setup logging
     logger = logging.getLogger()
     petl_method_name = method_name(params)
+    log_path = os.path.join(log_path, params.pretrained_weights)
     log_path = os.path.join(log_path, petl_method_name)
     if not debug:
         logger.setLevel(logging.INFO)
