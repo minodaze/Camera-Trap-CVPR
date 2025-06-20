@@ -97,4 +97,4 @@ srun --pty --account=PAS2099 --job-name=bash --time=5:00:00 --nodes=1 --gpus-per
 
 **Full Tuning**
 
- srun --pty --account=PAS2099 --job-name=bash --time=5:00:00 --nodes=1 --gpus-per-node=4 --mem=100G python run_pipeline.py --c '<.yaml>' --full --eval_freq 2    
+ srun --pty --account=PAS2099 --job-name=bash --time=5:00:00 --nodes=1 --gpus-per-node=4 --mem=100G python run_pipeline.py --c '<.yaml>' --full  
