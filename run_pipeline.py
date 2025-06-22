@@ -120,13 +120,15 @@ def run(args):
             None
     
     """
-    # Initialize wandb
-    module_name = getattr(args, 'module_name', 'default_module')  # Fallback if module_name is not in args
-    wandb.init(
-        project="ICICLE-Benchmark",  # Replace with your project name
-        name=f"{args.c}.{module_name}",  # Set run name using args.c and module_name
-        config=vars(args)  # Log all arguments to wandb
-    )
+    # Initialize wandb if enabled
+    if args.wandb:
+        module_name = getattr(args, 'module_name', 'default_module')  # Fallback if module_name is not in args
+        wandb.init(
+            project="ICICLE-Benchmark",  # Replace with your project name
+            name=f"{args.c}.{module_name}",  # Set run name using args.c and module_name
+            config=vars(args)  # Log all arguments to wandb
+        )
+        logging.info("wandb logging is enabled.")
 
     # Print args
     logging.info(pprint.pformat(vars(args)))
@@ -234,15 +236,15 @@ def run(args):
         with open(mask_path, 'wb') as f:
             pickle.dump((ood_mask, al_mask), f)
 
-    # Finalize wandb
-    wandb.finish()
+    # Finalize wandb if enabled
+    if args.wandb:
+        wandb.finish()
 
 def parse_args():
     """Parse command-line arguments for the adaptive learning pipeline.
         
         Returns:
             args (argparse.Namespace): Parsed command-line arguments.
-    
     """
     # Configurations
     parser = argparse.ArgumentParser(description='Adaptive Workflow')
@@ -254,6 +256,7 @@ def parse_args():
     parser.add_argument('--no_save', action='store_true', help='Do not save model')
     parser.add_argument('--eval_only', action='store_true', help='Evaluate only')
     parser.add_argument('--gpu_id', type=int, default=0, help='GPU ID')
+    parser.add_argument('--wandb', action='store_true', help='Enable wandb logging')  # New argument
 
     ###########################Model Configurations#########################
     parser.add_argument('--pretrained_weights', type=str, default='bioclip',
