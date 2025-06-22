@@ -29,6 +29,7 @@ def setup_logging(log_path, debug, params):
     # Setup logging
     logger = logging.getLogger()
     petl_method_name = method_name(params)
+    log_path = os.path.join(log_path, params.pretrained_weights)
     log_path = os.path.join(log_path, petl_method_name)
     if not debug:
         logger.setLevel(logging.INFO)
@@ -68,7 +69,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device):
             common_config (dict): Common configuration.
             device (str): Device to use for training.
         Returns:
-            classifier (nn.Module): Classifier after pretraining.
+            classifier (nn.Module): Classifier after pretraining.f
     
     """
     # Get pretrain configurations
@@ -243,7 +244,7 @@ def parse_args():
     parser.add_argument('--drop_path_rate', default=0.,
                         type=float,
                         help='Drop Path Rate (default: %(default)s)')
-    parser.add_argument('--text', type=str, default='full',
+    parser.add_argument('--text', type=str, default='head',
                         choices=['head', 'full', 'petl'],
                         help='text encoder type, head for head only, full for full text encoder')
     # parser.add_argument('--model', type=str, default='vit', choices=['vit', 'swin'],
