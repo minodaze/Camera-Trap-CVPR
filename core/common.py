@@ -114,7 +114,6 @@ def get_f_loss(loss_type, samples, n_classes, device, alpha=None, beta=None, gam
         raise ValueError(f'Unknown loss type {loss_type}. ')
     return f_loss
 
-
 def get_optimizer(model, optimizer_name, optimizer_params):
     if optimizer_name == 'SGD':
         optimizer = torch.optim.SGD(model.parameters(), **optimizer_params)
@@ -125,7 +124,6 @@ def get_optimizer(model, optimizer_name, optimizer_params):
     else:
         raise ValueError(f'Unknown optimizer {optimizer_name}. ')
     return optimizer
-
 
 def get_scheduler(optimizer, scheduler_name, scheduler_params):
     if scheduler_name == 'StepLR':
@@ -139,7 +137,6 @@ def get_scheduler(optimizer, scheduler_name, scheduler_params):
     else:
         raise ValueError(f'Unknown scheduler {scheduler_name}. ')
     return scheduler
-
 
 def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False):
     for epoch in range(epochs):
@@ -188,6 +185,10 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                 "train_accuracy": avg_acc,
                 "epoch": epoch
             })
+
+        if classifier.init_text:
+            logging.info(f'Rebuild head')
+            classifier.reset_head()
 
         if scheduler is not None:
             scheduler.step()

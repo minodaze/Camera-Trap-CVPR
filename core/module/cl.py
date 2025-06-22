@@ -392,7 +392,7 @@ class CLRandReplaceOld(CLReplay):
             for buf_pos, new_s in zip(evict_idx, insert_pool):
                 self.buffer[buf_pos] = new_s
 
-## CLCO2L: Only useful if these's novel classes, current pipeline does not suit this algorithm.
+## CLCO2L: Only useful if these's novel classes, current pipeline does not fit this algorithm.
 
 class CLCO2L(CLReplay):
     """Contrastive Replay (Co2L) with IRD regularisation."""

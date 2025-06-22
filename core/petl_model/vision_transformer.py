@@ -44,6 +44,7 @@ class VisionTransformerPETL(VisionTransformer):
             num_classes: int = 1000,
             global_pool: Literal['', 'avg', 'token', 'map'] = 'token',
             embed_dim: int = 768,
+            output_dim: int = 512,
             depth: int = 12,
             num_heads: int = 12,
             mlp_ratio: float = 4.,
@@ -79,6 +80,7 @@ class VisionTransformerPETL(VisionTransformer):
             num_classes: Mumber of classes for classification head.
             global_pool: Type of global pooling for final sequence (default: 'token').
             embed_dim: Transformer embedding dimension.
+            output_dim: Output dimension for the projection layer.
             depth: Depth of transformer.
             num_heads: Number of attention heads.
             mlp_ratio: Ratio of mlp hidden dim to embedding dim.
@@ -108,6 +110,7 @@ class VisionTransformerPETL(VisionTransformer):
         self.num_classes = num_classes
         self.global_pool = global_pool
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
+        self.output_dim = output_dim
         self.num_prefix_tokens = 1 if class_token else 0
         self.num_prefix_tokens += reg_tokens
         self.num_reg_tokens = reg_tokens
@@ -199,7 +202,7 @@ class VisionTransformerPETL(VisionTransformer):
         self.head_drop = nn.Dropout(drop_rate)
 
         ## Add the projection layer for the CLIPClassifier's head
-        self.proj = nn.Linear(self.embed_dim, 512, bias=False)
+        self.proj = nn.Linear(embed_dim, output_dim, bias=False)
         # self.proj = torch.randn(self.embed_dim, 512, dtype=torch.float32)
 
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
@@ -261,7 +264,7 @@ class VisionTransformerPETL(VisionTransformer):
         else:
             output_feature = x
         ## Add the projection layer for the CLIPClassifier's head
-        output_feature = self.proj(output_feature)
+        output_feature =  self.proj(output_feature)
 
         ############# Added module #############
         if self.params.vqt_num > 0:
@@ -354,7 +357,7 @@ def vit_base_patch16_224_in21k_petl(pretrained=False, **kwargs):
     ImageNet-21k weights @ 224x224, source https://github.com/google-research/vision_transformer.
     NOTE: this model has valid 21k classifier head and no representation (pre-logits) layer
     """
-    model_args = dict(patch_size=16, embed_dim=768, depth=12, num_heads=12)
+    model_args = dict(patch_size=16, embed_dim=768, output_dim=512, depth=12, num_heads=12)
     model = _create_vision_transformer_petl(
         'vit_base_patch16_224_in21k', pretrained=pretrained, **dict(model_args, **kwargs))
     return model
@@ -364,8 +367,18 @@ def vit_base_patch16_224_in21k_petl(pretrained=False, **kwargs):
 def vit_base_patch16_clip_224_petl(pretrained: bool = False, **kwargs) -> VisionTransformer:
     """ ViT-B/16 CLIP image tower
     """
-    model_args = dict(patch_size=16, embed_dim=768, depth=12, num_heads=12, pre_norm=True, norm_layer=nn.LayerNorm,
+    model_args = dict(patch_size=16, embed_dim=768, output_dim=512, depth=12, num_heads=12, pre_norm=True, norm_layer=nn.LayerNorm,
                       act_layer='quick_gelu')
     model = _create_vision_transformer_petl(
         'vit_base_patch16_clip_quickgelu_224', pretrained=pretrained, **dict(model_args, **kwargs))
+    return model
+
+@register_model
+def vit_large_patch14_clip_224_petl(pretrained: bool = False, **kwargs) -> VisionTransformer:
+    """ ViT-L/14 CLIP image tower
+    """
+    model_args = dict(patch_size=14, embed_dim=1024, output_dim=768, depth=24, num_heads=16, pre_norm=True, norm_layer=nn.LayerNorm,
+                      act_layer='quick_gelu')
+    model = _create_vision_transformer_petl(
+        'vit_large_patch14_clip_quickgelu_224', pretrained=pretrained, **dict(model_args, **kwargs))
     return model

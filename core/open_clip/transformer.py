@@ -1,6 +1,6 @@
 from collections import OrderedDict
 import math
-from typing import Callable, Optional, Sequence, Tuple
+from typing import Callable, Optional, Sequence, Tuple, Type, Any, Literal
 
 import torch
 from torch import nn
@@ -9,6 +9,15 @@ from torch.utils.checkpoint import checkpoint
 
 from .utils import to_2tuple
 
+from functools import partial
+ 
+# Added for PETL
+from ..petl_model.block import BlockPETL
+from ..petl_model.mlp import MlpPETL
+from ..petl_model.vpt import VPT
+from ..petl_model.vqt import VQT
+from ..petl_model.ssf import init_ssf_scale_shift, ssf_ada
+from ..petl_model.fact import FacT
 
 class LayerNormFp32(nn.LayerNorm):
     """Subclass torch's LayerNorm to handle fp16 (by casting to float32 and back)."""
@@ -628,6 +637,189 @@ class TextTransformer(nn.Module):
 
         return pooled
 
+class TextTransformerPETL(TextTransformer):
+    """CLIP‑style text transformer with Parameter‑Efficient Tuning hooks.
+
+    This class mirrors `VisionTransformerPETL`, inserting VPT/VQT/SSF/FacT hooks
+    into the vanilla OpenCLIP `TextTransformer`.
+    """
+
+    def __init__(
+        self,
+        context_length: int = 77,
+        vocab_size: int = 49408,
+        width: int = 512,
+        heads: int = 8,
+        layers: int = 12,
+        ls_init_value: float = None,
+        output_dim: int = 512,
+        act_layer: Callable = nn.GELU,
+        norm_layer: Callable = LayerNorm,
+        embed_cls: bool = False,
+        pad_id: int = 49406,
+        output_tokens: bool = False,
+        params: Optional[Any] = None,  # PETL parameters
+    ) -> None:
+        super().__init__(
+            context_length=context_length,
+            vocab_size=vocab_size,
+            width=width,
+            layers=layers,
+            heads=heads,
+            ls_init_value=ls_init_value,
+            output_dim=output_dim,
+            act_layer=act_layer,
+            norm_layer=norm_layer,
+            embed_cls=embed_cls,
+            pad_id=pad_id,
+            output_tokens=output_tokens,
+        )
+
+        self.params = params
+
+        if getattr(self.params, "vpt_mode", False):
+            self.vpt = VPT(self.params, depth=layers, patch_size=1, embed_dim=width)
+        else:
+            self.vpt = None
+
+        if getattr(self.params, "vqt_num", 0) > 0:
+            self.vqt = VQT(self.params, depth=layers, patch_size=1, embed_dim=width)
+            self.query_outputs: list[torch.Tensor] = []
+        else:
+            self.vqt = None
+
+        if getattr(self.params, "ssf", False):
+            self.ssf_scale, self.ssf_shift = init_ssf_scale_shift(width)
+        else:
+            self.register_parameter("ssf_scale", None)
+            self.register_parameter("ssf_shift", None)
+
+        if getattr(self.params, "fact_type", None):
+            self.fact = FacT(width, layers, self.params)
+        else:
+            self.fact = None
+
+        # Swap vanilla residual blocks with PETL‑enabled ones
+        self.transformer.resblocks = nn.ModuleList([
+            BlockPETL(
+                dim=width,
+                num_heads=heads,
+                mlp_ratio=4.0,
+                qkv_bias=True,
+                init_values=None,
+                proj_drop=0.0,
+                attn_drop=0.0,
+                drop_path=0.0,
+                norm_layer=norm_layer,
+                act_layer=act_layer,
+                mlp_layer=MlpPETL,
+                params=self.params,
+                fact=self.fact,
+            )
+            for _ in range(layers)
+        ])
+    
+    @torch.jit.ignore()
+    def load_pretrained(self, checkpoint_path: str, prefix: str = '', model_type: str= '') -> None:
+        """Load a *CLIP* checkpoint’s text tower into this PETL wrapper."""
+
+        if "clip" not in model_type:
+            raise ValueError("Only CLIP/BIO‑CLIP checkpoints supported.")
+
+        sd = torch.load(checkpoint_path, map_location="cpu")
+
+        # Extract *text* keys, keep the `visual` ones for external use.
+        text_sd = {k.replace("model.text.", "text."): v
+                   for k, v in sd.items() if k.startswith("model.text.")}
+        text_sd |= {k: v for k, v in sd.items() if k.startswith("text.")}
+
+        # Rename to petl names
+        final_sd = {}
+        for k, v in text_sd.items():
+            if k.startswith("text."):
+                k = k[len("text."):]  # strip prefix to match module names
+            # OpenCLIP stores proj under `text_projection` ( (width, 512) ) → keep
+            final_sd[k] = v
+
+        # Load, ignore missing PETL params
+        missing, unexpected = self.load_state_dict(final_sd, strict=False)
+        msg_miss = [m for m in missing if not m.startswith(("vpt", "vqt", "ssf", "fact"))]
+        if msg_miss:
+            print("[TextTransformerPETL] ⚠️ still missing:", msg_miss)
+        if unexpected:
+            print("[TextTransformerPETL] ⚠️ unexpected:", unexpected)
+    
+    def get_cast_dtype(self) -> torch.dtype:
+        return self.transformer.resblocks[0].mlp.fc1.weight.dtype
+
+    def forward(self, text: torch.Tensor):
+        """text: tokenized captions as (B, context_len) ints."""
+        cast_dtype = self.get_cast_dtype()
+        pad_id = self.pad_id
+        B, T = text.shape
+
+        # --- embeddings ---------------------------------------------------
+        x = self.token_embedding(text).to(cast_dtype)
+
+        if self.vpt is not None:  # prepend learned prefix tokens
+            prompt = self.vpt.retrieve_prompt(0, B)  # same prompt for all blocks
+            x = torch.cat([prompt, x], dim=1)  # (B, p+T, width)
+            T = x.size(1)
+
+        x = x + self.positional_embedding[:T].to(cast_dtype)
+        x = x.permute(1, 0, 2)  # L,N,D
+
+        # ---- build causal + pad mask --------------------------------------
+        pad_mask = text.eq(self.pad_id)                  # (B, T0)  bool
+        if self.vpt is not None:                         # VPT tokens are never pad
+            pad_prefix = torch.zeros(B, prompt.size(1), dtype=torch.bool, device=text.device)
+            pad_mask = torch.cat([pad_prefix, pad_mask], dim=1)  # (B, T)
+
+        attn_mask = self.attn_mask[:T, :T].to(x.device, x.dtype)  # (T, T)
+        attn_mask = attn_mask.unsqueeze(0).unsqueeze(0)           # (1, 1, T, T)
+        
+        if pad_mask.any():
+            pad_mask = pad_mask.unsqueeze(1).unsqueeze(2)         # (B, 1, 1, T)
+            attn_mask = attn_mask + pad_mask.to(x.dtype).mul(-float('inf'))  # (B,1,T,T)
+
+        for idx, blk in enumerate(self.transformer.resblocks):
+            if self.vqt is not None:
+                qtok = self.vqt.retrieve_prompt(idx, B)
+                x = torch.cat([qtok, x], dim=0)              # prepend query tokens (L+=q)
+                attn_mask = F.pad(attn_mask, (qtok.size(0), 0, 0, qtok.size(0)), value=0.0)
+
+            x = blk(x, idx, attn_mask=attn_mask)
+
+            if self.vqt is not None:
+                q_tokens, x = x[:self.params.vqt_num], x[self.params.vqt_num:]
+                self.query_outputs.append(F.normalize(q_tokens.transpose(0, 1), dim=-1))
+                attn_mask = attn_mask[self.params.vqt_num:, self.params.vqt_num:]
+
+        x = x.permute(1, 0, 2)  # B,L,D
+
+        if getattr(self.params, "ssf", False):
+            x = ssf_ada(x, self.ssf_scale, self.ssf_shift)
+
+        # x.shape = [batch_size, n_ctx, transformer.width]
+        # take features from the eot embedding (eot_token is the highest number in each sequence)
+        if self.cls_emb is not None:
+            pooled, tokens = x[:, -1], x[:, :-1]
+            pooled = self.ln_final(pooled)
+        else:
+            x = self.ln_final(x)
+            pooled, tokens = x[torch.arange(x.shape[0]), text.argmax(dim=-1)], x
+
+        if self.text_projection is not None:
+            pooled = pooled @ self.text_projection
+
+        if self.vqt is not None and self.query_outputs:
+            qc = torch.cat(self.query_outputs, dim=1)  # (B, depth*q, D)
+            pooled = self.vqt.combine_layer(qc.transpose(1, 2)).squeeze(1)
+            self.query_outputs.clear()
+
+        pooled = pooled @ self.text_projection
+
+        return pooled
 
 class MultimodalTransformer(Transformer):
     def __init__(

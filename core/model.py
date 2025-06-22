@@ -107,16 +107,16 @@ BIOCLIP_TEMPLATE = [
     'a photo of {CLZ_NAME}.',
 ]
 
-
 class CLIPClassifier(nn.Module):
-    def __init__(self, visual_model, hidden_size):
+    def __init__(self, visual_model, hidden_size, device):
         super(CLIPClassifier, self).__init__()
         self.visual_model = visual_model
         self.head = None
         self.initialized = False
+        self.device = device
+        self.init_text = False
 
     def init_head(self, class_embedding):
-        assert not self.initialized, 'Head already initialized. '
         self.head = nn.Linear(class_embedding.size(1), class_embedding.size(0), bias=True)
         self.head.weight.data = class_embedding
         self.head.bias.data.zero_()
@@ -124,8 +124,18 @@ class CLIPClassifier(nn.Module):
 
     def reset_head(self):
         assert self.initialized, 'Head not initialized. '
-        device = next(self.parameters()).device
-        self.head = nn.Linear(self.head.in_features, self.head.out_features, bias=True).to(device)
+        assert self.init_text, 'No text model set. '
+        class_embedding = get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx)
+        self.init_head(class_embedding)
+        self.head = self.head.to(self.device)
+    
+    def set_text(self, text_model, tokenizer, text_embed_dim, class_name_idx):
+        """Set the text model and tokenizer for the classifier."""
+        self.text_model = text_model
+        self.tokenizer = tokenizer
+        self.text_embed_dim = text_embed_dim
+        self.class_name_idx = class_name_idx
+        self.init_text = True
     
     def set_proj_head(self, proj_head):
         """Set a custom projection head for the classifier."""
@@ -173,13 +183,32 @@ def build_classifier(params, class_name_idx, device):
     if isinstance(class_name_idx, list):
         class_name_idx = {c: i for i, c in enumerate(class_name_idx)}
     class_num = len(class_name_idx)
-    # Get the model and tune parameters
-    model, tune_parameters, model_grad_params_no_head = get_model(params, class_num)
 
+    if params.text == 'petl':
+        raise NotImplementedError("Petl text model is not implemented yet. ")
     # Load the BIOCLIP model to get the class embeddings
-    bioclip_model, preprocess_train, preprocess_val = create_model_and_transforms(
-            'ViT-B-16',
-            'pretrained_weights/bioclip/open_clip_pytorch_model.bin',
+    if params.pretrained_weights == 'bioclip':
+        bioclip_model, preprocess_train, preprocess_val = create_model_and_transforms(
+                'ViT-B-16',
+                'pretrained_weights/bioclip/open_clip_pytorch_model.bin',
+                precision='amp',
+                device=device,
+                jit=False,
+                force_quick_gelu=False,
+                force_custom_text=False,
+                force_patch_dropout=None,
+                force_image_size=None,
+                pretrained_image=False,
+                image_mean=None,
+                image_std=None,
+                aug_cfg={},
+                output_dict=True,
+            )
+        tokenizer = AutoTokenizer.from_pretrained('pretrained_weights/bioclip')
+    elif params.pretrained_weights == 'bioclip2':
+        bioclip_model, preprocess_train, preprocess_val = create_model_and_transforms(
+            'ViT-L-14',
+            'pretrained_weights/bioclip-2/open_clip_pytorch_model.bin',
             precision='amp',
             device=device,
             jit=False,
@@ -193,13 +222,22 @@ def build_classifier(params, class_name_idx, device):
             aug_cfg={},
             output_dict=True,
         )
-    tokenizer = AutoTokenizer.from_pretrained('pretrained_weights/bioclip')
-    ###################################################################
+        tokenizer = AutoTokenizer.from_pretrained('pretrained_weights/bioclip-2')
+    else:
+        raise NotImplementedError(f"Pretrained weights {params.pretrained_weights} not supported. ")
+    del bioclip_model.visual
+    # Get the model and tune parameters
+    model, tune_parameters, model_grad_params_no_head = get_model(params, class_num, bioclip_model)
 
-    classifier = CLIPClassifier(model, model.embed_dim)
-    class_embedding = get_class_embedding(bioclip_model, tokenizer, class_name_idx)
-    del bioclip_model, tokenizer
+    ###################################################################
+    classifier = CLIPClassifier(model, model.embed_dim, device)
+    text_embed_dim = bioclip_model.embed_dim
+    class_embedding = get_class_embedding(bioclip_model, tokenizer, text_embed_dim, class_name_idx)
     classifier.init_head(class_embedding)
+    if params.text != 'head':
+        classifier.set_text(bioclip_model, tokenizer, text_embed_dim, class_name_idx)
+    else:
+        del bioclip_model, tokenizer
     classifier = classifier.to(device)
     return classifier
 
@@ -232,11 +270,11 @@ def get_texts(c):
     return texts
 
 
-def get_class_embedding(model, tokenizer, class_name_idx): 
+def get_class_embedding(model, tokenizer, embed_dim, class_name_idx): 
     device = next(model.parameters()).device
     context_length = model.context_length
     with torch.no_grad():
-        class_embedding = torch.empty(len(class_name_idx), model.embed_dim)
+        class_embedding = torch.empty(len(class_name_idx), embed_dim)
         for class_name, class_idx in class_name_idx.items():
             # logging.info(f'Getting class embedding for {class_name}... ')
             texts = get_texts(class_name)
@@ -260,7 +298,7 @@ def get_class_embedding(model, tokenizer, class_name_idx):
 TUNE_MODULES = ['ft_attn_module', 'ft_mlp_module', 'head', 'vpt', 'ssf_scale', 'ssf_shift', 'lora', 'fact', 'vqt',
                 'difffit']
 
-def get_model(params, class_num):
+def get_model(params, class_num, text_model=None):
     # if torch.cuda.is_available():
     #     params.device = torch.cuda.current_device()
     # else:
@@ -327,8 +365,21 @@ def get_model(params, class_num):
                     logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
             else:
                 parameter.requires_grad = False
+    
+    for name, parameter in text_model.named_parameters():
+        if 'visual' in name:
+            continue
+        if params.text == 'head':
+            parameter.requires_grad = False
+        elif params.text == 'full':
+            parameter.requires_grad = True
+            if params.debug:
+                logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
+        else:
+            raise NotImplementedError(f"Not implemented yet: {params.text}")
 
-    model_grad_params_no_head = log_model_info(model)
+    train_text = True if params.text != 'head' else False
+    model_grad_params_no_head = log_model_info(model, text_model, train_text)
 
     model = model.cuda(device=params.device)
     return model, tune_parameters, model_grad_params_no_head
@@ -372,17 +423,29 @@ def get_base_model(params, class_num):
         model.load_pretrained(
             'pretrained_weights/bioclip/open_clip_pytorch_model.bin', model_type='bioclip')
         model.reset_classifier(class_num)
+    elif params.pretrained_weights == 'bioclip2':
+        params.patch_size = 14
+        model = timm.create_model("vit_large_patch14_clip_224_petl", drop_path_rate=params.drop_path_rate,
+                                  pretrained=False, params=params)
+        model.load_pretrained(
+            'pretrained_weights/bioclip-2/open_clip_pytorch_model.bin', model_type='bioclip2')
+        model.reset_classifier(class_num)
     else:
         raise NotImplementedError
     return model
 
-def log_model_info(model, verbose=False):
+def log_model_info(model, text_model, train_text, verbose=False):
     """Logs model info"""
     if verbose:
         logging.info(f"Classification Model:\n{model}")
     model_total_params = sum(p.numel() for p in model.parameters())
+    text_model_total_params = sum(p.numel() for p in text_model.parameters()) if train_text else 0
+    model_total_params = model_total_params + text_model_total_params
     model_grad_params = sum(
         p.numel() for p in model.parameters() if p.requires_grad)
+    text_model_grad_params = sum(
+        p.numel() for p in text_model.parameters() if p.requires_grad) if train_text else 0
+    model_grad_params = model_grad_params + text_model_grad_params
     model_grad_params_no_head = sum(p.numel() for n, p in model.named_parameters() if p.requires_grad and 'head' not in n)
     logging.info("Total Parameters: {0}\t Gradient Parameters: {1}\t Gradient Parameters No Head: {2}".format(
         model_total_params, model_grad_params, model_grad_params_no_head))
