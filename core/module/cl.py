@@ -210,6 +210,8 @@ class CLReplay(CLModule):
 
         n_cls     = len(by_cls)
         per_class = max(1, buf_size // n_cls)
+        if per_class < 10:
+            self.cl_config['buffer_size'] = buf_size*2  # increase the buffer size to keep at least 10 samples per class
 
         new_buf = []
         for samples in by_cls.values():

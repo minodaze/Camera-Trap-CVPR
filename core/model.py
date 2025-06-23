@@ -188,6 +188,7 @@ def build_classifier(params, class_name_idx, device):
         raise NotImplementedError("Petl text model is not implemented yet. ")
     # Load the BIOCLIP model to get the class embeddings
     if params.pretrained_weights == 'bioclip':
+        logging.info("Using Bioclip model. ")
         bioclip_model, preprocess_train, preprocess_val = create_model_and_transforms(
                 'ViT-B-16',
                 'pretrained_weights/bioclip/open_clip_pytorch_model.bin',
@@ -206,6 +207,7 @@ def build_classifier(params, class_name_idx, device):
             )
         tokenizer = AutoTokenizer.from_pretrained('pretrained_weights/bioclip')
     elif params.pretrained_weights == 'bioclip2':
+        logging.info("Using Bioclip-2 model. ")
         bioclip_model, preprocess_train, preprocess_val = create_model_and_transforms(
             'ViT-L-14',
             'pretrained_weights/bioclip-2/open_clip_pytorch_model.bin',
@@ -221,6 +223,7 @@ def build_classifier(params, class_name_idx, device):
             image_std=None,
             aug_cfg={},
             output_dict=True,
+            params=params
         )
         tokenizer = AutoTokenizer.from_pretrained('pretrained_weights/bioclip-2')
     else:
@@ -375,6 +378,14 @@ def get_model(params, class_num, text_model=None):
             parameter.requires_grad = True
             if params.debug:
                 logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
+        elif params.text == 'lora':
+            if 'lora' in name:
+                parameter.requires_grad = True
+                tune_parameters.append(parameter)
+                if params.debug:
+                    logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
+            else:
+                parameter.requires_grad = False
         else:
             raise NotImplementedError(f"Not implemented yet: {params.text}")
 

@@ -14,10 +14,15 @@ pip install -r requirements.txt
 
 # RUN
 **Text Encoder**
-To activate text encoder for training, add --text head/full after --c
+To activate text encoder for training, add --text head/full/lora after --c
+
+**Text Encoder with LoRA**
+srun --pty --account=PAS2099 --job-name=bash --time=5:00:00 --nodes=1 --gpus-per-node=4 --mem=100G python run_pipeline.py --c '<.yaml>' --text lora --lora_bottleneck 8
+
+**Full Fine Tune Text Encoder**
+srun --pty --account=PAS2099 --job-name=bash --time=5:00:00 --nodes=1 --gpus-per-node=4 --mem=100G python run_pipeline.py --c '<.yaml>' --text full --full
 
 **SSF**
-
 srun --pty --account=PAS2099 --job-name=bash --time=5:00:00 --nodes=1 --gpus-per-node=4 --mem=100G python run_pipeline.py --c '<.yaml>' --ssf  
 
 **VPT-Deep**

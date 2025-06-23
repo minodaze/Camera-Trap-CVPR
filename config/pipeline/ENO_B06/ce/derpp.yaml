@@ -1,5 +1,5 @@
-module_name: LWF
-log_path: log/pipeline/ENO_B06/ce/LWF
+module_name: Derpp
+log_path: log/pipeline/ENO_B06/ce/Derpp
 class_names:
   - zebraplains
   - warthog
@@ -34,7 +34,7 @@ ood_config:
 al_config:
   method: all
 cl_config:
-  method: lwf
+  method: derpp
   buffer_size: 1000
   epochs: 30
-  loss_type: kd
+  loss_type: derpp

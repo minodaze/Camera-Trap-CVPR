@@ -23,14 +23,25 @@ def read_accu(file_path):
     return acc_arr, balanced_acc_arr
 
 file_paths = {
-    "MAD_MAD05_new": {
-        "Accmu": "log/pipeline/MAD_MAD05_new/ce/accumulative-scratch/log/log.txt",
-        "Full-Training": "log/pipeline/MAD_MAD05_new/ce/percentage-1/log/log.txt",
-        "ZS": "log/pipeline/MAD_MAD05_new/ce/zs/log/log.txt",
-        "Regular": "log/pipeline/MAD_MAD05_new/ce/regular/log/log.txt",
-        "Replay(full)": "log/pipeline/MAD_MAD05_new/ce/Replay/full/log/log.txt",
-        "Replay(petl-lora)": "log/pipeline/MAD_MAD05_new/ce/Replay/lora_8/log/log.txt",
-        "LWF": "log/pipeline/ENO_B06/ce/LWF/log/log.txt",
+    "ENO_B06(full finetune)": {
+        "Accmu": "log/pipeline/ENO_B06/ce/accumulative-scratch/bioclip2/full/log/log.txt",
+        "Full-Training": "log/pipeline/ENO_B06/ce/percentage-1/bioclip2/full/log/log.txt",
+        "ZS": "log/pipeline/ENO_B06/ce/zs/bioclip2/full/log/log.txt",
+        "Regular": "log/pipeline/ENO_B06/ce/regular/bioclip2/full/log/log.txt",
+        "Replay": "log/pipeline/ENO_B06/ce/CLReplay/bioclip2/full/log/log.txt",
+        "LWF": "log/pipeline/ENO_B06/ce/LWF/bioclip2/full/log/log.txt",
+        "MIR": "log/pipeline/ENO_B06/ce/mir/bioclip2/full/log/log.txt",
+        "RandReplaceOld": "log/pipeline/ENO_B06/ce/RandReplaceOld/bioclip2/full/log/log.txt"
+    },
+    "ENO_B06(petl-lora 8)": {
+        "Accmu": "log/pipeline/ENO_B06/ce/accumulative-scratch/bioclip2/lora_8/log/log.txt",
+        "Full-Training": "log/pipeline/ENO_B06/ce/percentage-1/bioclip2/lora_8/log/log.txt",
+        "ZS": "log/pipeline/ENO_B06/ce/zs/bioclip2/lora_8/log/log.txt",
+        "Regular": "log/pipeline/ENO_B06/ce/regular/bioclip2/lora_8/log/log.txt",
+        "Replay": "log/pipeline/ENO_B06/ce/CLReplay/bioclip2/lora_8/log/log.txt",
+        "LWF": "log/pipeline/ENO_B06/ce/LWF/bioclip2/lora_8/log/log.txt",
+        "MIR": "log/pipeline/ENO_B06/ce/mir/bioclip2/lora_8/log/log.txt",
+        "RandReplaceOld": "log/pipeline/ENO_B06/ce/RandReplaceOld/bioclip2/lora_8/log/log.txt"
     },
     # "ENO_B06": {
     #     "Accmu": "log/pipeline/ENO_B06/ce/accumulative-scratch/log/log.txt",

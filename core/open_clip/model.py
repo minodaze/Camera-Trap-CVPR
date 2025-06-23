@@ -157,37 +157,21 @@ def _build_text_tower(
         act_layer = QuickGELU if quick_gelu else nn.GELU
         norm_layer = LayerNormFp32 if cast_dtype in (torch.float16, torch.bfloat16) else LayerNorm
 
-        if params is not None:
-            text = TextTransformerPETL(
-                context_length=text_cfg.context_length,
-                vocab_size=text_cfg.vocab_size,
-                width=text_cfg.width,
-                heads=text_cfg.heads,
-                layers=text_cfg.layers,
-                ls_init_value=text_cfg.ls_init_value,
-                output_dim=embed_dim,
-                embed_cls=text_cfg.embed_cls,
-                output_tokens=text_cfg.output_tokens,
-                pad_id=text_cfg.pad_id,
-                act_layer=act_layer,
-                norm_layer=norm_layer,
-                params=params,
-            )
-        else:
-            text = TextTransformer(
-                context_length=text_cfg.context_length,
-                vocab_size=text_cfg.vocab_size,
-                width=text_cfg.width,
-                heads=text_cfg.heads,
-                layers=text_cfg.layers,
-                ls_init_value=text_cfg.ls_init_value,
-                output_dim=embed_dim,
-                embed_cls=text_cfg.embed_cls,
-                output_tokens=text_cfg.output_tokens,
-                pad_id=text_cfg.pad_id,
-                act_layer=act_layer,
-                norm_layer=norm_layer,
-            )
+        text = TextTransformer(
+            context_length=text_cfg.context_length,
+            vocab_size=text_cfg.vocab_size,
+            width=text_cfg.width,
+            heads=text_cfg.heads,
+            layers=text_cfg.layers,
+            ls_init_value=text_cfg.ls_init_value,
+            output_dim=embed_dim,
+            embed_cls=text_cfg.embed_cls,
+            output_tokens=text_cfg.output_tokens,
+            pad_id=text_cfg.pad_id,
+            act_layer=act_layer,
+            norm_layer=norm_layer,
+            params=params,
+        )
     return text
 
 
