@@ -29,8 +29,10 @@ def setup_logging(log_path, debug, params):
     """
     # Setup logging
     logger = logging.getLogger()
+    log_time = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
     petl_method_name = method_name(params)
     log_path = os.path.join(log_path, params.pretrained_weights)
+    log_path = f"{log_path}_{log_time}"
     log_path = os.path.join(log_path, petl_method_name)
     if not debug:
         logger.setLevel(logging.INFO)
@@ -123,10 +125,26 @@ def run(args):
     """
     # Initialize wandb if enabled
     if args.wandb:
+        import re
+        
+        # Extract components from the original save_dir
+        match = re.match(r".*/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)", args.save_dir)
+        wandb_run_name = "Unidentified Run"  # Default name if regex fails
+        if match:
+            dataset = match.group(1)  # e.g., MAD_MAD05
+            training_mode = match.group(2)  # e.g., ce
+            pretrained_weights = match.group(3)  # e.g., accumulative-scratch
+            method_name = match.group(4)  # e.g., bioclip2_2025-06-24-02-12-36
+            petl_method_name = match.group(5)  # e.g., lora_8
+            log_folder = match.group(6)  # e.g., log
+
+            # Construct the new save_dir format
+            wandb_run_name = f"{dataset} | {pretrained_weights} | {method_name} | {petl_method_name}"
+        
         module_name = getattr(args, 'module_name', 'default_module')  # Fallback if module_name is not in args
         wandb.init(
             project="ICICLE-Benchmark",  # Replace with your project name
-            name=f"{args.c}.{module_name}",  # Set run name using args.c and module_name
+            name=wandb_run_name,  # Set run name using args.c and module_name
             config=vars(args)  # Log all arguments to wandb
         )
         logging.info("wandb logging is enabled.")
@@ -220,10 +238,11 @@ def run(args):
         print_metrics(loss_arr, preds_arr, labels_arr, len(class_names))
         
         # Log training and evaluation loss to wandb
-        wandb.log({
-            "eval_loss": np.mean(loss_arr),  # Evaluation loss
-            "checkpoint": ckp
-        })
+        if wandb.run is not None:
+            wandb.log({
+                "eval_loss": np.mean(loss_arr),  # Evaluation loss
+                "checkpoint": ckp
+            })
 
         if not args.no_save:
             logging.info(f'Saving model to {args.save_dir}. ')
@@ -419,11 +438,11 @@ if __name__ == '__main__':
     save_dir = args.log_path
     if args.debug:
         ts = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-        save_dir = os.path.join(args.log_path, f"debug-{ts}")
+        args.save_dir = os.path.join(args.log_path, f"debug-{ts}")
 
     # Setup logging
     args.save_dir = setup_logging(args.log_path, args.debug, args)
-    logging.info(f'Saving to {save_dir}. ')
+    logging.info(f'Saving to {args.save_dir}. ')
 
     # Save configuration
     with open(os.path.join(args.save_dir, 'args.yaml'), 'w') as f:
