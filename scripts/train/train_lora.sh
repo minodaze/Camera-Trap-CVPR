@@ -14,4 +14,4 @@ conda activate /fs/ess/PAS2099/sooyoung/envs/myenv
 
 export WANDB_DIR=/fs/scratch/PAS2099/sooyoung/icicle-benchmark-logs
 
-python run_pipeline.py --wandb --c /fs/ess/PAS2099/sooyoung/ICICLE-Benchmark/config/pipeline/nz_EFH_HCAMF02/percentage-1.yaml
+python run_pipeline.py --wandb --c /fs/ess/PAS2099/sooyoung/ICICLE-Benchmark/config/pipeline/nz_EFH_HCAMF02/percentage-1.yaml --lora_bottleneck 8
