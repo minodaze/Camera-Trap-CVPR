@@ -2,7 +2,7 @@ import os
 from matplotlib import pyplot as plt
 
 # os.chdir("/home/zhang.14217/bioclip-dev")
-os.chdir("/users/PAS2099/mino/ICICLE")
+os.chdir("/users/PAS2119/hou/ICICLE/ICICLE-Benchmark")
 
 def read_accu(file_path):
     with open(file_path, 'r') as file:
@@ -23,7 +23,7 @@ def read_accu(file_path):
     return acc_arr, balanced_acc_arr
 
 file_paths = {
-    "ENO_B06(full finetune)": {
+     "ENO_B06(full finetune)": {
         "Accmu": "log/pipeline/ENO_B06/ce/accumulative-scratch/bioclip2/full/log/log.txt",
         "Full-Training": "log/pipeline/ENO_B06/ce/percentage-1/bioclip2/full/log/log.txt",
         "ZS": "log/pipeline/ENO_B06/ce/zs/bioclip2/full/log/log.txt",
@@ -43,21 +43,7 @@ file_paths = {
         "MIR": "log/pipeline/ENO_B06/ce/mir/bioclip2/lora_8/log/log.txt",
         "RandReplaceOld": "log/pipeline/ENO_B06/ce/RandReplaceOld/bioclip2/lora_8/log/log.txt"
     },
-    # "ENO_B06": {
-    #     "Accmu": "log/pipeline/ENO_B06/ce/accumulative-scratch/log/log.txt",
-    #     "Full-Training": "log/pipeline/ENO_B06/ce/percentage-1/log/log.txt",
-    #     "ZS": "log/pipeline/ENO_B06/ce/zs/log/log.txt",
-    #     "Regular": "log/pipeline/ENO_B06/ce/regular/log/log.txt",
-    #     "Replay": "log/pipeline/ENO_B06/ce/Replay/log/log.txt",
-    #     "LWF": "log/pipeline/ENO_B06/ce/LWF/log/log.txt",
-    # },
-    # "PLN_D01": {
-    #     "Accmu": "log/pipeline/PLN_D01/ce/accumulative-scratch/log/log.txt",
-    #     "Full-Training": "log/pipeline/PLN_D01/ce/percentage-1/log/log.txt",
-    #     "ZS": "log/pipeline/PLN_D01/ce/zs/log/log.txt",
-    #     "Regular": "log/pipeline/PLN_D01/ce/regular/log/log.txt",
-    # }
-    # If you have more datasets, add them here following the same structure
+
 }
 
 for dset, file_list in file_paths.items():
@@ -78,14 +64,22 @@ for dset, file_list in file_paths.items():
         lb = lb.replace("30:", "")
         lb = lb.replace("cb_log:", "")
         lb = lb.replace("b0.9", "balanced-ce")
-        plt.plot(acc, label=lb)
+        
+        # Set colors based on bioclip type
+        color = None
+        if 'bioclip2' in all_name[i].lower():
+            color = 'orange'
+        elif 'bioclip' in all_name[i].lower():
+            color = 'blue'
+        
+        plt.plot(acc, label=lb, color=color)
     plt.xlabel("Ckp")
     plt.ylabel("Balanced Acc")
-    plt.title(f"{dset} Balanced Acc")
+    plt.title(f"{dset}(zs_full_tuning) Balanced Acc")
     plt.legend(
         loc='center left',
         bbox_to_anchor=(1, 0.5)
     )
     plt.grid()
-    plt.savefig(f"figures/{dset}_balanced_acc.png", bbox_inches='tight')
+    plt.savefig(f"figures/{dset}(zs_full_tuning)balanced_acc.png", bbox_inches='tight')
     plt.close()

@@ -150,7 +150,24 @@ class CkpDataset(Dataset):
                     raise ValueError(f"class_name not found in {data}")
                 assert class_name in self.class_names, f"class_name {class_name} not found in class_names. "
                 label = self.class_name_idx.get(class_name)
-                timestamp = datetime.strptime(data.get("datetime"), "%Y:%m:%d %H:%M:%S")
+                datetime_str = data.get("datetime")
+                datetime_formats = [
+                    "%Y:%m:%d %H:%M:%S",
+                    "%Y-%m-%d %H:%M:%S",
+                    "%Y/%m/%d %H:%M:%S",
+                    "%Y-%m-%dT%H:%M:%S",
+                    "%Y/%m/%dT%H:%M:%S",
+                    "%Y%m%d %H:%M:%S",
+                    "%Y%m%dT%H:%M:%S",
+                ]
+                for fmt in datetime_formats:
+                    try:
+                        timestamp = datetime.strptime(datetime_str, fmt)
+                        break
+                    except (ValueError, TypeError):
+                        continue
+                else:
+                    raise ValueError(f"Unrecognized datetime format: {datetime_str}")
                 # samples.append((file_path, label, ckp, timestamp))
                 samples.append(Sample(file_path, label, ckp, timestamp))
         return samples

@@ -186,6 +186,12 @@ def build_classifier(params, class_name_idx, device):
 
     if params.text == 'petl':
         raise NotImplementedError("Petl text model is not implemented yet. ")
+        
+    # Log initial GPU memory before model loading
+    if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
+        from utils.gpu_monitor import log_gpu_memory
+        log_gpu_memory("model_build", "before_bioclip_load", device=device, enable_wandb=getattr(params, 'wandb', False))
+    
     # Load the BIOCLIP model to get the class embeddings
     if params.pretrained_weights == 'bioclip':
         logging.info("Using Bioclip model. ")
@@ -228,20 +234,44 @@ def build_classifier(params, class_name_idx, device):
         tokenizer = AutoTokenizer.from_pretrained('pretrained_weights/bioclip-2')
     else:
         raise NotImplementedError(f"Pretrained weights {params.pretrained_weights} not supported. ")
+    
+    # Log memory after loading BIOCLIP
+    if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
+        log_gpu_memory("model_build", "after_bioclip_load", device=device, enable_wandb=getattr(params, 'wandb', False))
+    
     del bioclip_model.visual
+    
+    # Log memory after deleting visual model
+    if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
+        log_gpu_memory("model_build", "after_visual_delete", device=device, enable_wandb=getattr(params, 'wandb', False))
+    
     # Get the model and tune parameters
     model, tune_parameters, model_grad_params_no_head = get_model(params, class_num, bioclip_model)
+    
+    # Log memory after getting PETL model
+    if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
+        log_gpu_memory("model_build", "after_petl_model", device=device, enable_wandb=getattr(params, 'wandb', False))
 
     ###################################################################
     classifier = CLIPClassifier(model, model.embed_dim, device)
     text_embed_dim = bioclip_model.embed_dim
     class_embedding = get_class_embedding(bioclip_model, tokenizer, text_embed_dim, class_name_idx)
     classifier.init_head(class_embedding)
+    
+    # Log memory after class embedding
+    if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
+        log_gpu_memory("model_build", "after_class_embedding", device=device, enable_wandb=getattr(params, 'wandb', False))
+    
     if params.text != 'head':
         classifier.set_text(bioclip_model, tokenizer, text_embed_dim, class_name_idx)
     else:
         del bioclip_model, tokenizer
     classifier = classifier.to(device)
+    
+    # Log final memory usage
+    if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
+        log_gpu_memory("model_build", "final", device=device, enable_wandb=getattr(params, 'wandb', False))
+    
     return classifier
 
 _LOOKUP_PATH = 'config/common_name_lookup.json'

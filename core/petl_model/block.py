@@ -86,7 +86,8 @@ class BlockPETL(nn.Module):
         self.fact = fact
         ############# Added module end #############
 
-    def forward(self, x: torch.Tensor, idx) -> torch.Tensor:
+    # Original forward method (easier to read and understand BUT NOT OPTIMIZED!!!!! MORE GPU MEMORY USAGE)
+    def forward_original(self, x: torch.Tensor, idx) -> torch.Tensor:
         # MHSA path
         residual_attn = x
 
@@ -173,5 +174,58 @@ class BlockPETL(nn.Module):
         # x = x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))
         return x
 
+    def _get_norm(self, x, norm, order=0):
+        if self.params.ssf and order == 1:
+            return ssf_ada(norm(x), self.ssf_scale_1, self.ssf_shift_1)
+        elif self.params.ssf and order == 2:
+            return ssf_ada(norm(x), self.ssf_scale_2, self.ssf_shift_2)
+        else:
+            return norm(x)
 
+    def _get_difffit(self, y, x, difffit_gamma):
+        if self.params.difffit and difffit_gamma is not None:
+            return difffit_gamma * y + x
+        else:
+            return y + x
 
+    def _forward_helper(self, x, idx, norm, ft_module, dp, ls, main, order):
+        if ft_module:
+            if order == 1:
+                ft_mode = self.params.ft_attn_mode
+                ft_main = self.ft_attn_module
+                if self.params.difffit:
+                    difffit_gamma = self.difffit_gamma1
+            elif order == 2:
+                ft_mode = self.params.ft_mlp_mode
+                ft_main = self.ft_mlp_module
+                if self.params.difffit:
+                    difffit_gamma = self.difffit_gamma2
+            
+            if ft_mode == 'parallel':
+                if self.params.ft_attn_ln == 'before':
+                    return self._get_difffit(dp(ls(ft_main(x))) + dp(ls(main(self._get_norm(x, norm, order), idx))), x, difffit_gamma)
+                elif self.params.ft_attn_ln == 'after':
+                    return self._get_difffit(dp(ls(ft_main(self._get_norm(x, norm, order)))) + dp(ls(main(self._get_norm(x, norm, order), idx))), x, difffit_gamma)
+                else:
+                    raise NotImplementedError
+            elif ft_mode == 'sequential_after':
+                return self._get_difffit(dp(ls(ft_main(dp(ls(main(self._get_norm(x, norm, order), idx))), add_residual=True))), x, difffit_gamma)
+            elif ft_mode == 'sequential_before':
+                return self._get_difffit(dp(ls(main(ft_main(self._get_norm(x, norm, order)), idx))), x, difffit_gamma)
+            else:
+                raise NotImplementedError
+        else:
+            if self.params.difffit and order== 1:
+                difffit_gamma = self.difffit_gamma1
+            elif self.params.difffit and order == 2:
+                difffit_gamma = self.difffit_gamma2
+            else:
+                difffit_gamma = None
+            # no tuning
+            return self._get_difffit(dp(ls(main(self._get_norm(x, norm, order), idx))), x, difffit_gamma)
+
+    # New forward method (optimized for GPU memory usage)
+    def forward(self, x: torch.Tensor, idx) -> torch.Tensor:
+        x = self._forward_helper(x, idx, self.norm1, self.params.ft_attn_module, self.drop_path1, self.ls1, self.attn, 1)
+        x = self._forward_helper(x, idx, self.norm2, self.params.ft_mlp_module, self.drop_path2, self.ls2, self.mlp, 2)
+        return x

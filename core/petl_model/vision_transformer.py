@@ -226,6 +226,9 @@ class VisionTransformerPETL(VisionTransformer):
             x = checkpoint_seq(self.blocks, x)
         else:
             ############# Added module #############
+            # DUMMY X, USED TO DEBUG ORIGINAL FORWARD vs. NEW OPTIMIZED FORWARD
+            # batch_size = x.shape[0]  # Preserve the batch size from the input
+            # x = torch.ones((batch_size, 257, 1024), dtype=torch.float32, device=x.device)
             for idx, block in enumerate(self.blocks):
                 if self.params.vpt_mode:
                     prompt = self.vpt.retrieve_prompt(idx, x.shape[0])

@@ -49,7 +49,7 @@ class CLModule(ABC):
         self.device = device
         self.ref_model = None
 
-    def _train(self, classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader):
+    def _train(self, classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor=None):
         if len(cl_train_dset) == 0:
             logging.info('No samples to train classifier, skipping. ')
         else:
@@ -78,10 +78,11 @@ class CLModule(ABC):
                     f_loss, 
                     eval_per_epoch=eval_per_epoch, 
                     eval_loader=eval_loader,
-                    scheduler=scheduler)
+                    scheduler=scheduler,
+                    gpu_monitor=gpu_monitor)
 
     @abstractmethod
-    def process(self, classifier, train_dset, eval_dset, train_mask):
+    def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None):
         pass
 
     @abstractmethod
@@ -99,7 +100,7 @@ class CLModule(ABC):
 class CLNone(CLModule):
     """No training. Used in zero-shot evaluation.
     """
-    def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
+    def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None):
         return classifier
     
     def refresh_buffer(self, new_samples):
@@ -114,12 +115,12 @@ class CLNone(CLModule):
 
 class CLNaiveFT(CLModule):
     """Naive fine-tuning. Naively fine-tune the classifier on the new samples."""
-    def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
+    def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None):
         # Process data
         cl_train_dset = copy.deepcopy(train_dset)
         cl_train_dset.apply_mask(train_mask)
         # Train
-        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader)
+        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor)
         return classifier
 
     def refresh_buffer(self, new_samples):
@@ -134,13 +135,13 @@ class CLNaiveFT(CLModule):
 class CLAccumulative(CLModule):
     """Accumulative training. Fine-tune the classifier on all samples seen so far.
     """
-    def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
+    def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None):
         # Process data
         cl_train_dset = copy.deepcopy(train_dset)
         cl_train_dset.apply_mask(train_mask)
         cl_train_dset.add_samples(self.buffer)
         # Train
-        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader)
+        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor)
         # Process buffer
         self.buffer.extend(train_dset.samples)
         return classifier
@@ -157,7 +158,7 @@ class CLAccumulative(CLModule):
 class CLAccumulativeScratch(CLModule):
     """Accumulative training with scratch. Fine-tune the classifier on all samples seen so far, but use a new classifier each time.
     """
-    def process(self, _, train_dset, eval_dset, train_mask, eval_per_epoch=True, eval_loader=None, ckp=None):
+    def process(self, _, train_dset, eval_dset, train_mask, eval_per_epoch=True, eval_loader=None, ckp=None, gpu_monitor=None):
         # global idx
         classifier = copy.deepcopy(self._classifier)
         # Process data
@@ -165,7 +166,7 @@ class CLAccumulativeScratch(CLModule):
         cl_train_dset.apply_mask(train_mask)
         cl_train_dset.add_samples(self.buffer)
         # Train
-        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader)
+        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor)
         # Process buffer
         for msk, sample in zip(train_mask, train_dset.samples):
             if msk:
@@ -235,7 +236,7 @@ class CLReplay(CLModule):
         self._rebalance_buffer(buf_size)                       # trim/balance
 
     def process(self, classifier, train_dset, eval_dset, train_mask,
-                eval_per_epoch=False, eval_loader=None, ckp=None):
+                eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None):
 
         # 1) collect *new* samples for this round
         cl_train_dset = copy.deepcopy(train_dset)
@@ -255,7 +256,7 @@ class CLReplay(CLModule):
 
         # 4) train the classifier on NEW ⊕ REPLAY
         self._train(classifier, cl_train_dset,
-                    eval_dset, eval_per_epoch, eval_loader)
+                    eval_dset, eval_per_epoch, eval_loader, gpu_monitor)
         
         # 5) after training
         self._after_train(classifier, train_dset, eval_dset, train_mask)

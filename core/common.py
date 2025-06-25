@@ -1,4 +1,5 @@
 import logging
+import wandb  # Ensure wandb is imported
 
 import os
 from contextlib import suppress
@@ -137,8 +138,12 @@ def get_scheduler(optimizer, scheduler_name, scheduler_params):
         raise ValueError(f'Unknown scheduler {scheduler_name}. ')
     return scheduler
 
-def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False):
+def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False, gpu_monitor=None):
     for epoch in range(epochs):
+        # Log memory at epoch start
+        if gpu_monitor:
+            gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_start")
+            
         if train_head_only:
             classifier.visual_model.eval()
             classifier.head.train()
@@ -146,14 +151,17 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             classifier.train()
         loss_arr = []
         correct_arr = []
-        # for inputs, labels in tqdm(loader):
-        for inputs, labels, old_logits, is_buf in loader:
+        for batch_idx, (inputs, labels, old_logits, is_buf) in enumerate(loader):
+            # Log memory for first few batches
+            if gpu_monitor and batch_idx < 3:
+                gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_before")
+                
             if isinstance(inputs, list):  # for TwoCropTransform
                 inputs = torch.cat(inputs, dim=0)
             # Forward
             inputs, labels = inputs.to(device), labels.to(device)
             bsz = labels.size(0)
-            if inputs.size(0) == 2*bsz:
+            if inputs.size(0) == 2 * bsz:
                 i1, i2 = torch.split(inputs, [bsz, bsz], dim=0)
                 logits = classifier(i1)
             else:
@@ -169,12 +177,34 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            
+            # Log memory for first few batches
+            if gpu_monitor and batch_idx < 3:
+                gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after")
+            
             # Append
             loss_arr.append(loss.cpu().item())
             correct_arr.append(correct.cpu().numpy())
         loss_arr = np.array(loss_arr)
         correct_arr = np.concatenate(correct_arr, axis=0)
-        logging.info(f'Epoch {epoch}, loss: {loss_arr.mean():.4f}, acc: {correct_arr.mean():.4f}, lr: {optimizer.param_groups[0]["lr"]:.8f}. ')
+        avg_loss = loss_arr.mean()
+        avg_acc = correct_arr.mean()
+        logging.info(f'Epoch {epoch}, loss: {avg_loss:.4f}, acc: {avg_acc:.4f}, lr: {optimizer.param_groups[0]["lr"]:.8f}. ')
+
+        # Log memory at epoch end
+        if gpu_monitor:
+            gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_end", {
+                'epoch_loss': avg_loss,
+                'epoch_acc': avg_acc
+            })
+
+        # Log training loss and accuracy to wandb if initialized
+        if wandb.run is not None:  # Check if wandb is initialized
+            wandb.log({
+                "train_loss": avg_loss,
+                "train_accuracy": avg_acc,
+                "epoch": epoch
+            })
 
         if classifier.init_text:
             logging.info(f'Rebuild head')
