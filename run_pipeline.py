@@ -358,7 +358,7 @@ def parse_args():
                         type=float,
                         help='Drop Path Rate (default: %(default)s)')
     parser.add_argument('--text', type=str, default='head',
-                        choices=['head', 'full', 'petl'],
+                        choices=['head', 'full', 'lora'],
                         help='text encoder type, head for head only, full for full text encoder')
     # parser.add_argument('--model', type=str, default='vit', choices=['vit', 'swin'],
     #                     help='pretrained model name')
