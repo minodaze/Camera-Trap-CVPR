@@ -16,6 +16,7 @@ import wandb  # Ensure wandb is imported
 from core import *
 from core.module import get_al_module, get_cl_module, get_ood_module
 from utils.misc import method_name
+from utils.gpu_monitor import get_gpu_monitor, log_gpu_memory, monitor_model_memory
 
 def setup_logging(log_path, debug, params):
     """Setup logging for the training process.
@@ -29,9 +30,10 @@ def setup_logging(log_path, debug, params):
     """
     # Setup logging
     logger = logging.getLogger()
+    log_time = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
     petl_method_name = method_name(params)
     log_path = os.path.join(log_path, params.pretrained_weights)
-    log_path = os.path.join(log_path, params.template)
+    log_path = f"{log_path}_{log_time}"
     log_path = os.path.join(log_path, petl_method_name)
     if not debug:
         logger.setLevel(logging.INFO)
@@ -61,7 +63,7 @@ def setup_logging(log_path, debug, params):
         logger.addHandler(fh)
     return log_path
 
-def pretrain(classifier, class_names, pretrain_config, common_config, device):
+def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None):
     """Pretrain the classifier on the pretraining dataset.
         
         Args:
@@ -70,8 +72,9 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device):
             pretrain_config (dict): Pretraining configuration.
             common_config (dict): Common configuration.
             device (str): Device to use for training.
+            gpu_monitor: GPU memory monitor instance.
         Returns:
-            classifier (nn.Module): Classifier after pretraining.f
+            classifier (nn.Module): Classifier after pretraining.
     
     """
     # Get pretrain configurations
@@ -110,7 +113,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device):
     loader = DataLoader(dataset, batch_size=train_batch_size, shuffle=True, num_workers=12)
     
     # Train
-    train(classifier, optimizer, loader, epochs, device, f_loss, scheduler=scheduler)
+    train(classifier, optimizer, loader, epochs, device, f_loss, scheduler=scheduler, gpu_monitor=gpu_monitor)
     return classifier
 
 def run(args):
@@ -122,12 +125,36 @@ def run(args):
             None
     
     """
+    # Initialize GPU memory monitoring if enabled
+    gpu_monitor = None
+    if args.gpu_memory_monitor:
+        enable_colors = not args.no_gpu_monitor_colors  # Colors enabled by default, disabled with --no_gpu_monitor_colors
+        gpu_monitor = get_gpu_monitor(args.device, args.wandb, enable_colors)
+        logging.info("GPU memory monitoring enabled.")
+        gpu_monitor.log_memory_usage("startup", "initial")
+    
     # Initialize wandb if enabled
     if args.wandb:
+        import re
+        
+        # Extract components from the original save_dir
+        match = re.match(r".*/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)", args.save_dir)
+        wandb_run_name = "Unidentified Run"  # Default name if regex fails
+        if match:
+            dataset = match.group(1)  # e.g., MAD_MAD05
+            training_mode = match.group(2)  # e.g., ce
+            pretrained_weights = match.group(3)  # e.g., accumulative-scratch
+            method_name = match.group(4)  # e.g., bioclip2_2025-06-24-02-12-36
+            petl_method_name = match.group(5)  # e.g., lora_8
+            log_folder = match.group(6)  # e.g., log
+
+            # Construct the new save_dir format
+            wandb_run_name = f"{dataset} | {pretrained_weights} | {method_name} | {petl_method_name}"
+        
         module_name = getattr(args, 'module_name', 'default_module')  # Fallback if module_name is not in args
         wandb.init(
             project="ICICLE-Benchmark",  # Replace with your project name
-            name=f"{args.c}.{module_name}",  # Set run name using args.c and module_name
+            name=wandb_run_name,  # Set run name using args.c and module_name
             config=vars(args)  # Log all arguments to wandb
         )
         logging.info("wandb logging is enabled.")
@@ -146,20 +173,39 @@ def run(args):
     # Load model
     classifier = build_classifier(args, class_names, args.device)
     
+    # Monitor model memory usage if enabled
+    if args.gpu_memory_monitor:
+        gpu_monitor.log_memory_usage("model_load", "after_build")
+        monitor_model_memory(classifier, "classifier", args.device, args.wandb)
+        gpu_monitor.clear_cache_and_log("model_load")
+    
     # Pretrain
     if pretrain_config['pretrain']:
         logging.info('Pretraining classifier... ')
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("pretrain", "before")
         classifier = pretrain(classifier, 
                               class_names, 
                               pretrain_config, 
                               common_config, 
-                              args.device)
+                              args.device,
+                              gpu_monitor)
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("pretrain", "after")
+            gpu_monitor.clear_cache_and_log("pretrain")
     else:
         logging.info('Skipping pretraining... ')
     
     # Prepare dataset
     train_dset = CkpDataset(common_config["train_data_config_path"], class_names, is_crop=is_crop)
     eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names)
+    
+    # Monitor dataset memory usage if enabled
+    if args.gpu_memory_monitor:
+        gpu_monitor.log_memory_usage("dataset_load", "after_load", {
+            'train_dataset_size': len(train_dset),
+            'eval_dataset_size': len(eval_dset)
+        })
     
     # Print ckp dict
     ckp_list = train_dset.get_ckp_list()
@@ -179,20 +225,39 @@ def run(args):
         ckp = ckp_list[i]
         logging.info(f'Training on checkpoint {ckp}. ')
         
+        # Monitor memory at checkpoint start
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("checkpoint", f"start_{ckp}")
+        
         # Get training and evaluation dataset
         ckp_train_dset = train_dset.get_subset(is_train=True, ckp_list=ckp_prev)
         ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp)
         logging.info(f'Training dataset size: {len(ckp_train_dset)}. ')
         logging.info(f'Evaluation dataset size: {len(ckp_eval_dset)}. ')
         
+        # Monitor memory after data subset
+        if args.gpu_memory_monitor:
+            gpu_monitor.monitor_data_loading(f"ckp_{ckp}_train", 
+                                           common_config['train_batch_size'], 
+                                           len(ckp_train_dset) // common_config['train_batch_size'])
+            gpu_monitor.monitor_data_loading(f"ckp_{ckp}_eval", 
+                                           common_config['eval_batch_size'], 
+                                           len(ckp_eval_dset) // common_config['eval_batch_size'])
+        
         # Initialize mask
         train_dset_mask = np.ones(len(ckp_train_dset), dtype=bool)
         
         # Run OOD detection
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("ood", f"before_{ckp}")
         classifier, ood_mask = ood_module.process(classifier, ckp_train_dset, ckp_eval_dset, train_dset_mask)
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("ood", f"after_{ckp}")
         logging.info(f'OOD mask: {ood_mask.sum()} / {len(ood_mask)}. ')
         
         # Run active learning
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("active_learning", f"before_{ckp}")
         classifier, al_mask = al_module.process(
             classifier, 
             ckp_train_dset, 
@@ -200,12 +265,16 @@ def run(args):
             ood_mask, 
             ckp=ckp
         )
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("active_learning", f"after_{ckp}")
         logging.info(f'AL mask: {al_mask.sum()} / {len(al_mask)}. ')
 
         # Prepare evaluation dataloader
         cl_eval_loader = DataLoader(ckp_eval_dset, batch_size=common_config['eval_batch_size'], shuffle=False)
 
         # Run continual learning
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("continual_learning", f"before_{ckp}")
         classifier = cl_module.process(
             classifier, 
             ckp_train_dset, 
@@ -213,18 +282,26 @@ def run(args):
             al_mask, 
             eval_per_epoch=args.eval_per_epoch, 
             eval_loader=cl_eval_loader, 
-            ckp=ckp
+            ckp=ckp,
+            gpu_monitor=gpu_monitor if args.gpu_memory_monitor else None
         )
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("continual_learning", f"after_{ckp}")
 
         # Save model and predictions
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
         loss_arr, preds_arr, labels_arr = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'])
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("evaluation", f"after_{ckp}")
         print_metrics(loss_arr, preds_arr, labels_arr, len(class_names))
         
         # Log training and evaluation loss to wandb
-        wandb.log({
-            "eval_loss": np.mean(loss_arr),  # Evaluation loss
-            "checkpoint": ckp
-        })
+        if wandb.run is not None:
+            wandb.log({
+                "eval_loss": np.mean(loss_arr),  # Evaluation loss
+                "checkpoint": ckp
+            })
 
         if not args.no_save:
             logging.info(f'Saving model to {args.save_dir}. ')
@@ -237,6 +314,17 @@ def run(args):
         mask_path = os.path.join(args.save_dir, f'{ckp}_mask.pkl')
         with open(mask_path, 'wb') as f:
             pickle.dump((ood_mask, al_mask), f)
+        
+        # Clear GPU cache between checkpoints
+        if args.gpu_memory_monitor:
+            gpu_monitor.clear_cache_and_log(f"checkpoint_end_{ckp}")
+
+    # Final GPU memory summary
+    if args.gpu_memory_monitor:
+        summary = gpu_monitor.get_memory_summary()
+        logging.info(f"GPU Memory Summary: {summary}")
+        if args.wandb:
+            wandb.log({"gpu_memory/summary": summary})
 
     # Finalize wandb if enabled
     if args.wandb:
@@ -259,6 +347,8 @@ def parse_args():
     parser.add_argument('--eval_only', action='store_true', help='Evaluate only')
     parser.add_argument('--gpu_id', type=int, default=0, help='GPU ID')
     parser.add_argument('--wandb', action='store_true', help='Enable wandb logging')  # New argument
+    parser.add_argument('--gpu_memory_monitor', action='store_true', help='Enable GPU memory monitoring and logging')  # New argument
+    parser.add_argument('--no_gpu_monitor_colors', action='store_true', help='Disable colored output for GPU monitoring (colors enabled by default)')  # New argument
 
     ###########################Model Configurations#########################
     parser.add_argument('--pretrained_weights', type=str, default='bioclip2',
@@ -268,7 +358,7 @@ def parse_args():
                         type=float,
                         help='Drop Path Rate (default: %(default)s)')
     parser.add_argument('--text', type=str, default='head',
-                        choices=['head', 'full', 'petl'],
+                        choices=['head', 'full', 'lora'],
                         help='text encoder type, head for head only, full for full text encoder')
     # parser.add_argument('--model', type=str, default='vit', choices=['vit', 'swin'],
     #                     help='pretrained model name')
@@ -422,11 +512,11 @@ if __name__ == '__main__':
     save_dir = args.log_path
     if args.debug:
         ts = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-        save_dir = os.path.join(args.log_path, f"debug-{ts}")
+        args.save_dir = os.path.join(args.log_path, f"debug-{ts}")
 
     # Setup logging
     args.save_dir = setup_logging(args.log_path, args.debug, args)
-    logging.info(f'Saving to {save_dir}. ')
+    logging.info(f'Saving to {args.save_dir}. ')
 
     # Save configuration
     with open(os.path.join(args.save_dir, 'args.yaml'), 'w') as f:

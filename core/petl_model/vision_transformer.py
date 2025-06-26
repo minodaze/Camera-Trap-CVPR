@@ -226,6 +226,9 @@ class VisionTransformerPETL(VisionTransformer):
             x = checkpoint_seq(self.blocks, x)
         else:
             ############# Added module #############
+            # DUMMY X, USED TO DEBUG ORIGINAL FORWARD vs. NEW OPTIMIZED FORWARD
+            # batch_size = x.shape[0]  # Preserve the batch size from the input
+            # x = torch.ones((batch_size, 257, 1024), dtype=torch.float32, device=x.device)
             for idx, block in enumerate(self.blocks):
                 if self.params.vpt_mode:
                     prompt = self.vpt.retrieve_prompt(idx, x.shape[0])
@@ -263,8 +266,6 @@ class VisionTransformerPETL(VisionTransformer):
             output_feature = x[:, 0]  # class token
         else:
             output_feature = x
-        ## Add the projection layer for the CLIPClassifier's head
-        output_feature =  self.proj(output_feature)
 
         ############# Added module #############
         if self.params.vqt_num > 0:
@@ -277,6 +278,9 @@ class VisionTransformerPETL(VisionTransformer):
 
         output_feature = self.fc_norm(output_feature)
         output_feature = self.head_drop(output_feature)
+
+        ## Add the projection layer for the CLIPClassifier's head
+        output_feature = self.proj(output_feature)
 
         return output_feature if pre_logits else self.head(output_feature)
 

@@ -18,6 +18,7 @@ from ..petl_model.vpt import VPT
 from ..petl_model.vqt import VQT
 from ..petl_model.ssf import init_ssf_scale_shift, ssf_ada
 from ..petl_model.fact import FacT
+from .. petl_model.lora import LoRA
 
 class LayerNormFp32(nn.LayerNorm):
     """Subclass torch's LayerNorm to handle fp16 (by casting to float32 and back)."""
@@ -103,7 +104,8 @@ class Attention(nn.Module):
             scale_heads=False,
             logit_scale_max=math.log(1. / 0.01),
             attn_drop=0.,
-            proj_drop=0.
+            proj_drop=0.,
+            params=None  # PETL parameters
     ):
         super().__init__()
         self.scaled_cosine = scaled_cosine
@@ -113,6 +115,10 @@ class Attention(nn.Module):
         self.head_dim = dim // num_heads
         self.scale = self.head_dim ** -0.5
         self.logit_scale_max = logit_scale_max
+        if params.lora_bottleneck > 0:
+            self.lora = LoRA(dim, num_heads, params)
+        else:
+            self.lora = None
 
         # keeping in_proj in this form (instead of nn.Linear) to match weight scheme of original
         self.in_proj_weight = nn.Parameter(torch.randn((dim * 3, dim)) * self.scale)
@@ -136,9 +142,29 @@ class Attention(nn.Module):
     def forward(self, x, attn_mask: Optional[torch.Tensor] = None):
         L, N, C = x.shape
         q, k, v = F.linear(x, self.in_proj_weight, self.in_proj_bias).chunk(3, dim=-1)
-        q = q.contiguous().view(L, N * self.num_heads, -1).transpose(0, 1)
-        k = k.contiguous().view(L, N * self.num_heads, -1).transpose(0, 1)
-        v = v.contiguous().view(L, N * self.num_heads, -1).transpose(0, 1)
+
+        if self.lora is not None:
+            # Switch to (B, L, C) so LoRA code matches AttentionPETL
+            x_blc = x.permute(1, 0, 2)                    # (N, L, C)
+            q_bhlc = q.contiguous().view(L, N, self.num_heads, self.head_dim).permute(1,2,0,3) # (N, H, L, H)
+            k_bhlc = k.contiguous().view(L, N, self.num_heads, self.head_dim).permute(1,2,0,3)
+            v_bhlc = v.contiguous().view(L, N, self.num_heads, self.head_dim).permute(1,2,0,3)
+
+            # apply LoRA (returns same shapes)
+            q_bhlc, k_bhlc, v_bhlc = self.lora(
+                x_blc, q_bhlc, k_bhlc, v_bhlc,
+                N, L, C
+            )
+
+            # flatten back to original (heads × batch, L, H)
+            q = q_bhlc.permute(2,0,1,3).reshape(L, N*self.num_heads, self.head_dim).transpose(0,1)
+            k = k_bhlc.permute(2,0,1,3).reshape(L, N*self.num_heads, self.head_dim).transpose(0,1)
+            v = v_bhlc.permute(2,0,1,3).reshape(L, N*self.num_heads, self.head_dim).transpose(0,1)
+        else:
+            # original view/transpose path
+            q = q.contiguous().view(L, B * self.num_heads, -1).transpose(0, 1)
+            k = k.contiguous().view(L, B * self.num_heads, -1).transpose(0, 1)
+            v = v.contiguous().view(L, B * self.num_heads, -1).transpose(0, 1)
 
         if self.logit_scale is not None:
             attn = torch.bmm(F.normalize(q, dim=-1), F.normalize(k, dim=-1).transpose(-1, -2))
@@ -266,6 +292,7 @@ class CustomResidualAttentionBlock(nn.Module):
             scale_heads: bool = False,
             scale_attn: bool = False,
             scale_fc: bool = False,
+            params: Optional[Any] = None,  # PETL parameters
     ):
         super().__init__()
 
@@ -274,6 +301,7 @@ class CustomResidualAttentionBlock(nn.Module):
             d_model, n_head,
             scaled_cosine=scale_cosine_attn,
             scale_heads=scale_heads,
+            params=params
         )
         self.ln_attn = norm_layer(d_model) if scale_attn else nn.Identity()
         self.ls_1 = LayerScale(d_model, ls_init_value) if ls_init_value is not None else nn.Identity()
@@ -304,17 +332,25 @@ class Transformer(nn.Module):
             ls_init_value: float = None,
             act_layer: Callable = nn.GELU,
             norm_layer: Callable = LayerNorm,
+            params: Optional[Any] = None,  # PETL parameters
     ):
         super().__init__()
         self.width = width
         self.layers = layers
         self.grad_checkpointing = False
 
-        self.resblocks = nn.ModuleList([
-            ResidualAttentionBlock(
-                width, heads, mlp_ratio, ls_init_value=ls_init_value, act_layer=act_layer, norm_layer=norm_layer)
-            for _ in range(layers)
-        ])
+        if params is not None and params.text == 'lora':
+            self.resblocks = nn.ModuleList([
+                CustomResidualAttentionBlock(
+                    width, heads, mlp_ratio, ls_init_value=ls_init_value, act_layer=act_layer, norm_layer=norm_layer, params=params)
+                for _ in range(layers)
+            ])
+        else:
+            self.resblocks = nn.ModuleList([
+                ResidualAttentionBlock(
+                    width, heads, mlp_ratio, ls_init_value=ls_init_value, act_layer=act_layer, norm_layer=norm_layer)
+                for _ in range(layers)
+            ])            
 
     def get_cast_dtype(self) -> torch.dtype:
         return self.resblocks[0].mlp.c_fc.weight.dtype
@@ -527,6 +563,7 @@ class TextTransformer(nn.Module):
             embed_cls: bool = False,
             pad_id: int = 0,
             output_tokens: bool = False,
+            params: Optional[Any] = None,  # PETL parameters
     ):
         super().__init__()
         self.output_tokens = output_tokens
@@ -554,6 +591,7 @@ class TextTransformer(nn.Module):
             ls_init_value=ls_init_value,
             act_layer=act_layer,
             norm_layer=norm_layer,
+            params=params,  # PETL parameters
         )
         self.ln_final = norm_layer(width)
 
@@ -719,36 +757,6 @@ class TextTransformerPETL(TextTransformer):
             for _ in range(layers)
         ])
     
-    @torch.jit.ignore()
-    def load_pretrained(self, checkpoint_path: str, prefix: str = '', model_type: str= '') -> None:
-        """Load a *CLIP* checkpoint’s text tower into this PETL wrapper."""
-
-        if "clip" not in model_type:
-            raise ValueError("Only CLIP/BIO‑CLIP checkpoints supported.")
-
-        sd = torch.load(checkpoint_path, map_location="cpu")
-
-        # Extract *text* keys, keep the `visual` ones for external use.
-        text_sd = {k.replace("model.text.", "text."): v
-                   for k, v in sd.items() if k.startswith("model.text.")}
-        text_sd |= {k: v for k, v in sd.items() if k.startswith("text.")}
-
-        # Rename to petl names
-        final_sd = {}
-        for k, v in text_sd.items():
-            if k.startswith("text."):
-                k = k[len("text."):]  # strip prefix to match module names
-            # OpenCLIP stores proj under `text_projection` ( (width, 512) ) → keep
-            final_sd[k] = v
-
-        # Load, ignore missing PETL params
-        missing, unexpected = self.load_state_dict(final_sd, strict=False)
-        msg_miss = [m for m in missing if not m.startswith(("vpt", "vqt", "ssf", "fact"))]
-        if msg_miss:
-            print("[TextTransformerPETL] ⚠️ still missing:", msg_miss)
-        if unexpected:
-            print("[TextTransformerPETL] ⚠️ unexpected:", unexpected)
-    
     def get_cast_dtype(self) -> torch.dtype:
         return self.transformer.resblocks[0].mlp.fc1.weight.dtype
 
@@ -758,42 +766,58 @@ class TextTransformerPETL(TextTransformer):
         pad_id = self.pad_id
         B, T = text.shape
 
-        # --- embeddings ---------------------------------------------------
-        x = self.token_embedding(text).to(cast_dtype)
+        seq_len = text.shape[1]
 
-        if self.vpt is not None:  # prepend learned prefix tokens
-            prompt = self.vpt.retrieve_prompt(0, B)  # same prompt for all blocks
-            x = torch.cat([prompt, x], dim=1)  # (B, p+T, width)
-            T = x.size(1)
+        x = self.token_embedding(text).to(cast_dtype)  # [batch_size, n_ctx, d_model]
+        attn_mask = self.attn_mask
+        if self.cls_emb is not None:
+            seq_len += 1
+            x = torch.cat([x, self._repeat(self.cls_emb, x.shape[0])], dim=1)
+            cls_mask = self.build_cls_mask(text, cast_dtype)
+            attn_mask = attn_mask[None, :seq_len, :seq_len] + cls_mask[:, :seq_len, :seq_len]
+
+        # --- embeddings ---------------------------------------------------
+        # x = self.token_embedding(text).to(cast_dtype)
+
+        # if self.vpt is not None:  # prepend learned prefix tokens
+        #     prompt = self.vpt.retrieve_prompt(0, B)  # same prompt for all blocks
+        #     x = torch.cat([prompt, x], dim=1)  # (B, p+T, width)
+        #     T = x.size(1)
 
         x = x + self.positional_embedding[:T].to(cast_dtype)
         x = x.permute(1, 0, 2)  # L,N,D
 
         # ---- build causal + pad mask --------------------------------------
-        pad_mask = text.eq(self.pad_id)                  # (B, T0)  bool
-        if self.vpt is not None:                         # VPT tokens are never pad
-            pad_prefix = torch.zeros(B, prompt.size(1), dtype=torch.bool, device=text.device)
-            pad_mask = torch.cat([pad_prefix, pad_mask], dim=1)  # (B, T)
+        # pad_mask = text.eq(self.pad_id)                  # (B, T0)  bool
+        # if self.vpt is not None:                         # VPT tokens are never pad
+        #     pad_prefix = torch.zeros(B, prompt.size(1), dtype=torch.bool, device=text.device)
+        #     pad_mask = torch.cat([pad_prefix, pad_mask], dim=1)  # (B, T)
 
-        attn_mask = self.attn_mask[:T, :T].to(x.device, x.dtype)  # (T, T)
-        attn_mask = attn_mask.unsqueeze(0).unsqueeze(0)           # (1, 1, T, T)
+        # attn_mask = self.attn_mask[:T, :T].to(x.device, x.dtype)  # (T, T)
+        # attn_mask = attn_mask.unsqueeze(0).unsqueeze(0)           # (1, 1, T, T)
         
-        if pad_mask.any():
-            pad_mask = pad_mask.unsqueeze(1).unsqueeze(2)         # (B, 1, 1, T)
-            attn_mask = attn_mask + pad_mask.to(x.dtype).mul(-float('inf'))  # (B,1,T,T)
+        # if pad_mask.any():
+        #     pad_mask = pad_mask.unsqueeze(1).unsqueeze(2)         # (B, 1, 1, T)
+        #     attn_mask = attn_mask + pad_mask.to(x.dtype).mul(-float('inf'))  # (B,1,T,T)
 
         for idx, blk in enumerate(self.transformer.resblocks):
-            if self.vqt is not None:
-                qtok = self.vqt.retrieve_prompt(idx, B)
-                x = torch.cat([qtok, x], dim=0)              # prepend query tokens (L+=q)
-                attn_mask = F.pad(attn_mask, (qtok.size(0), 0, 0, qtok.size(0)), value=0.0)
+            if self.params.vpt_mode:
+                prompt = self.vpt.retrieve_prompt(idx, x.shape[0])
+                if prompt is not None:
+                    x = torch.cat([prompt, x], dim=1)
+            if self.params.vqt_num > 0:
+                query_tokens = self.vqt.retrieve_prompt(idx, x.shape[0])
+                if query_tokens is not None:
+                    x = torch.cat([query_tokens, x], dim=1)
 
             x = blk(x, idx, attn_mask=attn_mask)
 
-            if self.vqt is not None:
-                q_tokens, x = x[:self.params.vqt_num], x[self.params.vqt_num:]
-                self.query_outputs.append(F.normalize(q_tokens.transpose(0, 1), dim=-1))
-                attn_mask = attn_mask[self.params.vqt_num:, self.params.vqt_num:]
+            if self.params.vqt_num > 0 and query_tokens is not None:
+                x = x[:, self.params.vqt_num:, :]
+                self.query_outputs.append(F.normalize(x[:, :self.params.vqt_num, :]))
+
+            if self.params.vpt_mode and prompt is not None:
+                x = x[:, self.params.vpt_num:, :]
 
         x = x.permute(1, 0, 2)  # B,L,D
 

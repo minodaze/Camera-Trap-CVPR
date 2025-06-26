@@ -1,5 +1,5 @@
 module_name: LWF
-log_path: log/pipeline/MAD_MAD05_new/ce/LWF
+log_path: log/pipeline/MAD_MAD05/ce/LWF
 class_names:
   - aardvark
   - africanwildcat
@@ -32,8 +32,8 @@ class_names:
   - zebraplains
 common_config:
   model: bioclip
-  train_data_config_path: config/data/MAD_MAD05_new/train.json
-  eval_data_config_path: config/data/MAD_MAD05_new/test.json
+  train_data_config_path: config/data/MAD/MAD_MAD05/train.json
+  eval_data_config_path: config/data/MAD/MAD_MAD05/test.json
   train_batch_size: 128
   eval_batch_size: 512
   optimizer_name: AdamW

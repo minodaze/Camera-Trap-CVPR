@@ -186,8 +186,15 @@ def build_classifier(params, class_name_idx, device):
 
     if params.text == 'petl':
         raise NotImplementedError("Petl text model is not implemented yet. ")
+        
+    # Log initial GPU memory before model loading
+    if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
+        from utils.gpu_monitor import log_gpu_memory
+        log_gpu_memory("model_build", "before_bioclip_load", device=device, enable_wandb=getattr(params, 'wandb', False))
+    
     # Load the BIOCLIP model to get the class embeddings
     if params.pretrained_weights == 'bioclip':
+        logging.info("Using Bioclip model. ")
         bioclip_model, preprocess_train, preprocess_val = create_model_and_transforms(
                 'ViT-B-16',
                 'pretrained_weights/bioclip/open_clip_pytorch_model.bin',
@@ -206,6 +213,7 @@ def build_classifier(params, class_name_idx, device):
             )
         tokenizer = AutoTokenizer.from_pretrained('pretrained_weights/bioclip')
     elif params.pretrained_weights == 'bioclip2':
+        logging.info("Using Bioclip-2 model. ")
         bioclip_model, preprocess_train, preprocess_val = create_model_and_transforms(
             'ViT-L-14',
             'pretrained_weights/bioclip-2/open_clip_pytorch_model.bin',
@@ -221,24 +229,49 @@ def build_classifier(params, class_name_idx, device):
             image_std=None,
             aug_cfg={},
             output_dict=True,
+            params=params
         )
         tokenizer = AutoTokenizer.from_pretrained('pretrained_weights/bioclip-2')
     else:
         raise NotImplementedError(f"Pretrained weights {params.pretrained_weights} not supported. ")
+    
+    # Log memory after loading BIOCLIP
+    if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
+        log_gpu_memory("model_build", "after_bioclip_load", device=device, enable_wandb=getattr(params, 'wandb', False))
+    
     del bioclip_model.visual
+    
+    # Log memory after deleting visual model
+    if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
+        log_gpu_memory("model_build", "after_visual_delete", device=device, enable_wandb=getattr(params, 'wandb', False))
+    
     # Get the model and tune parameters
     model, tune_parameters, model_grad_params_no_head = get_model(params, class_num, bioclip_model)
+    
+    # Log memory after getting PETL model
+    if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
+        log_gpu_memory("model_build", "after_petl_model", device=device, enable_wandb=getattr(params, 'wandb', False))
 
     ###################################################################
     classifier = CLIPClassifier(model, model.embed_dim, device)
     text_embed_dim = bioclip_model.embed_dim
     class_embedding = get_class_embedding(bioclip_model, tokenizer, text_embed_dim, class_name_idx)
     classifier.init_head(class_embedding)
+    
+    # Log memory after class embedding
+    if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
+        log_gpu_memory("model_build", "after_class_embedding", device=device, enable_wandb=getattr(params, 'wandb', False))
+    
     if params.text != 'head':
         classifier.set_text(bioclip_model, tokenizer, text_embed_dim, class_name_idx)
     else:
         del bioclip_model, tokenizer
     classifier = classifier.to(device)
+    
+    # Log final memory usage
+    if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
+        log_gpu_memory("model_build", "final", device=device, enable_wandb=getattr(params, 'wandb', False))
+    
     return classifier
 
 _LOOKUP_PATH = 'config/common_name_lookup.json'
@@ -375,6 +408,14 @@ def get_model(params, class_num, text_model=None):
             parameter.requires_grad = True
             if params.debug:
                 logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
+        elif params.text == 'lora':
+            if 'lora' in name:
+                parameter.requires_grad = True
+                tune_parameters.append(parameter)
+                if params.debug:
+                    logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
+            else:
+                parameter.requires_grad = False
         else:
             raise NotImplementedError(f"Not implemented yet: {params.text}")
 
