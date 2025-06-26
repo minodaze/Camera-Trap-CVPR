@@ -245,7 +245,7 @@ _LOOKUP_PATH = 'config/common_name_lookup.json'
 _lookup = json.load(open(_LOOKUP_PATH))
 
 def get_texts(c):
-    use_bioclip_template = True
+    use_bioclip_template = False
     if c not in _lookup:
         use_bioclip_template = False
     else:

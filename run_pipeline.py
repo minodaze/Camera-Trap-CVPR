@@ -31,6 +31,7 @@ def setup_logging(log_path, debug, params):
     logger = logging.getLogger()
     petl_method_name = method_name(params)
     log_path = os.path.join(log_path, params.pretrained_weights)
+    log_path = os.path.join(log_path, params.template)
     log_path = os.path.join(log_path, petl_method_name)
     if not debug:
         logger.setLevel(logging.INFO)
@@ -106,7 +107,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device):
     )
     
     # Get dataloader
-    loader = DataLoader(dataset, batch_size=train_batch_size, shuffle=True, num_workers=4)
+    loader = DataLoader(dataset, batch_size=train_batch_size, shuffle=True, num_workers=12)
     
     # Train
     train(classifier, optimizer, loader, epochs, device, f_loss, scheduler=scheduler)
@@ -271,6 +272,8 @@ def parse_args():
                         help='text encoder type, head for head only, full for full text encoder')
     # parser.add_argument('--model', type=str, default='vit', choices=['vit', 'swin'],
     #                     help='pretrained model name')
+
+    parser.add_argument('--template', type=str, default='openai')
 
     ########################PETL#########################
     parser.add_argument('--ft_attn_module', default=None, choices=['adapter', 'convpass', 'repadapter'],
