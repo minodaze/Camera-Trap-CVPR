@@ -125,7 +125,7 @@ class CLIPClassifier(nn.Module):
     def reset_head(self):
         assert self.initialized, 'Head not initialized. '
         assert self.init_text, 'No text model set. '
-        class_embedding = get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx, self.text_templete)
+        class_embedding = get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx, self.text_template)
         self.init_head(class_embedding)
         self.head = self.head.to(self.device)
     
