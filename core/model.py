@@ -125,16 +125,17 @@ class CLIPClassifier(nn.Module):
     def reset_head(self):
         assert self.initialized, 'Head not initialized. '
         assert self.init_text, 'No text model set. '
-        class_embedding = get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx)
+        class_embedding = get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx, self.text_templete)
         self.init_head(class_embedding)
         self.head = self.head.to(self.device)
     
-    def set_text(self, text_model, tokenizer, text_embed_dim, class_name_idx):
+    def set_text(self, text_model, tokenizer, text_embed_dim, class_name_idx, template):
         """Set the text model and tokenizer for the classifier."""
         self.text_model = text_model
         self.tokenizer = tokenizer
         self.text_embed_dim = text_embed_dim
         self.class_name_idx = class_name_idx
+        self.text_template = template
         self.init_text = True
     
     def set_proj_head(self, proj_head):
@@ -255,7 +256,7 @@ def build_classifier(params, class_name_idx, device):
     ###################################################################
     classifier = CLIPClassifier(model, model.embed_dim, device)
     text_embed_dim = bioclip_model.embed_dim
-    class_embedding = get_class_embedding(bioclip_model, tokenizer, text_embed_dim, class_name_idx)
+    class_embedding = get_class_embedding(bioclip_model, tokenizer, text_embed_dim, class_name_idx, text_template=params.text_template)
     classifier.init_head(class_embedding)
     
     # Log memory after class embedding
@@ -263,7 +264,7 @@ def build_classifier(params, class_name_idx, device):
         log_gpu_memory("model_build", "after_class_embedding", device=device, enable_wandb=getattr(params, 'wandb', False))
     
     if params.text != 'head':
-        classifier.set_text(bioclip_model, tokenizer, text_embed_dim, class_name_idx)
+        classifier.set_text(bioclip_model, tokenizer, text_embed_dim, class_name_idx, params.text_template)
     else:
         del bioclip_model, tokenizer
     classifier = classifier.to(device)
@@ -274,43 +275,43 @@ def build_classifier(params, class_name_idx, device):
     
     return classifier
 
-_LOOKUP_PATH = 'config/common_name_lookup.json'
-_lookup = json.load(open(_LOOKUP_PATH))
+# _LOOKUP_PATH = 'config/common_name_lookup.json'
+# _lookup = json.load(open(_LOOKUP_PATH))
 
-def get_texts(c):
-    use_bioclip_template = True
-    if c not in _lookup:
-        use_bioclip_template = False
-    else:
-        tax = _lookup[c]
-        for t in tax:
-            if not isinstance(t, str) and np.isnan(t):
-                use_bioclip_template = False
-                break
-    if use_bioclip_template:
-        tax = _lookup[c]
-        common = c
-        scientific = tax[-1]
-        taxonomic = ' '.join(tax)
-        scientific_common = f'{scientific} with common name {common}'
-        taxonomic_common = f'{taxonomic} with common name {common}'
-        names = [common, scientific, taxonomic, scientific_common, taxonomic_common]
-        texts = []
-        for n in names:
-            texts += [template.format(CLZ_NAME=n) for template in BIOCLIP_TEMPLATE]
-    else:
-        texts = [template.format(CLZ_NAME=c) for template in OPENAI_IMAGENET_TEMPLATE]
+def get_texts(c, text_template='openai'):
+    # use_bioclip_template = True
+    # if c not in _lookup:
+    #     use_bioclip_template = False
+    # else:
+    #     tax = _lookup[c]
+    #     for t in tax:
+    #         if not isinstance(t, str) and np.isnan(t):
+    #             use_bioclip_template = False
+    #             break
+    # if use_bioclip_template and text_template == 'bioclip':
+    #     tax = _lookup[c]
+    #     common = c
+    #     scientific = tax[-1]
+    #     taxonomic = ' '.join(tax)
+    #     scientific_common = f'{scientific} with common name {common}'
+    #     taxonomic_common = f'{taxonomic} with common name {common}'
+    #     names = [common, scientific, taxonomic, scientific_common, taxonomic_common]
+    #     texts = []
+    #     for n in names:
+    #         texts += [template.format(CLZ_NAME=n) for template in BIOCLIP_TEMPLATE]
+    # else:
+    texts = [template.format(CLZ_NAME=c) for template in OPENAI_IMAGENET_TEMPLATE]
     return texts
 
 
-def get_class_embedding(model, tokenizer, embed_dim, class_name_idx): 
+def get_class_embedding(model, tokenizer, embed_dim, class_name_idx, text_template='openai'): 
     device = next(model.parameters()).device
     context_length = model.context_length
     with torch.no_grad():
         class_embedding = torch.empty(len(class_name_idx), embed_dim)
         for class_name, class_idx in class_name_idx.items():
             # logging.info(f'Getting class embedding for {class_name}... ')
-            texts = get_texts(class_name)
+            texts = get_texts(class_name, text_template)
             # logging.info('Texts: ')
             # for t in texts:
             #     logging.info(f'\t{t}')

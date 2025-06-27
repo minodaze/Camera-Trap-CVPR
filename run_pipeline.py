@@ -33,8 +33,9 @@ def setup_logging(log_path, debug, params):
     log_time = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
     petl_method_name = method_name(params)
     log_path = os.path.join(log_path, params.pretrained_weights)
-    log_path = f"{log_path}_{log_time}"
+    petl_method_name = petl_method_name + f'_text_{params.text}'
     log_path = os.path.join(log_path, petl_method_name)
+    log_path = os.path.join(log_path, log_time)
     if not debug:
         logger.setLevel(logging.INFO)
         log_path = os.path.join(log_path, 'log')
@@ -95,7 +96,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
     
     # Get dataset
     dataset = CkpDataset(pretrain_data_config_path, class_names)
-    dataset = dataset.get_subset(is_train=True, ckp_list="ckp_-1")
+    dataset = dataset.get_subset(is_train=True, ckp_list=["ckp_-1", "ckp_1"])
     logging.info(f'Pretrain dataset size: {len(dataset)}. ')
     
     # Get loss function
@@ -303,7 +304,7 @@ def run(args):
                 "checkpoint": ckp
             })
 
-        if not args.no_save:
+        if args.is_save:
             logging.info(f'Saving model to {args.save_dir}. ')
             save_path = os.path.join(args.save_dir, f'{ckp}.pth')
             torch.save(classifier.state_dict(), save_path)
@@ -343,7 +344,7 @@ def parse_args():
     parser.add_argument('--debug', action='store_true', help='Debug mode')
     parser.add_argument('--seed', type=int, default=9527, help='Random seed')
     parser.add_argument('--eval_per_epoch', action='store_true', help='Evaluate per epoch')
-    parser.add_argument('--no_save', action='store_true', help='Do not save model')
+    parser.add_argument('--is_save', action='store_true', help='Save model')
     parser.add_argument('--eval_only', action='store_true', help='Evaluate only')
     parser.add_argument('--gpu_id', type=int, default=0, help='GPU ID')
     parser.add_argument('--wandb', action='store_true', help='Enable wandb logging')  # New argument
@@ -360,6 +361,9 @@ def parse_args():
     parser.add_argument('--text', type=str, default='head',
                         choices=['head', 'full', 'lora'],
                         help='text encoder type, head for head only, full for full text encoder')
+    parser.add_argument('--text_template', type=str, default='openai',
+                        choices=['bioclip', 'openai'],
+                        help='text template type')
     # parser.add_argument('--model', type=str, default='vit', choices=['vit', 'swin'],
     #                     help='pretrained model name')
 
