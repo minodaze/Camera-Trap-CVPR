@@ -229,7 +229,10 @@ class CkpDataset(Dataset):
                 ckp_list = [ckp_list]
             logging.info(f"Gathering samples from checkpoints: {ckp_list}")
             for ckp in ckp_list:
-                assert ckp in self.ckp_samples, f"Checkpoint {ckp} not found"
+                # assert ckp in self.ckp_samples, f"Checkpoint {ckp} not found"
+                if ckp not in self.ckp_samples:
+                    logging.info(f"Checkpoint {ckp} not found")
+                    continue
                 _filtered_samples = copy.deepcopy(self.ckp_samples[ckp])
                 filtered_samples.extend(_filtered_samples)
         else:

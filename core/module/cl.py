@@ -54,7 +54,7 @@ class CLModule(ABC):
             logging.info('No samples to train classifier, skipping. ')
         else:
             logging.info(f'Training classifier with {len(cl_train_dset)} samples. ')
-            cl_train_loader = DataLoader(cl_train_dset, batch_size=self.common_config['train_batch_size'], shuffle=True)
+            cl_train_loader = DataLoader(cl_train_dset, batch_size=self.common_config['train_batch_size'], shuffle=True, num_workers=12)
             optimizer = get_optimizer(classifier, self.common_config['optimizer_name'], self.common_config['optimizer_params'])
             if self.common_config['scheduler'] is not None:
                 scheduler = get_scheduler(optimizer, self.common_config['scheduler'], self.common_config['scheduler_params'])
@@ -322,7 +322,7 @@ class CLMIR(CLReplay):
         
         if n <= len(self.buffer):
             logging.info(f'Selecting {n} samples from the buffer of size {len(self.buffer)} by the MIR criterion.')
-            cl_train_loader = DataLoader(train_dset, batch_size=self.common_config['train_batch_size'], shuffle=True)
+            cl_train_loader = DataLoader(train_dset, batch_size=self.common_config['train_batch_size'], shuffle=True, num_workers=12)
             optimizer = get_optimizer(classifier, self.common_config['optimizer_name'], self.common_config['optimizer_params'])
             self._classifier = copy.deepcopy(classifier).to(self.device)
             self._classifier.train()
@@ -337,7 +337,7 @@ class CLMIR(CLReplay):
                 loss.backward()
                 optimizer.step()
             buf_dset = BufferDataset(self.buffer)
-            buf_loader = DataLoader(buf_dset, batch_size=self.common_config['train_batch_size'], shuffle=False)
+            buf_loader = DataLoader(buf_dset, batch_size=self.common_config['train_batch_size'], shuffle=False, num_workers=12)
             scores = []
             self._classifier.eval()
             classifier.eval()
@@ -434,7 +434,7 @@ class CLCO2L(CLReplay):
         else:
             logging.info('Train the buffered data')
             cl_buffer_dset = BufferDataset(self.buffer)
-            cl_buffer_loader = DataLoader(cl_buffer_dset, batch_size=self.common_config['train_batch_size'], shuffle=True)
+            cl_buffer_loader = DataLoader(cl_buffer_dset, batch_size=self.common_config['train_batch_size'], shuffle=True, num_workers=12)
             optimizer = get_optimizer(classifier, self.common_config['optimizer_name'], self.common_config['optimizer_params'])
             if self.common_config['scheduler'] is not None:
                 scheduler = get_scheduler(optimizer, self.common_config['scheduler'], self.common_config['scheduler_params'])

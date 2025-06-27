@@ -1,5 +1,5 @@
-module_name: Replay
-log_path: log/pipeline/APN_K024/ce/Replay
+module_name: derpp
+log_path: log/pipeline/APN_K024/ce/derpp
 class_names:
   - wildebeestblue
   - zebraburchells
@@ -30,11 +30,11 @@ common_config:
 pretrain_config:
   pretrain: false
 ood_config:
-  method: oracle
+  method: all
 al_config:
   method: all
 cl_config:
-  method: replay
+  method: lwf
   buffer_size: 1000
   epochs: 30
-  loss_type: ce
+  loss_type: derpp
