@@ -35,5 +35,5 @@ al_config:
   method: all
 cl_config:
   method: accumulative-scratch
-  epochs: 30
+  epochs: 50
   loss_type: ce

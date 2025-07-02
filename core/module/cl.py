@@ -189,6 +189,15 @@ class CLReplay(CLModule):
         • on every round mix NEW : REPLAY samples in a 50 : 50 ratio
         • after training update the buffer and re-balance it
     """
+    def __init__(self, classifier, cl_config, common_config, class_names, args, device):
+        self.cl_config = cl_config
+        self.common_config = common_config
+        self.class_names = class_names
+        self.buffer = []
+        self.args = args
+        self.device = device
+        self.ref_model = None
+
     def _sample_from_buffer(self, n, classifier, train_dset):
         """Return `n` samples from the buffer (with or without replacement)."""
         if len(self.buffer) == 0:
@@ -405,7 +414,7 @@ class CLCO2L(CLReplay):
                          class_names, args, device)
 
         # ---- SupCon head and loss --------------------------------
-        dim_in   = self._classifier.head.in_features
+        dim_in   = classifier.head.in_features
         proj_dim = self.cl_config.get('proj_dim', 512)
         proj_head = nn.Sequential(
             nn.Linear(dim_in, dim_in),

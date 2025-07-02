@@ -1,5 +1,5 @@
-module_name: accumulative-scratch
-log_path: log/pipeline/ENO_C05_new/ce/accumulative-scratch
+module_name: MIR
+log_path: log/pipeline/ENO_C05_new/ce/mir
 class_names:
   - rhinocerosblack
   - baboon
@@ -39,6 +39,7 @@ ood_config:
 al_config:
   method: all
 cl_config:
-  method: accumulative-scratch
+  method: mir
+  buffer_size: 1000
   epochs: 50
   loss_type: ce

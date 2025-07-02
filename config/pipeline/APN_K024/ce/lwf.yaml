@@ -16,17 +16,17 @@ common_config:
   model: bioclip
   train_data_config_path: config/data/APN_K024/train.json
   eval_data_config_path: config/data/APN_K024/test.json
-  train_batch_size: 64
+  train_batch_size: 32
   eval_batch_size: 512
   optimizer_name: AdamW
   optimizer_params:
-    lr: 0.0001
+    lr: 0.000025
     weight_decay: 0.0001
   chop_head: false
   scheduler: CosineAnnealingLR
   scheduler_params:
     T_max: 30
-    eta_min: 0.00001
+    eta_min: 0.0000025
 pretrain_config:
   pretrain: false
 ood_config:
@@ -36,5 +36,5 @@ al_config:
 cl_config:
   method: lwf
   buffer_size: 1000
-  epochs: 30
+  epochs: 50
   loss_type: kd
