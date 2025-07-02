@@ -121,13 +121,6 @@ class CLIPClassifier(nn.Module):
         self.head.weight.data = class_embedding
         self.head.bias.data.zero_()
         self.initialized = True
-
-    # def reset_head(self):
-    #     assert self.initialized, 'Head not initialized. '
-    #     assert self.init_text, 'No text model set. '
-    #     class_embedding = self.get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx, self.text_template)
-    #     self.init_head(class_embedding)
-    #     self.head = self.head.to(self.device)
     
     def set_text(self, text_model, tokenizer, text_embed_dim, class_name_idx, template):
         """Set the text model and tokenizer for the classifier."""
@@ -158,7 +151,10 @@ class CLIPClassifier(nn.Module):
         x = self.visual_model.forward_head(x, pre_logits=True) # get the features
         if self.init_text:
             class_embedding = self.get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx, self.text_template)
-            x = F.linear(x, class_embedding, bias=False)  # Use the class embedding to compute logits
+            class_embedding = class_embedding.to(self.device)
+            feats = F.normalize(x, dim=-1)  # Normalize the features
+            x = F.linear(x, class_embedding, bias=None)  # Use the class embedding to compute logits
+            del class_embedding  # Free memory
         else:
             feats = F.normalize(x, dim=-1)
             x = self.head(feats)
@@ -289,8 +285,9 @@ def build_classifier(params, class_name_idx, device):
     ###################################################################
     classifier = CLIPClassifier(model, model.embed_dim, device)
     text_embed_dim = bioclip_model.embed_dim
-    class_embedding = get_class_embedding(bioclip_model, tokenizer, text_embed_dim, class_name_idx, text_template=params.text_template)
-    classifier.init_head(class_embedding)
+    if params.text == 'head':
+        class_embedding = get_class_embedding(bioclip_model, tokenizer, text_embed_dim, class_name_idx, text_template=params.text_template)
+        classifier.init_head(class_embedding)
     
     # Log memory after class embedding
     if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:

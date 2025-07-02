@@ -237,10 +237,6 @@ def eval(classifier, loader, device, chop_head=False, return_logits=False):
         chop_mask[observed_classes] = 0
     else:
         chop_mask = np.zeros(n_classes, dtype=bool)
-    
-    if classifier.init_text:
-        logging.info(f'Rebuild head for evaluation')
-        classifier.reset_head()
 
     classifier.eval()
     with torch.no_grad():
