@@ -146,15 +146,13 @@ class CLIPClassifier(nn.Module):
         return F.normalize(self.proj_head(feats), dim=1)
     
     def forward(self, images, return_feats=False):
-        x = self.visual_model.forward_features(images)
-        x = self.visual_model.forward_head(x, pre_logits=True) # get the features
+        x = self.visual_model(images)
+        feats = F.normalize(x, dim=-1)  # Normalize the features
         if self.init_text:
             class_embedding = self.get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx, self.text_template).to(self.device)
-            feats = F.normalize(x, dim=-1)  # Normalize the features
             x = F.linear(feats, class_embedding, bias=None)  # Use the class embedding to compute logits
             del class_embedding  # Free memory
         elif self.initialized:
-            feats = F.normalize(x, dim=-1)
             x = self.head(feats)
         else:
             raise RuntimeError("Forward pass requires either text model or initialized head.")
@@ -165,8 +163,7 @@ class CLIPClassifier(nn.Module):
     
     def forward_features(self, images):
         """Forward pass to get the features from the visual model."""
-        x = self.visual_model.forward_features(images)
-        x = self.visual_model.forward_head(x, pre_logits=True)
+        x = self.visual_model(images)
         feats = F.normalize(x, dim=-1)
         return feats
 
@@ -269,21 +266,21 @@ def build_classifier(params, class_name_idx, device):
     if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
         log_gpu_memory("model_build", "after_bioclip_load", device=device, enable_wandb=getattr(params, 'wandb', False))
     
-    del bioclip_model.visual
+    # del bioclip_model.visual
     
     # Log memory after deleting visual model
     if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
         log_gpu_memory("model_build", "after_visual_delete", device=device, enable_wandb=getattr(params, 'wandb', False))
     
     # Get the model and tune parameters
-    model, tune_parameters, model_grad_params_no_head = get_model(params, class_num, bioclip_model)
+    # model, tune_parameters, model_grad_params_no_head = get_model(params, class_num, bioclip_model)
     
     # Log memory after getting PETL model
     if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
         log_gpu_memory("model_build", "after_petl_model", device=device, enable_wandb=getattr(params, 'wandb', False))
 
     ###################################################################
-    classifier = CLIPClassifier(model, model.embed_dim, device)
+    classifier = CLIPClassifier(bioclip_model.visual, bioclip_model.embed_dim, device)
     text_embed_dim = bioclip_model.embed_dim
     if params.text == 'head':
         class_embedding = get_class_embedding(bioclip_model, tokenizer, text_embed_dim, class_name_idx, text_template=params.text_template)
