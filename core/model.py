@@ -149,14 +149,15 @@ class CLIPClassifier(nn.Module):
         x = self.visual_model.forward_features(images)
         x = self.visual_model.forward_head(x, pre_logits=True) # get the features
         if self.init_text:
-            class_embedding = self.get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx, self.text_template)
-            class_embedding = class_embedding.to(self.device)
+            class_embedding = self.get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx, self.text_template).to(self.device)
             feats = F.normalize(x, dim=-1)  # Normalize the features
             x = F.linear(feats, class_embedding, bias=None)  # Use the class embedding to compute logits
             del class_embedding  # Free memory
-        else:
+        elif self.initialized:
             feats = F.normalize(x, dim=-1)
             x = self.head(feats)
+        else:
+            raise RuntimeError("Forward pass requires either text model or initialized head.")
         if return_feats:
             return x, feats
         else:
