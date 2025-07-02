@@ -162,3 +162,104 @@ def CB_loss(logits, labels, samples_per_cls, no_of_classes, loss_type, beta, gam
         cb_loss = F.binary_cross_entropy(input = pred, target = labels_one_hot, weight = weights)
     
     return cb_loss
+
+# def CDT_loss(logits, labels, samples_per_cls, no_of_classes, gamma=1.0, device='cuda'):
+#     """Compute the Class-Dependent Temperatures (CDT) Loss between `logits` and the ground truth `labels`.
+    
+#     CDT Loss is designed to compensate for feature deviation in class-imbalanced datasets
+#     by applying class-dependent temperatures that are inversely proportional to the number
+#     of training instances.
+    
+#     Reference: Class-Dependent Temperatures (CDT) approach for learning ConvNet classifier
+#     with class-imbalanced data.
+    
+#     Args:
+#         logits: A float tensor of size [batch, no_of_classes].
+#         labels: A int tensor of size [batch].
+#         samples_per_cls: A python list of size [no_of_classes] containing number of samples per class.
+#         no_of_classes: total number of classes. int
+#         gamma: float. Hyperparameter controlling the temperature scaling (gamma >= 0).
+#         device: device to place tensors on.
+        
+#     Returns:
+#         cdt_loss: A float tensor representing CDT loss
+#     """
+#     batch_size = logits.size(0)
+    
+#     # Convert samples_per_cls to tensor
+#     samples_per_cls = torch.tensor(samples_per_cls, dtype=torch.float32, device=device)
+    
+#     # Calculate class-dependent temperatures
+#     # a_c = (N_max / N_c)^gamma, where N_max is the largest number of training instances
+#     N_max = torch.max(samples_per_cls)
+#     temperatures = torch.pow(N_max / samples_per_cls, gamma)
+    
+#     # For the major class (most samples), a_c = 1
+#     # For other classes, a_c > 1 if gamma > 0
+#     # When gamma = 0, we recover the conventional ERM objective
+    
+#     # Apply class-dependent temperatures to logits
+#     # For each sample, use the temperature corresponding to its true class
+#     sample_temperatures = temperatures[labels]  # [batch_size]
+    
+#     # Scale logits by class-dependent temperatures
+#     # w_y^T f_θ(x_n) / a_yn
+#     scaled_logits = logits / sample_temperatures.unsqueeze(1)
+    
+#     # Compute CDT loss using the scaled logits
+#     cdt_loss = F.cross_entropy(scaled_logits, labels)
+    
+#     return cdt_loss
+
+
+def CDT_loss(logits, labels, samples_per_cls, no_of_classes, gamma=0.3, device='cuda'):
+    """Manual implementation of CDT Loss following the exact formula from the paper.
+    
+    This implementation follows equation (5) from the CDT paper:
+    -∑_n log[ exp(w_yn^T f_θ(x_n) / a_yn) / ∑_c exp(w_c^T f_θ(x_n) / a_c) ]
+    
+    Args:
+        logits: A float tensor of size [batch, no_of_classes].
+        labels: A int tensor of size [batch].
+        samples_per_cls: A python list of size [no_of_classes] containing number of samples per class.
+        no_of_classes: total number of classes. int
+        gamma: float. Hyperparameter controlling the temperature scaling (gamma >= 0).
+        device: device to place tensors on.
+        
+    Returns:
+        cdt_loss: A float tensor representing CDT loss
+    """
+    batch_size = logits.size(0)
+    
+    # Convert samples_per_cls to tensor
+    samples_per_cls = torch.tensor(samples_per_cls, dtype=torch.float32, device=device)
+    
+
+    # Calculate class-dependent temperatures
+    N_max = torch.max(samples_per_cls)
+    temperatures = torch.pow(N_max / samples_per_cls, gamma)  # [no_of_classes]
+    
+    # Scale logits by temperatures for all classes
+    # logits: [batch_size, no_of_classes]
+    # temperatures: [no_of_classes]
+    scaled_logits = logits / temperatures.unsqueeze(0)  # [batch_size, no_of_classes]
+    
+    # Compute log probabilities manually following equation (5)
+    # For numerical stability, subtract max
+    logits_max, _ = torch.max(scaled_logits, dim=1, keepdim=True)
+    scaled_logits_stable = scaled_logits - logits_max
+    
+    # Compute denominator: ∑_c exp(w_c^T f_θ(x_n) / a_c)
+    exp_scaled_logits = torch.exp(scaled_logits_stable)  # [batch_size, no_of_classes]
+    denominator = torch.sum(exp_scaled_logits, dim=1, keepdim=True)  # [batch_size, 1]
+    
+    # Compute numerator: exp(w_yn^T f_θ(x_n) / a_yn)
+    numerator = exp_scaled_logits.gather(1, labels.unsqueeze(1))  # [batch_size, 1]
+    
+    # Compute log probabilities
+    log_probs = torch.log(numerator / denominator)  # [batch_size, 1]
+    
+    # CDT loss is the negative log likelihood
+    cdt_loss = -torch.mean(log_probs)
+    
+    return cdt_loss
