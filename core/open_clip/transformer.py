@@ -339,7 +339,7 @@ class Transformer(nn.Module):
         self.layers = layers
         self.grad_checkpointing = False
 
-        if params is not None and params.text == 'lora':
+        if params is not None and (params.text == 'lora' or params.lora_bottleneck > 0):
             self.resblocks = nn.ModuleList([
                 CustomResidualAttentionBlock(
                     width, heads, mlp_ratio, ls_init_value=ls_init_value, act_layer=act_layer, norm_layer=norm_layer, params=params)
@@ -386,7 +386,8 @@ class VisionTransformer(nn.Module):
             input_patchnorm: bool = False,
             act_layer: Callable = nn.GELU,
             norm_layer: Callable = LayerNorm,
-            output_tokens: bool = False
+            output_tokens: bool = False,
+            params: Optional[Any] = None,  # PETL parameters
     ):
         super().__init__()
         self.output_tokens = output_tokens
@@ -423,6 +424,7 @@ class VisionTransformer(nn.Module):
             ls_init_value=ls_init_value,
             act_layer=act_layer,
             norm_layer=norm_layer,
+            params=params,  # PETL parameters
         )
 
         self.global_average_pool = global_average_pool
