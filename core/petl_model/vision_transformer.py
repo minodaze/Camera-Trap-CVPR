@@ -203,7 +203,6 @@ class VisionTransformerPETL(VisionTransformer):
 
         ## Add the projection layer for the CLIPClassifier's head
         self.proj = nn.Linear(embed_dim, output_dim, bias=False)
-        # self.proj = torch.randn(self.embed_dim, 512, dtype=torch.float32)
 
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 

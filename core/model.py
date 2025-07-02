@@ -102,7 +102,6 @@ OPENAI_IMAGENET_TEMPLATE = [
     'a tattoo of the {CLZ_NAME}.',
 ]
 
-
 BIOCLIP_TEMPLATE = [
     'a photo of {CLZ_NAME}.',
 ]
@@ -153,7 +152,7 @@ class CLIPClassifier(nn.Module):
             class_embedding = self.get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx, self.text_template)
             class_embedding = class_embedding.to(self.device)
             feats = F.normalize(x, dim=-1)  # Normalize the features
-            x = F.linear(x, class_embedding, bias=None)  # Use the class embedding to compute logits
+            x = F.linear(feats, class_embedding, bias=None)  # Use the class embedding to compute logits
             del class_embedding  # Free memory
         else:
             feats = F.normalize(x, dim=-1)
