@@ -9,6 +9,7 @@ from torch.nn import functional as F
 from tqdm import tqdm
 
 from .loss import CB_loss, focal_loss, loss_fn_kd, SupConLoss, CDT_loss
+from .loss import CB_loss, focal_loss, loss_fn_kd, SupConLoss, CDT_loss
 
 """
 
