@@ -128,6 +128,18 @@ class CkpDataset(Dataset):
         self.ckp_samples = self._get_ckp_samples(self.samples)
         self._sort_samples()
 
+    def add_class_names(self, new_class_names):
+        """
+        Add new class names to the dataset.
+        """
+        for class_name in new_class_names:
+            if class_name not in self.class_names:
+                self.class_names.append(class_name)
+                self.class_name_idx[class_name] = len(self.class_names) - 1
+        class_num = len(self.class_names)
+        for sample in self.samples:
+            sample.logits = torch.empty(class_num)
+
     def train(self):
         self.is_train = True
         self.transform = self.train_transform

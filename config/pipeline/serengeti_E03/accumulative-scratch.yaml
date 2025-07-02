@@ -1,26 +1,27 @@
 module_name: accumulative-scratch
-log_path: log/pipeline/ENO_C05_new/ce/accumulative-scratch
+log_path: log/pipeline/serengeti_E03/ce/accumulative-scratch
 class_names:
-  - rhinocerosblack
-  - baboon
-  - harecape
-  - impala
-  - warthog
-  - rhinoceroswhite
-  - elephant
-  - giraffe
-  - zebraplains
-  - hyenaspotted
-  - wildebeestblue
-  - buffalo
-  - eland
-  - domesticanimal
-  - gazellethomsons
   - topi
+  - gazellethomsons
+  - warthog
+  - hippopotamus
+  - hyenaspotted
+  - zebra
+  - reedbuck
+  - dikdik
+  - gazellegrants
+  - impala
+  - buffalo
+  - giraffe
+  - wildebeest
+  - elephant
+  - hartebeest
+  - guineafowl
+  - baboon
+  - otherbird
 common_config:
-  model: bioclip
-  train_data_config_path: config/data/ENO_C05/train.json
-  eval_data_config_path: config/data/ENO_C05/test.json
+  train_data_config_path: config/data/serengeti_E03/train.json
+  eval_data_config_path: config/data/serengeti_E03/test.json
   train_batch_size: 32
   eval_batch_size: 512
   optimizer_name: AdamW
@@ -40,5 +41,5 @@ al_config:
   method: all
 cl_config:
   method: accumulative-scratch
-  epochs: 50
+  epochs: 30
   loss_type: ce

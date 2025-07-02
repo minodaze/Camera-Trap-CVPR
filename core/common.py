@@ -216,17 +216,12 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                 "epoch": epoch
             })
 
-        if classifier.init_text:
-            logging.info(f'Rebuild head')
-            classifier.reset_head()
-
         if scheduler is not None:
             scheduler.step()
 
         if eval_per_epoch:
             loss_arr, preds_arr, labels_arr = eval(classifier, eval_loader, device)
             print_metrics(loss_arr, preds_arr, labels_arr, len(loader.dataset.class_names), log_predix=f'Epoch {epoch}, ')
-
 
 def eval(classifier, loader, device, chop_head=False, return_logits=False):
     dset = loader.dataset
@@ -253,6 +248,10 @@ def eval(classifier, loader, device, chop_head=False, return_logits=False):
     else:
         chop_mask = np.zeros(n_classes, dtype=bool)
     
+    if classifier.init_text:
+        logging.info(f'Rebuild head for evaluation')
+        classifier.reset_head()
+
     classifier.eval()
     with torch.no_grad():
         for inputs, labels, _, _ in loader:

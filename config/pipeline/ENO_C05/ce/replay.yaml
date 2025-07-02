@@ -1,5 +1,5 @@
-module_name: accumulative-scratch
-log_path: log/pipeline/ENO_C05_new/ce/accumulative-scratch
+module_name: replay
+log_path: log/pipeline/ENO_C05_new/ce/replay
 class_names:
   - rhinocerosblack
   - baboon
@@ -39,6 +39,7 @@ ood_config:
 al_config:
   method: all
 cl_config:
-  method: accumulative-scratch
+  method: replay
+  buffer_size: 1000
   epochs: 50
   loss_type: ce

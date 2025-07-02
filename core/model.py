@@ -122,16 +122,17 @@ class CLIPClassifier(nn.Module):
         self.head.bias.data.zero_()
         self.initialized = True
 
-    def reset_head(self):
-        assert self.initialized, 'Head not initialized. '
-        assert self.init_text, 'No text model set. '
-        class_embedding = get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx, self.text_template)
-        self.init_head(class_embedding)
-        self.head = self.head.to(self.device)
+    # def reset_head(self):
+    #     assert self.initialized, 'Head not initialized. '
+    #     assert self.init_text, 'No text model set. '
+    #     class_embedding = self.get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx, self.text_template)
+    #     self.init_head(class_embedding)
+    #     self.head = self.head.to(self.device)
     
     def set_text(self, text_model, tokenizer, text_embed_dim, class_name_idx, template):
         """Set the text model and tokenizer for the classifier."""
         self.text_model = text_model
+        self.add_module('text_model', self.text_model)  # This registers the text model as a submodule
         self.tokenizer = tokenizer
         self.text_embed_dim = text_embed_dim
         self.class_name_idx = class_name_idx
@@ -155,8 +156,12 @@ class CLIPClassifier(nn.Module):
     def forward(self, images, return_feats=False):
         x = self.visual_model.forward_features(images)
         x = self.visual_model.forward_head(x, pre_logits=True) # get the features
-        feats = F.normalize(x, dim=-1)
-        x = self.head(feats)
+        if self.init_text:
+            class_embedding = self.get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx, self.text_template)
+            x = F.linear(x, class_embedding, bias=False)  # Use the class embedding to compute logits
+        else:
+            feats = F.normalize(x, dim=-1)
+            x = self.head(feats)
         if return_feats:
             return x, feats
         else:
@@ -179,6 +184,34 @@ class CLIPClassifier(nn.Module):
     def load(self, path):
         logging.info(f'Loading classifier from {path}... ')
         self.load_state_dict(torch.load(path))
+
+    def get_class_embedding(self, model, tokenizer, embed_dim, class_name_idx, text_template='openai'): 
+        device = next(model.parameters()).device
+        context_length = model.context_length
+        class_embedding = torch.empty(len(class_name_idx), embed_dim)
+        for class_name, class_idx in class_name_idx.items():
+            # logging.info(f'Getting class embedding for {class_name}... ')
+            texts = self.get_texts(class_name, text_template)
+            # logging.info('Texts: ')
+            # for t in texts:
+            #     logging.info(f'\t{t}')
+            texts = tokenizer(
+                    texts, 
+                    padding='max_length', 
+                    truncation=True, 
+                    max_length=context_length, 
+                    return_tensors='pt'
+                )
+            input_ids = texts['input_ids'].to(device)
+            _class_embedding = model.encode_text(input_ids)
+            _class_embedding = F.normalize(_class_embedding, dim=-1).mean(dim=0)
+            _class_embedding = F.normalize(_class_embedding, dim=-1)
+            class_embedding[class_idx] = _class_embedding
+        return class_embedding
+
+    def get_texts(self, c, text_template='openai'):
+        texts = [template.format(CLZ_NAME=c) for template in OPENAI_IMAGENET_TEMPLATE]
+        return texts
 
 def build_classifier(params, class_name_idx, device): 
     if isinstance(class_name_idx, list):
@@ -268,6 +301,9 @@ def build_classifier(params, class_name_idx, device):
     else:
         del bioclip_model, tokenizer
     classifier = classifier.to(device)
+
+    # if params.model_path != 'None':
+    #     classifier.load(params.model_path)
     
     # Log final memory usage
     if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:

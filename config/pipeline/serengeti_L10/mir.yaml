@@ -1,21 +1,27 @@
 module_name: MIR
-log_path: log/pipeline/APN_K024/ce/MIR
+log_path: log/pipeline/serengeti_L10/mir
 class_names:
-  - wildebeestblue
-  - zebraburchells
-  - steenbok
-  - impala
-  - giraffe
-  - baboon
-  - warthog
-  - kudu
-  - duikercommongrey
-  - elephant
+  - cheetah
+  - hyenaspotted
+  - secretarybird
+  - lionfemale
+  - lionmale
+  - gazellethomsons
+  - serval
+  - otherbird
+  - hartebeest
+  - eland
+  - zebra
+  - wildebeest
+  - guineafowl
   - buffalo
+  - elephant
+  - reedbuck
+  - gazellegrants
+  - warthog
 common_config:
-  model: bioclip
-  train_data_config_path: config/data/APN_K024/train.json
-  eval_data_config_path: config/data/APN_K024/test.json
+  train_data_config_path: config/data/serengeti_L10/train.json
+  eval_data_config_path: config/data/serengeti_L10/test.json
   train_batch_size: 32
   eval_batch_size: 512
   optimizer_name: AdamW
@@ -30,7 +36,7 @@ common_config:
 pretrain_config:
   pretrain: false
 ood_config:
-  method: oracle
+  method: all
 al_config:
   method: all
 cl_config:

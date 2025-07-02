@@ -54,9 +54,7 @@ def setup_logging(log_path, debug, params):
     # Log to file
     if log_path:
         if not os.path.exists(log_path):
-            os.makedirs(log_path)
-        else:
-            raise ValueError(f'Log path {log_path} already exists. ')
+            os.makedirs(log_path, exist_ok=True)
         log_file = os.path.join(log_path, 'log.txt')
         fh = logging.FileHandler(log_file)
         fh.setLevel(logging.INFO)
@@ -290,12 +288,25 @@ def run(args):
             gpu_monitor.log_memory_usage("continual_learning", f"after_{ckp}")
 
         # Save model and predictions
-        if args.gpu_memory_monitor:
-            gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
-        loss_arr, preds_arr, labels_arr = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'])
-        if args.gpu_memory_monitor:
-            gpu_monitor.log_memory_usage("evaluation", f"after_{ckp}")
-        print_metrics(loss_arr, preds_arr, labels_arr, len(class_names))
+        if args.accu_eval:
+            logging.info(f'Accu-eval start on {ckp_list[i]}')
+            for c in range(i, len(ckp_list)):
+                eval_ckp = ckp_list[c]
+                ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=eval_ckp)
+                cl_eval_loader = DataLoader(ckp_eval_dset, batch_size=common_config['eval_batch_size'], shuffle=False)
+                if args.gpu_memory_monitor:
+                    gpu_monitor.log_memory_usage("evaluation", f"before_{eval_ckp}")
+                loss_arr, preds_arr, labels_arr = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'])
+                if args.gpu_memory_monitor:
+                    gpu_monitor.log_memory_usage("evaluation", f"after_{eval_ckp}")
+                print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"Accu-eval start on {ckp_list[i]} at {eval_ckp}: ")
+        else:
+            if args.gpu_memory_monitor:
+                gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
+            loss_arr, preds_arr, labels_arr = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'])
+            if args.gpu_memory_monitor:
+                gpu_monitor.log_memory_usage("evaluation", f"after_{ckp}")
+            print_metrics(loss_arr, preds_arr, labels_arr, len(class_names))
         
         # Log training and evaluation loss to wandb
         if wandb.run is not None:
@@ -358,14 +369,20 @@ def parse_args():
     parser.add_argument('--drop_path_rate', default=0.,
                         type=float,
                         help='Drop Path Rate (default: %(default)s)')
+    # parser.add_argument('--model', type=str, default='vit', choices=['vit', 'swin'],
+    #                     help='pretrained model name')
+
+    ############################## TEST #################################
+    parser.add_argument('--accu_eval', action='store_true',
+                        help='whether to test all later checkpoints after training on each checkpoint')
+
+    ############################## Text Encoder ##############################
     parser.add_argument('--text', type=str, default='head',
                         choices=['head', 'full', 'lora'],
                         help='text encoder type, head for head only, full for full text encoder')
     parser.add_argument('--text_template', type=str, default='openai',
                         choices=['bioclip', 'openai'],
                         help='text template type')
-    # parser.add_argument('--model', type=str, default='vit', choices=['vit', 'swin'],
-    #                     help='pretrained model name')
 
     parser.add_argument('--template', type=str, default='openai')
 

@@ -36,5 +36,5 @@ al_config:
 cl_config:
   method: lwf
   buffer_size: 1000
-  epochs: 30
+  epochs: 50
   loss_type: derpp

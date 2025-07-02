@@ -1,0 +1,40 @@
+module_name: zs
+log_path: log/pipeline/serengeti_E03/ce/zs
+class_names:
+  - topi
+  - gazellethomsons
+  - warthog
+  - hippopotamus
+  - hyenaspotted
+  - zebra
+  - reedbuck
+  - dikdik
+  - gazellegrants
+  - impala
+  - buffalo
+  - giraffe
+  - wildebeest
+  - elephant
+  - hartebeest
+  - guineafowl
+  - baboon
+  - otherbird
+common_config:
+  model: bioclip
+  train_data_config_path: config/data/serengeti_E03/train.json
+  eval_data_config_path: config/data/serengeti_E03/test.json
+  train_batch_size: 128
+  eval_batch_size: 512
+  optimizer_name: AdamW
+  optimizer_params:
+    lr: 0.0001
+    weight_decay: 0.0001
+  chop_head: false
+pretrain_config:
+  pretrain: false
+ood_config:
+  method: none
+al_config:
+  method: none
+cl_config:
+  method: none

@@ -1,0 +1,43 @@
+module_name: zs
+log_path: log/pipeline/serengeti_L10/ce/zs
+class_names:
+  - cheetah
+  - hyenaspotted
+  - secretarybird
+  - lionfemale
+  - lionmale
+  - gazellethomsons
+  - serval
+  - otherbird
+  - hartebeest
+  - eland
+  - zebra
+  - wildebeest
+  - guineafowl
+  - buffalo
+  - elephant
+  - reedbuck
+  - gazellegrants
+  - warthog
+common_config:
+  train_data_config_path: config/data/serengeti_L10/train.json
+  eval_data_config_path: config/data/serengeti_L10/test.json
+  train_batch_size: 32
+  eval_batch_size: 512
+  optimizer_name: AdamW
+  optimizer_params:
+    lr: 0.000025
+    weight_decay: 0.0001
+  chop_head: false
+  scheduler: CosineAnnealingLR
+  scheduler_params:
+    T_max: 30
+    eta_min: 0.0000025
+pretrain_config:
+  pretrain: false
+ood_config:
+  method: none
+al_config:
+  method: none
+cl_config:
+  method: none
