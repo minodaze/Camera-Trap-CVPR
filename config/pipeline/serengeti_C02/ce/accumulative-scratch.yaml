@@ -1,22 +1,22 @@
 module_name: accumulative-scratch
-log_path: log/pipeline/ENO_C05_new/ce/accumulative-scratch
+log_path: log/pipeline/serengeti_C02/ce/accumulative-scratch
 class_names:
-  - plains zebra
-  - impala
-  - eland
-  - giraffe
-  - blue wildebeest
-  - thomson's gazelle
+  - guineafowl
   - warthog
-  - domestic animal
-  - spotted hyena
-  - baboon
+  - buffalo
+  - giraffe
+  - impala
+  - hartebeest
+  - elephant
+  - zebra
+  - gazellegrants
+  - wildebeest
+  - hyenaspotted
+  - gazellethomsons
   - topi
-  - african buffalo
 common_config:
-  model: bioclip
-  train_data_config_path: config/data/ENO_C05_common_name/train.json
-  eval_data_config_path: config/data/ENO_C05_common_name/test.json
+  train_data_config_path: config/data/serengeti_C02/train.json
+  eval_data_config_path: config/data/serengeti_C02/test.json
   train_batch_size: 32
   eval_batch_size: 512
   optimizer_name: AdamW

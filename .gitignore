@@ -6,3 +6,4 @@ data
 _scripts/
 figures/
 pretrained_weights/
+wandb/

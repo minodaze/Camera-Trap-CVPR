@@ -1,18 +1,18 @@
 module_name: accumulative-scratch
 log_path: log/pipeline/ENO_C05_new/ce/accumulative-scratch
 class_names:
-  - plains zebra
-  - impala
-  - eland
-  - giraffe
-  - blue wildebeest
-  - thomson's gazelle
-  - warthog
-  - domestic animal
-  - spotted hyena
-  - baboon
-  - topi
-  - african buffalo
+  - gray fox
+  - bobcat
+  - eastern gray squirrel
+  - california quail
+  - striped skunk
+  - wild boar
+  - domestic cow
+  - mountain lion
+  - american black bear
+  - california ground squirrel
+  - elk
+  - black-tailed jackrabbit
 common_config:
   model: bioclip
   train_data_config_path: config/data/ENO_C05_common_name/train.json
@@ -37,4 +37,4 @@ al_config:
 cl_config:
   method: accumulative-scratch
   epochs: 30
-  loss_type: ce
+  loss_type: cdt

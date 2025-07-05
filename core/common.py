@@ -8,7 +8,7 @@ import torch
 from torch.nn import functional as F
 from tqdm import tqdm
 
-from .loss import CB_loss, focal_loss, loss_fn_kd, SupConLoss
+from .loss import CB_loss, focal_loss, loss_fn_kd, SupConLoss, CDT_loss
 
 """
 
@@ -110,6 +110,11 @@ def get_f_loss(loss_type, samples, n_classes, device, alpha=None, beta=None, gam
                             ref_logits.float())
                 loss += beta  * F.cross_entropy(buf_logits, labels[is_buf])
             return loss
+    elif loss_type == 'cdt':
+        def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
+            cdt_gamma = gamma if gamma is not None else 0.3
+            loss = CDT_loss(logits, labels, samples_per_cls, n_classes, cdt_gamma, device)
+            return loss
     else:
         raise ValueError(f'Unknown loss type {loss_type}. ')
     return f_loss
@@ -199,12 +204,11 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             })
 
         # Log training loss and accuracy to wandb if initialized
-        if wandb.run is not None:  # Check if wandb is initialized
-            wandb.log({
-                "train_loss": avg_loss,
-                "train_accuracy": avg_acc,
-                "epoch": epoch
-            })
+        # if wandb.run is not None:  # Check if wandb is initialized
+        #     wandb.log({
+        #         "train_loss": avg_loss,
+        #         "train_accuracy": avg_acc,
+        #     }, step=epoch)
 
         if scheduler is not None:
             scheduler.step()

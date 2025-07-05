@@ -286,6 +286,28 @@ def build_classifier(params, class_name_idx, device):
         class_embedding = get_class_embedding(bioclip_model, tokenizer, text_embed_dim, class_name_idx, text_template=params.text_template)
         classifier.init_head(class_embedding)
     
+    for name, parameter in bioclip_model.named_parameters():
+        if params.text == 'head':
+            if 'visual' not in name:
+                parameter.requires_grad = False
+            else:
+                parameter.requires_grad = True
+                if params.debug:
+                    logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
+        elif params.text == 'full':
+            parameter.requires_grad = True
+            if params.debug:
+                logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
+        elif params.text == 'lora' and params.lora_bottleneck > 0:
+            if 'lora' in name:
+                parameter.requires_grad = True
+                if params.debug:
+                    logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
+            else:
+                parameter.requires_grad = False
+        else:
+            raise NotImplementedError(f"Not implemented yet: {params.text}")
+
     # Log memory after class embedding
     if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
         log_gpu_memory("model_build", "after_class_embedding", device=device, enable_wandb=getattr(params, 'wandb', False))

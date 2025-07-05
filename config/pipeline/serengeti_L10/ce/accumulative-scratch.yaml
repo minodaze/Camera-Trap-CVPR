@@ -1,5 +1,5 @@
 module_name: accumulative-scratch
-log_path: log/pipeline/serengeti_L10/ce/accumulative-scratch
+log_path: log/pipeline/serengeti_L10/cdt/accumulative-scratch
 class_names:
   - cheetah
   - hyenaspotted

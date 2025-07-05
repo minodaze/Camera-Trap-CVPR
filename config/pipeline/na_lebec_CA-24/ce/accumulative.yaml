@@ -1,22 +1,22 @@
 module_name: accumulative-scratch
-log_path: log/pipeline/ENO_C05_new/ce/accumulative-scratch
+log_path: log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch
 class_names:
-  - plains zebra
-  - impala
-  - eland
-  - giraffe
-  - blue wildebeest
-  - thomson's gazelle
-  - warthog
-  - domestic animal
-  - spotted hyena
-  - baboon
-  - topi
-  - african buffalo
+  - gray fox
+  - bobcat
+  - eastern gray squirrel
+  - california quail
+  - striped skunk
+  - wild boar
+  - domestic cow
+  - mountain lion
+  - american black bear
+  - california ground squirrel
+  - elk
+  - black-tailed jackrabbit
 common_config:
   model: bioclip
-  train_data_config_path: config/data/ENO_C05_common_name/train.json
-  eval_data_config_path: config/data/ENO_C05_common_name/test.json
+  train_data_config_path: config/data/na_lebec_CA-24_common_name/train.json
+  eval_data_config_path: config/data/na_lebec_CA-24_common_name/test.json
   train_batch_size: 32
   eval_batch_size: 512
   optimizer_name: AdamW
