@@ -209,12 +209,11 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             })
 
         # Log training loss and accuracy to wandb if initialized
-        if wandb.run is not None:  # Check if wandb is initialized
-            wandb.log({
-                "train_loss": avg_loss,
-                "train_accuracy": avg_acc,
-                "epoch": epoch
-            })
+        # if wandb.run is not None:  # Check if wandb is initialized
+        #     wandb.log({
+        #         "train_loss": avg_loss,
+        #         "train_accuracy": avg_acc,
+        #     }, step=epoch)
 
         if scheduler is not None:
             scheduler.step()

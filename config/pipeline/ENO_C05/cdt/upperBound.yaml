@@ -1,26 +1,22 @@
 module_name: percentage-1
 log_path: log/pipeline/ENO_C05_new/ce/percentage-1
 class_names:
-  - rhinocerosblack
-  - baboon
-  - harecape
-  - impala
-  - warthog
-  - rhinoceroswhite
-  - elephant
-  - giraffe
-  - zebraplains
-  - hyenaspotted
-  - wildebeestblue
-  - buffalo
-  - eland
-  - domesticanimal
-  - gazellethomsons
-  - topi
+  - gray fox
+  - bobcat
+  - eastern gray squirrel
+  - california quail
+  - striped skunk
+  - wild boar
+  - domestic cow
+  - mountain lion
+  - american black bear
+  - california ground squirrel
+  - elk
+  - black-tailed jackrabbit
 common_config:
   model: bioclip
-  train_data_config_path: config/data/ENO_C05/train.json
-  eval_data_config_path: config/data/ENO_C05/test.json
+  train_data_config_path: config/data/ENO_C05_common_name/train.json
+  eval_data_config_path: config/data/ENO_C05_common_name/test.json
   train_batch_size: 32
   eval_batch_size: 512
   optimizer_name: AdamW
@@ -35,8 +31,8 @@ common_config:
 pretrain_config:
   pretrain: true
   pretrain_data_config_path: config/data/ENO_C05/train-all.json
-  epochs: 50
-  loss_type: ce
+  epochs: 30
+  loss_type: cdt
 ood_config:
   method: none
 al_config:

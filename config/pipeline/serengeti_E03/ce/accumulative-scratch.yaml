@@ -1,23 +1,28 @@
 module_name: accumulative-scratch
-log_path: log/pipeline/serengeti_C02/ce/accumulative-scratch
+log_path: log/pipeline/serengeti_E03/cdt/accumulative-scratch
 class_names:
-  - guineafowl
+  - topi
+  - gazellethomsons
   - warthog
+  - hippopotamus
+  - hyenaspotted
+  - zebra
+  - reedbuck
+  - dikdik
+  - gazellegrants
+  - impala
   - buffalo
   - giraffe
-  - impala
-  - hartebeest
-  - elephant
-  - zebra
-  - gazellegrants
   - wildebeest
-  - hyenaspotted
-  - gazellethomsons
-  - topi
+  - elephant
+  - hartebeest
+  - guineafowl
+  - baboon
+  - otherbird
 common_config:
-  train_data_config_path: config/data/serengeti_C02/train.json
-  eval_data_config_path: config/data/serengeti_C02/test.json
-  train_batch_size: 8
+  train_data_config_path: config/data/serengeti_E03/train.json
+  eval_data_config_path: config/data/serengeti_E03/test.json
+  train_batch_size: 32
   eval_batch_size: 512
   optimizer_name: AdamW
   optimizer_params:

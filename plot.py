@@ -62,52 +62,53 @@ def read_accu_eval(file_path):
     return acc_arr, balanced_acc_arr
 
 file_paths = {
-    "serengeti_C02(bioclip2-vision+text)": {
-        "zs": "log/pipeline/serengeti_C02/ce/zs/bioclip2/full_text_full/2025-07-01-02-21-03/log/log.txt",
-        "accu-full tuning": "log/pipeline/serengeti_C02/ce/accumulative-scratch/bioclip2/full_text_full/2025-07-01-02-17-38/log/log.txt",
-        "accu-lora": "log/pipeline/serengeti_C02/ce/accumulative-scratch/bioclip2/lora_8_text_lora/2025-07-01-02-19-57/log/log.txt",
-        "upperbound-full tuning": "log/pipeline/serengeti_C02/ce/upperBound/bioclip2/full_text_full/2025-07-01-02-23-04/log/log.txt",
-        "upperbound-lora": "log/pipeline/serengeti_C02/ce/upperBound/bioclip2/lora_8_text_lora/2025-07-01-02-23-23/log/log.txt",
-        # "replay-full tuning": "log/pipeline/serengeti_C02/replay/bioclip2/full_text_full/2025-07-01-02-49-13/log/log.txt",
-        # "mir-full tuning": "log/pipeline/serengeti_C02/mir/bioclip2/full_text_full/2025-07-01-02-50-29/log/log.txt"
+    "ENO_C05-common name(bioclip2-CE loss)": {
+        "zs": "log/pipeline/ENO_C05_new/ce/zs/bioclip2/full_text_full/2025-07-02-22-29-13/log/log.txt",
+        "accumulative(vision+text)": "log/pipeline/ENO_C05_new/ce/accumulative-scratch/bioclip2/full_text_full/2025-07-02-22-26-22/log/log.txt",
+        "upperBound(vision+text)": "log/pipeline/ENO_C05_new/ce/percentage-1/bioclip2/full_text_full/2025-07-02-23-07-24/log/log.txt",
+        "accumulative(vision+head)": "log/pipeline/ENO_C05_new/ce/accumulative-scratch/bioclip2/full_text_head/2025-07-02-23-39-01/log/log.txt",
+        "upperBound(vision+head)": "log/pipeline/ENO_C05_new/ce/percentage-1/bioclip2/full_text_head/2025-07-02-23-39-13/log/log.txt",
     },
-    "serengeti_E03(bioclip2-vision+text)": {
-        "zs": "log/pipeline/serengeti_E03/ce/zs/bioclip2/full_text_full/2025-07-01-02-39-03/log/log.txt",
-        "accu-full tuning": "log/pipeline/serengeti_E03/ce/accumulative-scratch/bioclip2/full_text_full/2025-07-01-02-37-53/log/log.txt",
-        "accu-lora": "log/pipeline/serengeti_E03/ce/accumulative-scratch/bioclip2/lora_8_text_lora/2025-07-01-02-21-55/log/log.txt",
-        "upperbound-full tuning": "log/pipeline/serengeti_E03/ce/upperBound/bioclip2/full_text_full/2025-07-01-02-42-56/log/log.txt",
-        "upperbound-lora": "log/pipeline/serengeti_E03/ce/upperBound/bioclip2/lora_8_text_lora/2025-07-01-02-38-43/log/log.txt",
-        # "replay-full tuning": "log/pipeline/serengeti_E03/replay/bioclip2/full_text_full/2025-07-01-02-51-49/log/log.txt",
-        # "mir-full tuning": "log/pipeline/serengeti_E03/mir/bioclip2/full_text_full/2025-07-01-02-53-08/log/log.txt"
+    "na_lebec_CA-24-common name(bioclip2-CE loss)": {
+        "zs": "log/pipeline/na_lebec_CA-24_common_name/ce/zs/bioclip2/full_text_head/2025-07-02-23-32-26/log/log.txt",
+        "accumulative(vision+text)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/full_text_full/2025-07-02-23-25-46/log/log.txt",
+        "upperBound(vision+text)": "log/pipeline/na_lebec_CA-24_common_name/ce/upperBound/bioclip2/full_text_full/2025-07-02-23-28-11/log/log.txt",
+        "accumulative(vision+head)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/full_text_head/2025-07-02-23-30-18/log/log.txt",
+        "upperBound(vision+head)": "log/pipeline/na_lebec_CA-24_common_name/ce/upperBound/bioclip2/full_text_head/2025-07-02-23-30-34/log/log.txt",
     },
-    "serengeti_L103(bioclip2-vision+text)": {
-        "zs": "log/pipeline/serengeti_L10/ce/zs/bioclip2/full_text_full/2025-07-01-13-04-27/log/log.txt",
-        "accu-lora": "log/pipeline/serengeti_L10/ce/accumulative-scratch/bioclip2/lora_8_text_lora/2025-07-01-02-29-05/log/log.txt",
-        "upperbound-full tuning": "log/pipeline/serengeti_L10/ce/upperBound/bioclip2/full_text_full/2025-07-01-02-26-04/log/log.txt",
-        "upperbound-lora": "log/pipeline/serengeti_L10/ce/upperBound/bioclip2/lora_8_text_lora/2025-07-01-02-39-15/log/log.txt",
-        # "replay-full tuning": "log/pipeline/serengeti_L10/replay/bioclip2/full_text_full/2025-07-01-02-55-31/log/log.txt",
-        # "mir-full tuning": "log/pipeline/serengeti_L10/mir/bioclip2/full_text_full/2025-07-01-02-55-20/log/log.txt"
+    "na_lebec_CA-24-common name(bioclip2-CDT loss)": {
+        "zs": "log/pipeline/na_lebec_CA-24_common_name/ce/zs/bioclip2/full_text_head/2025-07-02-23-32-26/log/log.txt",
+        "accumulative(vision+text)": "log/pipeline/na_lebec_CA-24_common_name/cdt/accumulative-scratch/bioclip2/full_text_full/2025-07-02-23-19-24/log/log.txt",
+        "upperBound(vision+text)": "log/pipeline/na_lebec_CA-24_common_name/cdt/upperBound/bioclip2/full_text_full/2025-07-02-23-21-04/log/log.txt",
+        "accumulative(vision+head)": "log/pipeline/na_lebec_CA-24_common_name/cdt/accumulative-scratch/bioclip2/full_text_head/2025-07-02-23-30-00/log/log.txt",
+        "upperBound(vision+head)": "log/pipeline/na_lebec_CA-24_common_name/cdt/upperBound/bioclip2/full_text_head/2025-07-02-23-30-07/log/log.txt",
     },
-    "serengeti_C02(bioclip2-vision+text)2": {
-        "zs": "log/pipeline/serengeti_C02/ce/zs/bioclip2/full_text_full/2025-07-01-02-21-03/log/log.txt",
-        "accu-full tuning": "log/pipeline/serengeti_C02/ce/accumulative-scratch/bioclip2/full_text_full/2025-07-01-02-17-38/log/log.txt",
-        "upperbound-full tuning": "log/pipeline/serengeti_C02/ce/upperBound/bioclip2/full_text_full/2025-07-01-02-23-04/log/log.txt",
-        "replay-full tuning": "log/pipeline/serengeti_C02/replay/bioclip2/full_text_full/2025-07-01-02-49-13/log/log.txt",
-        "mir-full tuning": "log/pipeline/serengeti_C02/mir/bioclip2/full_text_full/2025-07-01-02-50-29/log/log.txt"
+    "na_lebec_CA-24-common name(bioclip2-vision+text-CE loss vs CDT loss)": {
+        "zs": "log/pipeline/na_lebec_CA-24_common_name/ce/zs/bioclip2/full_text_head/2025-07-02-23-32-26/log/log.txt",
+        "accumulative(CE loss)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/full_text_full/2025-07-02-23-25-46/log/log.txt",
+        "upperBound(CE loss)": "log/pipeline/na_lebec_CA-24_common_name/ce/upperBound/bioclip2/full_text_full/2025-07-02-23-28-11/log/log.txt",
+        "accumulative(CDT loss)": "log/pipeline/na_lebec_CA-24_common_name/cdt/accumulative-scratch/bioclip2/full_text_full/2025-07-02-23-19-24/log/log.txt",
+        "upperBound(CDT loss)": "log/pipeline/na_lebec_CA-24_common_name/cdt/upperBound/bioclip2/full_text_head/2025-07-02-23-30-07/log/log.txt",
     },
-    "serengeti_E03(bioclip2-vision+text)2": {
-        "zs": "log/pipeline/serengeti_E03/ce/zs/bioclip2/full_text_full/2025-07-01-02-39-03/log/log.txt",
-        "accu-full tuning": "log/pipeline/serengeti_E03/ce/accumulative-scratch/bioclip2/full_text_full/2025-07-01-02-37-53/log/log.txt",
-        "upperbound-full tuning": "log/pipeline/serengeti_E03/ce/upperBound/bioclip2/full_text_full/2025-07-01-02-42-56/log/log.txt",
-        "replay-full tuning": "log/pipeline/serengeti_E03/replay/bioclip2/full_text_full/2025-07-01-02-51-49/log/log.txt",
-        "mir-full tuning": "log/pipeline/serengeti_E03/mir/bioclip2/full_text_full/2025-07-01-02-53-08/log/log.txt"
+    "na_lebec_CA-24-common name(bioclip2-vision+head-CE loss vs CDT loss)": {
+        "zs": "log/pipeline/na_lebec_CA-24_common_name/ce/zs/bioclip2/full_text_head/2025-07-02-23-32-26/log/log.txt",
+        "accumulative(CE loss)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/full_text_head/2025-07-02-23-30-18/log/log.txt",
+        "upperBound(CE loss)": "log/pipeline/na_lebec_CA-24_common_name/ce/upperBound/bioclip2/full_text_head/2025-07-02-23-30-34/log/log.txt",
+        "accumulative(CDT loss)": "log/pipeline/na_lebec_CA-24_common_name/cdt/accumulative-scratch/bioclip2/full_text_head/2025-07-02-23-30-00/log/log.txt",
+        "upperBound(CDT loss)": "log/pipeline/na_lebec_CA-24_common_name/cdt/upperBound/bioclip2/full_text_head/2025-07-02-23-30-07/log/log.txt",
     },
-    "serengeti_L103(bioclip2-vision+text)2": {
-        "zs": "log/pipeline/serengeti_L10/ce/zs/bioclip2/full_text_full/2025-07-01-13-04-27/log/log.txt",
-        "upperbound-full tuning": "log/pipeline/serengeti_L10/ce/upperBound/bioclip2/full_text_full/2025-07-01-02-26-04/log/log.txt",
-        "replay-full tuning": "log/pipeline/serengeti_L10/replay/bioclip2/full_text_full/2025-07-01-02-55-31/log/log.txt",
-        "mir-full tuning": "log/pipeline/serengeti_L10/mir/bioclip2/full_text_full/2025-07-01-02-55-20/log/log.txt"
+    "na_lebec_CA-24-common name": {
+        "accumulative(lora-vision+text)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/lora_8_text_lora/2025-07-03-12-49-58/log/log.txt",
+        "accumulative(lora-vision+head)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/lora_8_text_head/2025-07-03-12-53-50/log/log.txt",
+        "accumulative(vision+text)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/full_text_full/2025-07-02-23-25-46/log/log.txt",
+        "accumulative(vision+head)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/full_text_head/2025-07-02-23-30-18/log/log.txt"
     },
+    "ENO_C05-common name": {
+        "accumulative(lora-vision+text)": "log/pipeline/ENO_C05_new/ce/accumulative-scratch/bioclip2/lora_8_text_lora/2025-07-03-13-43-25/log/log.txt",
+        "accumulative(lora-vision+head)": "log/pipeline/ENO_C05_new/ce/accumulative-scratch/bioclip2/lora_8_text_head/2025-07-03-13-43-43/log/log.txt",
+        "accumulative(vision+text)": "log/pipeline/ENO_C05_new/ce/accumulative-scratch/bioclip2/full_text_full/2025-07-02-22-26-22/log/log.txt",
+        "accumulative(vision+head)": "log/pipeline/ENO_C05_new/ce/accumulative-scratch/bioclip2/full_text_head/2025-07-02-23-39-01/log/log.txt"
+    }
 }
 accu_eval_path = {
     "serengeti_C02": {

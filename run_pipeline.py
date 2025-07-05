@@ -299,21 +299,23 @@ def run(args):
                 loss_arr, preds_arr, labels_arr = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'])
                 if args.gpu_memory_monitor:
                     gpu_monitor.log_memory_usage("evaluation", f"after_{eval_ckp}")
-                print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"Accu-eval start on {ckp_list[i]} at {eval_ckp}: ")
+            acc, balanced_acc = print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"Accu-eval start on {ckp_list[i]} at {eval_ckp}: ")
         else:
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
             loss_arr, preds_arr, labels_arr = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'])
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("evaluation", f"after_{ckp}")
-            print_metrics(loss_arr, preds_arr, labels_arr, len(class_names))
-        
+            acc, balanced_acc = print_metrics(loss_arr, preds_arr, labels_arr, len(class_names))
+
         # Log training and evaluation loss to wandb
         if wandb.run is not None:
             wandb.log({
-                "eval_loss": np.mean(loss_arr),  # Evaluation loss
-                "checkpoint": ckp
-            })
+                "accuracy": acc,  # Overall accuracy
+                "balanced_accuracy": balanced_acc,  # Balanced accuracy
+                # "eval_loss": np.mean(loss_arr),  # Evaluation loss
+                # "checkpoint": ckp
+            }, step=i)
 
         if args.is_save:
             logging.info(f'Saving model to {args.save_dir}. ')

@@ -1,27 +1,27 @@
 module_name: accumulative-scratch
-log_path: log/pipeline/serengeti_E03/ce/accumulative-scratch
+log_path: log/pipeline/serengeti_L10/cdt/accumulative-scratch
 class_names:
-  - topi
-  - gazellethomsons
-  - warthog
-  - hippopotamus
+  - cheetah
   - hyenaspotted
-  - zebra
-  - reedbuck
-  - dikdik
-  - gazellegrants
-  - impala
-  - buffalo
-  - giraffe
-  - wildebeest
-  - elephant
-  - hartebeest
-  - guineafowl
-  - baboon
+  - secretarybird
+  - lionfemale
+  - lionmale
+  - gazellethomsons
+  - serval
   - otherbird
+  - hartebeest
+  - eland
+  - zebra
+  - wildebeest
+  - guineafowl
+  - buffalo
+  - elephant
+  - reedbuck
+  - gazellegrants
+  - warthog
 common_config:
-  train_data_config_path: config/data/serengeti_E03/train.json
-  eval_data_config_path: config/data/serengeti_E03/test.json
+  train_data_config_path: config/data/serengeti_L10/train.json
+  eval_data_config_path: config/data/serengeti_L10/test.json
   train_batch_size: 32
   eval_batch_size: 512
   optimizer_name: AdamW
@@ -42,4 +42,4 @@ al_config:
 cl_config:
   method: accumulative-scratch
   epochs: 30
-  loss_type: ce
+  loss_type: cdt
