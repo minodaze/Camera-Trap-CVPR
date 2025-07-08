@@ -1,18 +1,18 @@
-module_name: MIR
-log_path: log/pipeline/ENO_C05_new/ce/mir
+module_name: percentage-1
+log_path: log/pipeline/ENO_C05_new/kd/percentage-1
 class_names:
-  - plains zebra
-  - impala
-  - eland
-  - giraffe
-  - blue wildebeest
-  - thomson's gazelle
-  - warthog
-  - domestic animal
-  - spotted hyena
   - baboon
   - topi
+  - plains zebra
+  - thomson's gazelle
+  - impala
   - african buffalo
+  - warthog
+  - domestic animal
+  - blue wildebeest
+  - giraffe
+  - spotted hyena
+  - eland
 common_config:
   model: bioclip
   train_data_config_path: config/data/ENO_C05_common_name/train.json
@@ -29,13 +29,13 @@ common_config:
     T_max: 30
     eta_min: 0.0000025
 pretrain_config:
-  pretrain: false
-ood_config:
-  method: all
-al_config:
-  method: all
-cl_config:
-  method: mir
-  buffer_size: 1000
+  pretrain: true
+  pretrain_data_config_path: config/data/ENO_C05_common_name/train-all.json
   epochs: 30
-  loss_type: ce
+  loss_type: kd
+ood_config:
+  method: none
+al_config:
+  method: none
+cl_config:
+  method: none

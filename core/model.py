@@ -177,6 +177,56 @@ class CLIPClassifier(nn.Module):
     def load(self, path):
         logging.info(f'Loading classifier from {path}... ')
         self.load_state_dict(torch.load(path))
+    
+    def interpolate_head(self, model, alpha=0.5):
+        """Interpolate the class embedding with the current head weights."""
+        if not self.initialized:
+            raise RuntimeError("Head is not initialized. Cannot interpolate.")
+        if model.head.weight.size(1) != self.head.weight.size(1):
+            raise ValueError("Class embedding dimension must match head weight dimension.")
+        if model.head.weight.size(0) != self.head.weight.size(0):
+            raise ValueError("Class embedding size must match head weight size.")
+        
+        # Interpolate the weights
+        new_weight = (1 - alpha) * self.head.weight.data + alpha * model.head.weight.data
+        self.head.weight.data = new_weight
+        self.initialized = True
+    
+    def interpolate_model(self, classifier, alpha):
+        """
+        Interpolate the current model's parameters with another CLIPClassifier.
+            
+        Args:
+            classifier: Another CLIPClassifier instance to interpolate with
+            alpha: Interpolation factor (0.0 = keep current model, 1.0 = use other model)
+        """
+        if not isinstance(classifier, CLIPClassifier):
+            raise ValueError("classifier must be an instance of CLIPClassifier.")
+            
+        # Interpolate visual model parameters
+        for (name1, param1), (name2, param2) in zip(self.visual_model.named_parameters(), classifier.visual_model.named_parameters()):
+            if name1 != name2:
+                raise ValueError(f"Parameter names don't match: {name1} vs {name2}")
+            param1.data = (1 - alpha) * param1.data + alpha * param2.data
+            
+        # Interpolate head parameters if both are initialized
+        if self.initialized and classifier.initialized:
+            self.head.weight.data = (1 - alpha) * self.head.weight.data + alpha * classifier.head.weight.data
+            self.head.bias.data = (1 - alpha) * self.head.bias.data + alpha * classifier.head.bias.data
+            
+        # Interpolate text model parameters if both have text models
+        if hasattr(self, 'text_model') and hasattr(classifier, 'text_model'):
+            for (name1, param1), (name2, param2) in zip(self.text_model.named_parameters(), classifier.text_model.named_parameters()):
+                if name1 != name2:
+                    raise ValueError(f"Text model parameter names don't match: {name1} vs {name2}")
+                param1.data = (1 - alpha) * param1.data + alpha * param2.data
+            
+        # Interpolate projection head if both have it
+        if hasattr(self, 'proj_head') and hasattr(classifier, 'proj_head'):
+            for (name1, param1), (name2, param2) in zip(self.proj_head.named_parameters(), classifier.proj_head.named_parameters()):
+                if name1 != name2:
+                    raise ValueError(f"Projection head parameter names don't match: {name1} vs {name2}")
+                param1.data = (1 - alpha) * param1.data + alpha * param2.data        
 
     def get_class_embedding(self, model, tokenizer, embed_dim, class_name_idx, text_template='openai'): 
         device = next(model.parameters()).device

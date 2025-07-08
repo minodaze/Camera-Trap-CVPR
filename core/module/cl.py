@@ -182,6 +182,36 @@ class CLAccumulativeScratch(CLModule):
     def _after_train(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
         pass
 
+class CLAccumulativeScratchLWF(CLModule):
+    """Accumulative training with scratch. Fine-tune the classifier on all samples seen so far, but use a new classifier each time.
+    """
+    def process(self, _, train_dset, eval_dset, train_mask, eval_per_epoch=True, eval_loader=None, ckp=None, gpu_monitor=None):
+        # global idx
+        classifier = copy.deepcopy(self._classifier)
+        # Set the reference model for distillation BEFORE training
+        self.incremental_step(classifier)
+        # Process data
+        cl_train_dset = copy.deepcopy(train_dset)
+        cl_train_dset.apply_mask(train_mask)
+        cl_train_dset.add_samples(self.buffer)
+        # Train
+        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor)
+        # Process buffer
+        for msk, sample in zip(train_mask, train_dset.samples):
+            if msk:
+                self.buffer.append(sample)
+        return classifier
+    
+    def incremental_step(self, model):
+        self.ref_model = self._classifier  # update the reference model
+        self.ref_model.eval()              # no training on it, just inference
+
+    def refresh_buffer(self, new_samples):
+        pass
+    
+    def _after_train(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
+        pass
+
 class CLReplay(CLModule):
     """
     CLEAR-style replay:
@@ -189,14 +219,6 @@ class CLReplay(CLModule):
         • on every round mix NEW : REPLAY samples in a 50 : 50 ratio
         • after training update the buffer and re-balance it
     """
-    def __init__(self, classifier, cl_config, common_config, class_names, args, device):
-        self.cl_config = cl_config
-        self.common_config = common_config
-        self.class_names = class_names
-        self.buffer = []
-        self.args = args
-        self.device = device
-        self.ref_model = None
 
     def _sample_from_buffer(self, n, classifier, train_dset):
         """Return `n` samples from the buffer (with or without replacement)."""
@@ -222,6 +244,8 @@ class CLReplay(CLModule):
         per_class = max(1, buf_size // n_cls)
         if per_class < 10:
             self.cl_config['buffer_size'] = buf_size*2  # increase the buffer size to keep at least 10 samples per class
+            buf_size = self.cl_config.get('buffer_size', 500)
+            per_class = max(1, buf_size // n_cls)
 
         new_buf = []
         for samples in by_cls.values():
@@ -286,7 +310,7 @@ class CLLWF(CLReplay):
         • use the reference model to compute the distillation loss
     """
     def incremental_step(self, model):
-        self.ref_model = copy.deepcopy(model)  # update the reference model
+        self.ref_model = self._classifier  # update the reference model
         self.ref_model.eval()                  # no training on it, just inference
 
 class CLDerpp(CLReplay):
@@ -498,6 +522,7 @@ CL_METHODS = {
     'naive-ft': CLNaiveFT,
     'accumulative': CLAccumulative,
     'accumulative-scratch': CLAccumulativeScratch,
+    'accumulative-scratch-lwf': CLAccumulativeScratchLWF,
     'replay': CLReplay,
     'rand-replace-old': CLRandReplaceOld,
     'lwf': CLLWF,

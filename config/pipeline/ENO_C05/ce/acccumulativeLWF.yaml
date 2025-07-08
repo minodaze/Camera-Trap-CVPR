@@ -1,5 +1,5 @@
-module_name: MIR
-log_path: log/pipeline/ENO_C05_new/ce/mir
+module_name: accumulative-scratch-lwf
+log_path: log/pipeline/ENO_C05_new/kd/accumulative-scratch-lwf
 class_names:
   - plains zebra
   - impala
@@ -35,7 +35,6 @@ ood_config:
 al_config:
   method: all
 cl_config:
-  method: mir
-  buffer_size: 1000
+  method: accumulative-scratch-lwf
   epochs: 30
-  loss_type: ce
+  loss_type: kd

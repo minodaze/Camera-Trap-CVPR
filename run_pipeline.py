@@ -34,6 +34,8 @@ def setup_logging(log_path, debug, params):
     petl_method_name = method_name(params)
     log_path = os.path.join(log_path, params.pretrained_weights)
     petl_method_name = petl_method_name + f'_text_{params.text}'
+    if params.interpolation_model:
+        petl_method_name += f'_interpolation_model_{params.interpolation_alpha}'
     log_path = os.path.join(log_path, petl_method_name)
     log_path = os.path.join(log_path, log_time)
     if not debug:
@@ -62,7 +64,7 @@ def setup_logging(log_path, debug, params):
         logger.addHandler(fh)
     return log_path
 
-def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None):
+def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None, interpolation_model=False, interpolation_head=False, interpolation_alpha=0.5):
     """Pretrain the classifier on the pretraining dataset.
         
         Args:
@@ -83,6 +85,11 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
     optimizer_params = common_config['optimizer_params']
     train_batch_size = common_config['train_batch_size']
     
+    _classifier = None  # Placeholder for interpolation model or head
+    if pretrain_config['loss_type'] == 'kd' or interpolation_model or interpolation_head:
+        _classifier = copy.deepcopy(classifier)
+        _classifier.to(device)
+
     # Get optimizer
     optimizer = get_optimizer(classifier, optimizer_name, optimizer_params)
     
@@ -91,7 +98,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
         scheduler = get_scheduler(optimizer, common_config['scheduler'], common_config['scheduler_params'])
     else:
         scheduler = None
-    
+
     # Get dataset
     dataset = CkpDataset(pretrain_data_config_path, class_names)
     dataset = dataset.get_subset(is_train=True, ckp_list=["ckp_-1", "ckp_1"])
@@ -105,14 +112,26 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
         device,
         alpha=pretrain_config.get('loss_alpha', None),
         beta=pretrain_config.get('loss_beta', None),
-        gamma=pretrain_config.get('loss_gamma', None)
+        gamma=pretrain_config.get('loss_gamma', None),
+        ref_model=_classifier,  # Use _classifier for KD loss if applicable
     )
     
     # Get dataloader
     loader = DataLoader(dataset, batch_size=train_batch_size, shuffle=True, num_workers=4)
-    
+
     # Train
     train(classifier, optimizer, loader, epochs, device, f_loss, scheduler=scheduler, gpu_monitor=gpu_monitor)
+    if interpolation_model or interpolation_head:
+        if gpu_monitor:
+            gpu_monitor.log_memory_usage("interpolation", "after_pretrain")
+        # Interpolate model if enabled
+        if interpolation_model:
+            logging.info(f'Interpolating model with alpha {interpolation_alpha}. ')
+            classifier.interpolate_model(_classifier, alpha=interpolation_alpha)
+        if interpolation_head:
+            logging.info(f'Interpolating head with alpha {interpolation_alpha}. ')
+            classifier.interpolate_head(_classifier, alpha=interpolation_alpha)
+    del _classifier  # Clear the temporary classifier to free memory
     return classifier
 
 def run(args):
@@ -137,19 +156,19 @@ def run(args):
         import re
         
         # Extract components from the original save_dir
-        match = re.match(r".*/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)", args.save_dir)
+        match = re.search(r"pipeline/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)", args.save_dir)
         wandb_run_name = "Unidentified Run"  # Default name if regex fails
         if match:
-            dataset = match.group(1)  # e.g., MAD_MAD05
+            dataset = match.group(1)  # e.g., ENO_C05_new
             training_mode = match.group(2)  # e.g., ce
-            pretrained_weights = match.group(3)  # e.g., accumulative-scratch
-            method_name = match.group(4)  # e.g., bioclip2_2025-06-24-02-12-36
-            petl_method_name = match.group(5)  # e.g., lora_8
-            log_folder = match.group(6)  # e.g., log
+            pretrained_type = match.group(3)  # e.g., accumulative-scratch
+            pretrained_weights = match.group(4)  # e.g., bioclip2
+            method = match.group(5)  # e.g., lora_8_text_lora
+            timestamp = match.group(6)  # e.g., 2025-07-05-14-53-19
 
-            # Construct the new save_dir format
-            wandb_run_name = f"{dataset} | {pretrained_weights} | {method_name} | {petl_method_name}"
-        
+            # Construct the wandb run name
+            wandb_run_name = f"{dataset} | {training_mode} | {pretrained_type} | {pretrained_weights} | {method} | {timestamp}"
+
         module_name = getattr(args, 'module_name', 'default_module')  # Fallback if module_name is not in args
         wandb.init(
             project="ICICLE-Benchmark",  # Replace with your project name
@@ -165,7 +184,19 @@ def run(args):
     ood_config = args.ood_config
     al_config = args.al_config
     cl_config = args.cl_config
-    class_names = args.class_names
+    train_path = common_config['train_data_config_path']
+    test_path = common_config['eval_data_config_path']
+    with open(train_path, 'r') as fin:
+        data = json.load(fin)
+    with open(test_path, 'r') as fin:
+        data_test = json.load(fin)
+        data.update(data_test)
+    
+    class_names = []
+    for key, value in data.items():
+        for v in value:
+            if v['class_name'] not in class_names:
+                class_names.append(v['class_name'])
     
     is_crop = True if cl_config['method'] == 'co2l' else False
     
@@ -188,7 +219,10 @@ def run(args):
                               pretrain_config, 
                               common_config, 
                               args.device,
-                              gpu_monitor)
+                              gpu_monitor,
+                              interpolation_model=args.interpolation_model,
+                              interpolation_head=args.interpolation_head,
+                              interpolation_alpha=args.interpolation_alpha)
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("pretrain", "after")
             gpu_monitor.clear_cache_and_log("pretrain")
@@ -287,7 +321,19 @@ def run(args):
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("continual_learning", f"after_{ckp}")
 
+        if not pretrain_config['pretrain'] and (args.interpolation_model or args.interpolation_head):
+            if args.gpu_memory_monitor:
+                gpu_monitor.log_memory_usage("interpolation", f"before_{ckp}")
+            # Interpolate model if enabled
+            if args.interpolation_model:
+                logging.info(f'Interpolating model at checkpoint {ckp} with alpha {args.interpolation_alpha}. ')
+                classifier.interpolate_model(cl_module._classifier, alpha=args.interpolation_alpha)
+            if args.interpolation_head:
+                logging.info(f'Interpolating head at checkpoint {ckp} with alpha {args.interpolation_alpha}. ')
+                classifier.interpolate_head(cl_module._classifier, alpha=args.interpolation_alpha)
+
         # Save model and predictions
+        acc, balanced_acc = 0.0, 0.0  # Initialize metrics
         if args.accu_eval:
             logging.info(f'Accu-eval start on {ckp_list[i]}')
             for c in range(i, len(ckp_list)):
@@ -299,7 +345,9 @@ def run(args):
                 loss_arr, preds_arr, labels_arr = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'])
                 if args.gpu_memory_monitor:
                     gpu_monitor.log_memory_usage("evaluation", f"after_{eval_ckp}")
-            acc, balanced_acc = print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"Accu-eval start on {ckp_list[i]} at {eval_ckp}: ")
+                a, b = print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"Accu-eval start on {ckp_list[i]} at {eval_ckp}: ")
+                if c == i:
+                    acc, balanced_acc = a, b  # Only log for the first checkpoint in the accu-eval loop
         else:
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
@@ -363,6 +411,9 @@ def parse_args():
     parser.add_argument('--wandb', action='store_true', help='Enable wandb logging')  # New argument
     parser.add_argument('--gpu_memory_monitor', action='store_true', help='Enable GPU memory monitoring and logging')  # New argument
     parser.add_argument('--no_gpu_monitor_colors', action='store_true', help='Disable colored output for GPU monitoring (colors enabled by default)')  # New argument
+    parser.add_argument('--interpolation_model', action='store_true', help='Enable interpolation model')
+    parser.add_argument('--interpolation_head', action='store_true', help='Enable interpolation head')
+    parser.add_argument('--interpolation_alpha', type=float, default=0.5, help='Interpolation alpha value (default: 0.5)')
 
     ###########################Model Configurations#########################
     parser.add_argument('--pretrained_weights', type=str, default='bioclip2',
