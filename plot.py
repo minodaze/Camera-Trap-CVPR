@@ -62,62 +62,49 @@ def read_accu_eval(file_path):
     return acc_arr, balanced_acc_arr
 
 file_paths = {
-    "ENO_C05-common name(bioclip2-CE loss)": {
-        "zs": "log/pipeline/ENO_C05_new/ce/zs/bioclip2/full_text_full/2025-07-02-22-29-13/log/log.txt",
-        "accumulative(vision+text)": "log/pipeline/ENO_C05_new/ce/accumulative-scratch/bioclip2/full_text_full/2025-07-02-22-26-22/log/log.txt",
-        "upperBound(vision+text)": "log/pipeline/ENO_C05_new/ce/percentage-1/bioclip2/full_text_full/2025-07-02-23-07-24/log/log.txt",
-        "accumulative(vision+head)": "log/pipeline/ENO_C05_new/ce/accumulative-scratch/bioclip2/full_text_head/2025-07-02-23-39-01/log/log.txt",
-        "upperBound(vision+head)": "log/pipeline/ENO_C05_new/ce/percentage-1/bioclip2/full_text_head/2025-07-02-23-39-13/log/log.txt",
-    },
-    "na_lebec_CA-24-common name(bioclip2-CE loss)": {
-        "zs": "log/pipeline/na_lebec_CA-24_common_name/ce/zs/bioclip2/full_text_head/2025-07-02-23-32-26/log/log.txt",
-        "accumulative(vision+text)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/full_text_full/2025-07-02-23-25-46/log/log.txt",
-        "upperBound(vision+text)": "log/pipeline/na_lebec_CA-24_common_name/ce/upperBound/bioclip2/full_text_full/2025-07-02-23-28-11/log/log.txt",
-        "accumulative(vision+head)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/full_text_head/2025-07-02-23-30-18/log/log.txt",
-        "upperBound(vision+head)": "log/pipeline/na_lebec_CA-24_common_name/ce/upperBound/bioclip2/full_text_head/2025-07-02-23-30-34/log/log.txt",
-    },
-    "na_lebec_CA-24-common name(bioclip2-CDT loss)": {
-        "zs": "log/pipeline/na_lebec_CA-24_common_name/ce/zs/bioclip2/full_text_head/2025-07-02-23-32-26/log/log.txt",
-        "accumulative(vision+text)": "log/pipeline/na_lebec_CA-24_common_name/cdt/accumulative-scratch/bioclip2/full_text_full/2025-07-02-23-19-24/log/log.txt",
-        "upperBound(vision+text)": "log/pipeline/na_lebec_CA-24_common_name/cdt/upperBound/bioclip2/full_text_full/2025-07-02-23-21-04/log/log.txt",
-        "accumulative(vision+head)": "log/pipeline/na_lebec_CA-24_common_name/cdt/accumulative-scratch/bioclip2/full_text_head/2025-07-02-23-30-00/log/log.txt",
-        "upperBound(vision+head)": "log/pipeline/na_lebec_CA-24_common_name/cdt/upperBound/bioclip2/full_text_head/2025-07-02-23-30-07/log/log.txt",
-    },
-    "na_lebec_CA-24-common name(bioclip2-vision+text-CE loss vs CDT loss)": {
-        "zs": "log/pipeline/na_lebec_CA-24_common_name/ce/zs/bioclip2/full_text_head/2025-07-02-23-32-26/log/log.txt",
-        "accumulative(CE loss)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/full_text_full/2025-07-02-23-25-46/log/log.txt",
-        "upperBound(CE loss)": "log/pipeline/na_lebec_CA-24_common_name/ce/upperBound/bioclip2/full_text_full/2025-07-02-23-28-11/log/log.txt",
-        "accumulative(CDT loss)": "log/pipeline/na_lebec_CA-24_common_name/cdt/accumulative-scratch/bioclip2/full_text_full/2025-07-02-23-19-24/log/log.txt",
-        "upperBound(CDT loss)": "log/pipeline/na_lebec_CA-24_common_name/cdt/upperBound/bioclip2/full_text_head/2025-07-02-23-30-07/log/log.txt",
-    },
-    "na_lebec_CA-24-common name(bioclip2-vision+head-CE loss vs CDT loss)": {
-        "zs": "log/pipeline/na_lebec_CA-24_common_name/ce/zs/bioclip2/full_text_head/2025-07-02-23-32-26/log/log.txt",
-        "accumulative(CE loss)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/full_text_head/2025-07-02-23-30-18/log/log.txt",
-        "upperBound(CE loss)": "log/pipeline/na_lebec_CA-24_common_name/ce/upperBound/bioclip2/full_text_head/2025-07-02-23-30-34/log/log.txt",
-        "accumulative(CDT loss)": "log/pipeline/na_lebec_CA-24_common_name/cdt/accumulative-scratch/bioclip2/full_text_head/2025-07-02-23-30-00/log/log.txt",
-        "upperBound(CDT loss)": "log/pipeline/na_lebec_CA-24_common_name/cdt/upperBound/bioclip2/full_text_head/2025-07-02-23-30-07/log/log.txt",
-    },
-    "na_lebec_CA-24-common name": {
-        "accumulative(lora-vision+text)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/lora_8_text_lora/2025-07-03-12-49-58/log/log.txt",
-        "accumulative(lora-vision+head)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/lora_8_text_head/2025-07-03-12-53-50/log/log.txt",
-        "accumulative(vision+text)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/full_text_full/2025-07-02-23-25-46/log/log.txt",
-        "accumulative(vision+head)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/full_text_head/2025-07-02-23-30-18/log/log.txt"
-    },
     "ENO_C05-common name": {
+        "zs": "log/pipeline/ENO_C05_new/ce/zs/bioclip2/full_text_full/2025-07-02-22-29-13/log/log.txt",
         "accumulative(lora-vision+text)": "log/pipeline/ENO_C05_new/ce/accumulative-scratch/bioclip2/lora_8_text_lora/2025-07-03-13-43-25/log/log.txt",
         "accumulative(lora-vision+head)": "log/pipeline/ENO_C05_new/ce/accumulative-scratch/bioclip2/lora_8_text_head/2025-07-03-13-43-43/log/log.txt",
         "accumulative(vision+text)": "log/pipeline/ENO_C05_new/ce/accumulative-scratch/bioclip2/full_text_full/2025-07-02-22-26-22/log/log.txt",
         "accumulative(vision+head)": "log/pipeline/ENO_C05_new/ce/accumulative-scratch/bioclip2/full_text_head/2025-07-02-23-39-01/log/log.txt"
-    }
+    },
+    "na_lebec_CA-24-common name": {
+        "zs": "log/pipeline/na_lebec_CA-24_common_name/ce/zs/bioclip2/full_text_head/2025-07-02-23-32-26/log/log.txt",
+        "accumulative(lora-vision+text)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/lora_8_text_lora/2025-07-03-12-49-58/log/log.txt",
+        "accumulative(lora-vision+head)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/lora_8_text_head/2025-07-03-12-53-50/log/log.txt",
+        "accumulative(vision+text)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/full_text_full/2025-07-07-14-55-33/log/log.txt",
+        "accumulative(vision+head)": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/full_text_head/2025-07-02-23-30-18/log/log.txt"
+    },
+    "ENO_C05-common name-regularization(vision+head)": {
+        "zs": "log/pipeline/ENO_C05_new/ce/zs/bioclip2/full_text_full/2025-07-02-22-29-13/log/log.txt",
+        "accumulative": "log/pipeline/ENO_C05_new/ce/accumulative-scratch/bioclip2/full_text_head/2025-07-05-16-24-02/log/log.txt",
+        "accumulative-lwf": "log/pipeline/ENO_C05_new/kd/accumulative-scratch-lwf/bioclip2/full_text_head/2025-07-05-23-39-35/log/log.txt",
+        "accumulative-interpolation": "log/pipeline/ENO_C05_new/ce/accumulative-scratch/bioclip2/full_text_head/2025-07-05-18-00-45/log/log.txt",
+        "CLEAR-lwf": "log/pipeline/ENO_C05_new/kd/lwf/bioclip2/full_text_head/2025-07-05-23-39-06/log/log.txt",
+        "CLEAR-interpolation": "log/pipeline/ENO_C05_new/ce/replay/bioclip2/full_text_head_interpolation_model_0.5/2025-07-07-13-33-48/log/log.txt",
+    },
+    "na_lebec_CA-24_common_name-regularization-vision+head": {
+        "zs": "log/pipeline/na_lebec_CA-24_common_name/ce/zs/bioclip2/full_text_head/2025-07-02-23-32-26/log/log.txt",
+        "accumulative": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/full_text_head/2025-07-02-23-30-18/log/log.txt",
+        "accumulative-lwf": "log/pipeline/na_lebec_CA-24_common_name/kd/accumulative-scratchLWF/bioclip2/full_text_head/2025-07-06-15-54-27/log/log.txt",
+        "accumulative-interpolation": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/full_text_head_interpolation_model_0.5/2025-07-06-15-35-58/log/log.txt",
+        "CLEAR-lwf": "log/pipeline/na_lebec_CA-24_common_name/kd/lwf/bioclip2/full_text_head/2025-07-07-13-45-10/log/log.txt",
+        "CLEAR-interpolation": "log/pipeline/na_lebec_CA-24_common_name/ce/replay/bioclip2/full_text_head_interpolation_model_0.5/2025-07-07-13-44-48/log/log.txt"
+    },
+    "ENO_C05-common name-zs": {
+        "petl": "log/pipeline/ENO_C05_new/ce/zs/bioclip2/full_text_head/log.txt",
+        "openclip": "/users/PAS2099/mino/ICICLE/log/pipeline/ENO_C05_new/ce/zs/bioclip2/full_text_head/2025-07-02-23-33-28/log/log.txt"
+    },
 }
 accu_eval_path = {
-    "serengeti_C02": {
-        "accu-eval" :"log/pipeline/serengeti_C02/ce/accumulative-scratch/bioclip2/full_text_full/2025-07-01-02-17-38/log/log.txt",
-        "zs": "log/pipeline/serengeti_C02/ce/zs/bioclip2/full_text_full/2025-07-01-02-21-03/log/log.txt"
+    "ENO_C05": {
+        "accumulative" :"log/pipeline/ENO_C05_new/ce/accumulative-scratch/bioclip2/full_text_head/2025-07-05-16-24-02/log/log.txt",
+        "regular": "log/pipeline/ENO_C05_new/ce/regular/bioclip2/full_text_head/2025-07-07-11-18-50/log/log.txt"
     },
-    "serengeti_E03": {
-        "accu-eval": "log/pipeline/serengeti_E03/ce/accumulative-scratch/bioclip2/full_text_full/2025-07-01-02-37-53/log/log.txt",
-        "zs": "log/pipeline/serengeti_E03/ce/zs/bioclip2/full_text_full/2025-07-01-02-39-03/log/log.txt"
+    "na_lebec_CA-24": {
+        "accumulative": "log/pipeline/na_lebec_CA-24_common_name/ce/accumulative-scratch/bioclip2/full_text_head/2025-07-07-13-52-10/log/log.txt",
+        "regular": "log/pipeline/na_lebec_CA-24_common_name/ce/regular/bioclip2/full_text_head/2025-07-07-11-20-24/log/log.txt"
     },
 }
 
@@ -167,7 +154,7 @@ for dset, file_list in accu_eval_path.items():
     zs_name = None
     
     for exp_name, file_path in file_list.items():
-        if "zs" in exp_name:
+        if "regular" in exp_name:
             zs_acc, zs_balanced_acc = read_accu(file_path)
             zs_name = exp_name
         else:
@@ -198,11 +185,11 @@ for dset, file_list in accu_eval_path.items():
         
         # Plot future checkpoint curves
         for ckp_idx, ba_list in enumerate(balanced_acc_list):
-            if ckp_idx % 5 == 0:
+            if ckp_idx == 5:
                 future_curve = ba_list[1:]
                 future_x = list(range(ckp_idx + 1, ckp_idx + 1 + len(future_curve)))
                 plt.plot(future_x, future_curve, 
-                            label=f"{exp_lb} (future from ckp_{ckp_idx+1})" if ckp_idx == 0 else "", 
+                            label=f"{exp_lb} (future from ckp_{ckp_idx})", 
                             color=colors[exp_idx % len(colors)], 
                             alpha=0.5, 
                             linestyle=':')

@@ -1,5 +1,5 @@
-module_name: percentage-1
-log_path: log/pipeline/na_lebec_CA-24_common_name/ce/upperBound
+module_name: replay
+log_path: log/pipeline/na_lebec_CA-24_common_name/ce/replay
 class_names:
   - gray fox
   - bobcat
@@ -29,13 +29,13 @@ common_config:
     T_max: 30
     eta_min: 0.0000025
 pretrain_config:
-  pretrain: true
-  pretrain_data_config_path: config/data/na_lebec_CA-24_common_name/train-all.json
+  pretrain: false
+ood_config:
+  method: all
+al_config:
+  method: all
+cl_config:
+  method: replay
+  buffer_size: 1000
   epochs: 30
   loss_type: ce
-ood_config:
-  method: none
-al_config:
-  method: none
-cl_config:
-  method: none

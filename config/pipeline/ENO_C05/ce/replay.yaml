@@ -15,8 +15,8 @@ class_names:
   - african buffalo
 common_config:
   model: bioclip
-  train_data_config_path: config/data/ENO_C05/train.json
-  eval_data_config_path: config/data/ENO_C05/test.json
+  train_data_config_path: config/data/ENO_C05_common_name/train.json
+  eval_data_config_path: config/data/ENO_C05_common_name/test.json
   train_batch_size: 32
   eval_batch_size: 512
   optimizer_name: AdamW
@@ -37,5 +37,5 @@ al_config:
 cl_config:
   method: replay
   buffer_size: 1000
-  epochs: 50
+  epochs: 30
   loss_type: ce
