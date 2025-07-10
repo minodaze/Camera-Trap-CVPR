@@ -14,9 +14,9 @@ class_names:
   - buffalo
 common_config:
   model: bioclip
-  train_data_config_path: config/data/APN_K024/train.json
-  eval_data_config_path: config/data/APN_K024/test.json
-  train_batch_size: 128
+  train_data_config_path: config/data/APN/APN_K024/train.json
+  eval_data_config_path: config/data/APN/APN_K024/test.json
+  train_batch_size: 64
   eval_batch_size: 512
   optimizer_name: AdamW
   optimizer_params:
@@ -26,7 +26,7 @@ common_config:
   scheduler: CosineAnnealingLR
   scheduler_params:
     T_max: 30
-    eta_min: 0.00001
+    eta_min: 0.0000025
 pretrain_config:
   pretrain: false
 ood_config:

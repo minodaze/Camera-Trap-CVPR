@@ -33,7 +33,8 @@ def setup_logging(log_path, debug, params):
     log_time = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
     petl_method_name = method_name(params)
     log_path = os.path.join(log_path, params.pretrained_weights)
-    log_path = f"{log_path}_{log_time}"
+    log_class_type = params.class_type
+    log_path = f"{log_path}_{log_time}_{log_class_type}"
     log_path = os.path.join(log_path, petl_method_name)
     if not debug:
         logger.setLevel(logging.INFO)
@@ -41,6 +42,7 @@ def setup_logging(log_path, debug, params):
     else:
         logger.setLevel(logging.DEBUG)
         curr_time = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
+        # loss_type = params.loss
         log_path = os.path.join(log_path, f'debug_{curr_time}')
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
@@ -153,7 +155,7 @@ def run(args):
         
         module_name = getattr(args, 'module_name', 'default_module')  # Fallback if module_name is not in args
         wandb.init(
-            project="ICICLE-Benchmark",  # Replace with your project name
+            project="ICICLE-Benchmark_v2",  # Replace with your project name
             name=wandb_run_name,  # Set run name using args.c and module_name
             config=vars(args)  # Log all arguments to wandb
         )
@@ -354,6 +356,11 @@ def parse_args():
     parser.add_argument('--pretrained_weights', type=str, default='bioclip2',
                         choices=['bioclip', 'bioclip2'],
                         help='pretrained weights name')
+
+    parser.add_argument('--class_type', type=str, default='scientific_name',
+                        choices=['common_name', 'scientific_name'],
+                        help='Class type for the model')
+    
     parser.add_argument('--drop_path_rate', default=0.,
                         type=float,
                         help='Drop Path Rate (default: %(default)s)')
@@ -476,6 +483,9 @@ def parse_args():
     ########################full#########################
     parser.add_argument('--full', action='store_true',
                         help='whether turn on full finetune')
+    ########################loss#########################
+    # parser.add_argument('--loss', type=str, default='ce',
+    #                     choices=['ce', 'focal', 'kd', 'cb', 'supcon', 'cdt'])
 
     ########################block#########################
     parser.add_argument('--block_index', default=None, type=int, nargs='+',
