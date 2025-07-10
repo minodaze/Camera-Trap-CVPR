@@ -100,12 +100,13 @@ class ClassBalancedSampler(Sampler):
 class CkpDataset(Dataset):
     _global_cache = {}
 
-    def __init__(self, json_path, class_names, is_train=True, is_speciesnet=False, is_crop=False):
+    def __init__(self, json_path, class_names, is_train=True, is_speciesnet=False, is_crop=False, label_type='common'):
         self.cache = CkpDataset._global_cache
         self.json_path = json_path
         self.class_names = class_names
         self.is_train = is_train
         self.is_crop = is_crop
+        self.label_type = label_type
         self.crop_train_transform = _CROP_TRAIN_TRANSFORM
         self.train_transform = _TRAIN_TRANSFORM
         if is_speciesnet:
@@ -157,7 +158,7 @@ class CkpDataset(Dataset):
                 file_path = data.get("image_path")
                 if not file_path:
                     raise ValueError(f"image_path not found in {data}")
-                class_name = data.get("class_name")
+                class_name = data.get(self.label_type)
                 if not class_name:
                     raise ValueError(f"class_name not found in {data}")
                 assert class_name in self.class_names, f"class_name {class_name} not found in class_names. "
