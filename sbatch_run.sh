@@ -3,7 +3,7 @@
 #SBATCH --job-name=bioclip2_upper_bound
 #SBATCH --output=logs/bioclip2_%j.out
 #SBATCH --error=logs/bioclip2_%j.err
-#SBATCH --time=03:00:00
+#SBATCH --time=08:00:00
 #SBATCH --nodes=1                 # Request 4 nodes
 #SBATCH --ntasks-per-node=1       # One task per node
 #SBATCH --gpus-per-node=1         # One GPU per node
@@ -23,6 +23,7 @@ CONFIG_ROOT="/fs/scratch/PAS2099/${USER_NAME}/icicle/configs/generated_common"
 mkdir -p $CONFIG_ROOT
 # mkdir -p $(dirname "$CSV_PATH")
 
+# USE 4 datasets
 BIG_FOLDERS=(
     "idaho/idaho_51"
     "idaho/idaho_30"
