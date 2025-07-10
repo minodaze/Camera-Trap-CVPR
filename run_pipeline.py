@@ -231,8 +231,8 @@ def run(args):
         logging.info('Skipping pretraining... ')
     
     # Prepare dataset
-    train_dset = CkpDataset(common_config["train_data_config_path"], class_names, is_crop=is_crop)
-    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names)
+    train_dset = CkpDataset(common_config["train_data_config_path"], class_names, is_crop=is_crop, label_type=label_type)
+    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type)
     
     # Monitor dataset memory usage if enabled
     if args.gpu_memory_monitor:
