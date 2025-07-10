@@ -193,11 +193,12 @@ def run(args):
         data.update(data_test)
     
     class_names = []
+    label_type = args.label_type
     for key, value in data.items():
         for v in value:
-            if v['class_name'] not in class_names:
-                class_names.append(v['class_name'])
-    
+            if v[label_type] not in class_names:
+                class_names.append(v[label_type])
+    del data, data_test  # Clear data to free memory
     is_crop = True if cl_config['method'] == 'co2l' else False
     
     # Load model
@@ -414,6 +415,7 @@ def parse_args():
     parser.add_argument('--interpolation_model', action='store_true', help='Enable interpolation model')
     parser.add_argument('--interpolation_head', action='store_true', help='Enable interpolation head')
     parser.add_argument('--interpolation_alpha', type=float, default=0.5, help='Interpolation alpha value (default: 0.5)')
+    parser.add_argument('--label_type', type=str, default='common', choices=['scientific', 'common'], help='Type of class names to use (scientific or common names)')
 
     ###########################Model Configurations#########################
     parser.add_argument('--pretrained_weights', type=str, default='bioclip2',
