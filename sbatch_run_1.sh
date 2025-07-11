@@ -23,13 +23,17 @@ CONFIG_ROOT="/fs/scratch/PAS2099/${USER_NAME}/icicle/configs/generated_common"
 mkdir -p $CONFIG_ROOT
 # mkdir -p $(dirname "$CSV_PATH")
 
-# USE 4 datasets
-BIG_FOLDERS=(
-  "idaho/idaho_51"
-  "idaho/idaho_30"
-  "nz/nz_FGA_1"
-  "nz/nz_AHO_H2.2.1"
-)
+# Get datasets from command line arguments
+if [ $# -eq 0 ]; then
+    echo "Error: No datasets provided as arguments"
+    echo "Usage: sbatch sbatch_run_1.sh 'dataset1 dataset2 dataset3'"
+    exit 1
+fi
+
+# Parse datasets from the first argument (space-separated string)
+IFS=' ' read -ra BIG_FOLDERS <<< "$1"
+
+echo "Processing ${#BIG_FOLDERS[@]} datasets: ${BIG_FOLDERS[*]}"
 
 
 for DATASET in "${BIG_FOLDERS[@]}"; do
