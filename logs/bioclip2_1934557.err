@@ -1,0 +1,1459 @@
+/users/PAS2099/mino/miniconda3/envs/ICICLE/lib/python3.11/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+2025-07-12 15:51:29,310 - root - INFO - Saving to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_I12/upper_bound/2025-07-12-15-51-24/bioclip2/full_text_head/2025-07-12-15-51-29/log. 
+wandb: Currently logged in as: minodaze (minodaze-the-ohio-state-university) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.20.1
+wandb: Run data is saved locally in /users/PAS2099/mino/ICICLE/wandb/run-20250712_155129-t3g2ffwf
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run serengeti_serengeti_I12 | upper_bound | 2025-07-12-15-51-24 | bioclip2 | full_text_head | 2025-07-12-15-51-29
+wandb: ⭐️ View project at https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark
+wandb: 🚀 View run at https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark/runs/t3g2ffwf
+2025-07-12 15:51:30,224 - root - INFO - wandb logging is enabled.
+2025-07-12 15:51:30,224 - root - INFO - {'accu_eval': False,
+ 'adapter_bottleneck': 64,
+ 'adapter_init': 'lora_kaiming',
+ 'adapter_scaler': 0.1,
+ 'al_config': {'method': 'none'},
+ 'attention_index': None,
+ 'attention_type': 'full',
+ 'bitfit': False,
+ 'block_index': None,
+ 'c': '/fs/scratch/PAS2099/mino/ICICLE/configs/generated_common/serengeti_serengeti_I12_upper_bound.yaml',
+ 'cl_config': {'method': 'none'},
+ 'common_config': {'model': 'bioclip2', 'train_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_I12/30/train.json', 'eval_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_I12/30/test.json', 'all_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_I12/30/train-all.json', 'train_batch_size': 32, 'eval_batch_size': 512, 'optimizer_name': 'AdamW', 'optimizer_params': {'lr': 2.5e-05, 'weight_decay': 0.0001}, 'chop_head': False, 'scheduler': 'CosineAnnealingLR', 'scheduler_params': {'T_max': 30, 'eta_min': 2.5e-06}},
+ 'convpass_bottleneck': 8,
+ 'convpass_init': 'lora_xavier',
+ 'convpass_scaler': 10,
+ 'convpass_xavier_init': False,
+ 'debug': False,
+ 'device': 'cuda',
+ 'difffit': False,
+ 'drop_path_rate': 0.0,
+ 'eval_only': False,
+ 'eval_per_epoch': False,
+ 'fact_dim': 8,
+ 'fact_scaler': 1.0,
+ 'fact_type': None,
+ 'ft_attn_ln': 'before',
+ 'ft_attn_mode': 'parallel',
+ 'ft_attn_module': None,
+ 'ft_mlp_ln': 'before',
+ 'ft_mlp_mode': 'parallel',
+ 'ft_mlp_module': None,
+ 'full': True,
+ 'generalization_test': 'a',
+ 'gpu_id': None,
+ 'gpu_memory_monitor': False,
+ 'interpolation_alpha': 0.5,
+ 'interpolation_head': False,
+ 'interpolation_model': False,
+ 'is_save': False,
+ 'label_type': 'common',
+ 'ln': False,
+ 'log_path': '/fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_I12/upper_bound/2025-07-12-15-51-24/',
+ 'lora_bottleneck': 0,
+ 'merge_factor': 1,
+ 'mlp_index': None,
+ 'mlp_type': 'full',
+ 'module_name': 'upper_bound',
+ 'no_gpu_monitor_colors': False,
+ 'ood_config': {'method': 'none'},
+ 'pretrain_config': {'pretrain': False},
+ 'pretrained_weights': 'bioclip2',
+ 'repadapter_bottleneck': 8,
+ 'repadapter_group': 2,
+ 'repadapter_init': 'lora_xavier',
+ 'repadapter_scaler': 1,
+ 'save_dir': '/fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_I12/upper_bound/2025-07-12-15-51-24/bioclip2/full_text_head/2025-07-12-15-51-29/log',
+ 'seed': 9527,
+ 'ssf': False,
+ 'text': 'head',
+ 'text_template': 'openai',
+ 'vpt_dropout': 0.1,
+ 'vpt_layer': None,
+ 'vpt_mode': None,
+ 'vpt_num': 10,
+ 'vqt_dropout': 0.1,
+ 'vqt_num': 0,
+ 'wandb': True}
+2025-07-12 15:51:30,228 - root - INFO - Using Bioclip-2 model. 
+2025-07-12 15:51:30,228 - root - INFO - Loaded ViT-L-14 model config.
+2025-07-12 15:51:32,162 - root - INFO - Loading pretrained ViT-L-14 weights (pretrained_weights/bioclip-2/open_clip_pytorch_model.bin).
+2025-07-12 15:51:34,742 - root - INFO - Skipping pretraining... 
+2025-07-12 15:51:34,763 - root - INFO - Checkpoint list, length: 13: 
+2025-07-12 15:51:34,763 - root - INFO - 	ckp_1 
+2025-07-12 15:51:34,763 - root - INFO - 	ckp_2 
+2025-07-12 15:51:34,763 - root - INFO - 	ckp_3 
+2025-07-12 15:51:34,763 - root - INFO - 	ckp_4 
+2025-07-12 15:51:34,763 - root - INFO - 	ckp_5 
+2025-07-12 15:51:34,763 - root - INFO - 	ckp_6 
+2025-07-12 15:51:34,763 - root - INFO - 	ckp_7 
+2025-07-12 15:51:34,763 - root - INFO - 	ckp_8 
+2025-07-12 15:51:34,763 - root - INFO - 	ckp_9 
+2025-07-12 15:51:34,763 - root - INFO - 	ckp_10 
+2025-07-12 15:51:34,763 - root - INFO - 	ckp_11 
+2025-07-12 15:51:34,763 - root - INFO - 	ckp_12 
+2025-07-12 15:51:34,763 - root - INFO - 	ckp_13 
+2025-07-12 15:51:34,778 - root - INFO - Training on checkpoint ckp_1. 
+2025-07-12 15:51:34,778 - root - INFO - Subset length: 0
+2025-07-12 15:51:34,780 - root - INFO - Gathering samples from checkpoints: ['ckp_1']
+2025-07-12 15:51:34,782 - root - INFO - Subset length: 78
+2025-07-12 15:51:34,782 - root - INFO - Training dataset size: 0. 
+2025-07-12 15:51:34,782 - root - INFO - Evaluation dataset size: 78. 
+2025-07-12 15:51:34,783 - root - INFO - OOD mask: 0 / 0. 
+2025-07-12 15:51:34,783 - root - INFO - AL mask: 0 / 0. 
+2025-07-12 15:51:34,783 - root - INFO - Evaluating on next checkpoint ckp_1. 
+2025-07-12 15:51:36,849 - root - INFO - Number of samples: 78, acc: 0.8974, balanced acc: 0.8995, loss: 2.4837. 
+2025-07-12 15:51:36,849 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_I12/upper_bound/2025-07-12-15-51-24/bioclip2/full_text_head/2025-07-12-15-51-29/log. 
+2025-07-12 15:51:36,850 - root - INFO - Training on checkpoint ckp_2. 
+2025-07-12 15:51:36,850 - root - INFO - Gathering samples from checkpoints: ['ckp_1']
+2025-07-12 15:51:36,853 - root - INFO - Subset length: 95
+2025-07-12 15:51:36,853 - root - INFO - Gathering samples from checkpoints: ['ckp_2']
+2025-07-12 15:51:36,854 - root - INFO - Subset length: 54
+2025-07-12 15:51:36,854 - root - INFO - Training dataset size: 95. 
+2025-07-12 15:51:36,854 - root - INFO - Evaluation dataset size: 54. 
+2025-07-12 15:51:36,854 - root - INFO - OOD mask: 0 / 95. 
+2025-07-12 15:51:36,854 - root - INFO - AL mask: 0 / 95. 
+2025-07-12 15:51:36,855 - root - INFO - Evaluating on current checkpoint ckp_1. 
+2025-07-12 15:51:36,855 - root - INFO - Gathering samples from checkpoints: ['ckp_1']
+2025-07-12 15:51:36,856 - root - INFO - Subset length: 78
+2025-07-12 15:51:37,586 - root - INFO - Eval on current training checkpoint ckp_1: Number of samples: 78, acc: 0.8974, balanced acc: 0.8995, loss: 2.4837. 
+2025-07-12 15:51:37,586 - root - INFO - Evaluating on next checkpoint ckp_2. 
+2025-07-12 15:51:38,624 - root - INFO - Number of samples: 54, acc: 0.8889, balanced acc: 0.8800, loss: 2.4711. 
+2025-07-12 15:51:38,624 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_I12/upper_bound/2025-07-12-15-51-24/bioclip2/full_text_head/2025-07-12-15-51-29/log. 
+2025-07-12 15:51:38,626 - root - INFO - Training on checkpoint ckp_3. 
+2025-07-12 15:51:38,626 - root - INFO - Gathering samples from checkpoints: ['ckp_2']
+2025-07-12 15:51:38,630 - root - INFO - Subset length: 139
+2025-07-12 15:51:38,630 - root - INFO - Gathering samples from checkpoints: ['ckp_3']
+2025-07-12 15:51:38,630 - root - INFO - Subset length: 22
+2025-07-12 15:51:38,630 - root - INFO - Training dataset size: 139. 
+2025-07-12 15:51:38,630 - root - INFO - Evaluation dataset size: 22. 
+2025-07-12 15:51:38,630 - root - INFO - OOD mask: 0 / 139. 
+2025-07-12 15:51:38,631 - root - INFO - AL mask: 0 / 139. 
+2025-07-12 15:51:38,631 - root - INFO - Evaluating on current checkpoint ckp_2. 
+2025-07-12 15:51:38,631 - root - INFO - Gathering samples from checkpoints: ['ckp_2']
+2025-07-12 15:51:38,632 - root - INFO - Subset length: 54
+2025-07-12 15:51:39,204 - root - INFO - Eval on current training checkpoint ckp_2: Number of samples: 54, acc: 0.8889, balanced acc: 0.8800, loss: 2.4711. 
+2025-07-12 15:51:39,204 - root - INFO - Evaluating on next checkpoint ckp_3. 
+2025-07-12 15:51:39,709 - root - INFO - Number of samples: 22, acc: 0.9091, balanced acc: 0.9000, loss: 2.4764. 
+2025-07-12 15:51:39,710 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_I12/upper_bound/2025-07-12-15-51-24/bioclip2/full_text_head/2025-07-12-15-51-29/log. 
+2025-07-12 15:51:39,712 - root - INFO - Training on checkpoint ckp_4. 
+2025-07-12 15:51:39,712 - root - INFO - Gathering samples from checkpoints: ['ckp_3']
+2025-07-12 15:51:39,715 - root - INFO - Subset length: 159
+2025-07-12 15:51:39,715 - root - INFO - Gathering samples from checkpoints: ['ckp_4']
+2025-07-12 15:51:39,716 - root - INFO - Subset length: 34
+2025-07-12 15:51:39,716 - root - INFO - Training dataset size: 159. 
+2025-07-12 15:51:39,716 - root - INFO - Evaluation dataset size: 34. 
+2025-07-12 15:51:39,716 - root - INFO - OOD mask: 0 / 159. 
+2025-07-12 15:51:39,716 - root - INFO - AL mask: 0 / 159. 
+2025-07-12 15:51:39,716 - root - INFO - Evaluating on current checkpoint ckp_3. 
+2025-07-12 15:51:39,717 - root - INFO - Gathering samples from checkpoints: ['ckp_3']
+2025-07-12 15:51:39,717 - root - INFO - Subset length: 22
+2025-07-12 15:51:40,009 - root - INFO - Eval on current training checkpoint ckp_3: Number of samples: 22, acc: 0.9091, balanced acc: 0.9000, loss: 2.4764. 
+2025-07-12 15:51:40,009 - root - INFO - Evaluating on next checkpoint ckp_4. 
+2025-07-12 15:51:40,925 - root - INFO - Number of samples: 34, acc: 0.5588, balanced acc: 0.5505, loss: 2.5081. 
+2025-07-12 15:51:40,925 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_I12/upper_bound/2025-07-12-15-51-24/bioclip2/full_text_head/2025-07-12-15-51-29/log. 
+2025-07-12 15:51:40,926 - root - INFO - Training on checkpoint ckp_5. 
+2025-07-12 15:51:40,926 - root - INFO - Gathering samples from checkpoints: ['ckp_4']
+2025-07-12 15:51:40,932 - root - INFO - Subset length: 258
+2025-07-12 15:51:40,932 - root - INFO - Gathering samples from checkpoints: ['ckp_5']
+2025-07-12 15:51:40,933 - root - INFO - Subset length: 12
+2025-07-12 15:51:40,933 - root - INFO - Training dataset size: 258. 
+2025-07-12 15:51:40,933 - root - INFO - Evaluation dataset size: 12. 
+2025-07-12 15:51:40,933 - root - INFO - OOD mask: 0 / 258. 
+2025-07-12 15:51:40,933 - root - INFO - AL mask: 0 / 258. 
+2025-07-12 15:51:40,933 - root - INFO - Evaluating on current checkpoint ckp_4. 
+2025-07-12 15:51:40,933 - root - INFO - Gathering samples from checkpoints: ['ckp_4']
+2025-07-12 15:51:40,934 - root - INFO - Subset length: 34
+2025-07-12 15:51:41,426 - root - INFO - Eval on current training checkpoint ckp_4: Number of samples: 34, acc: 0.5588, balanced acc: 0.5505, loss: 2.5081. 
+2025-07-12 15:51:41,426 - root - INFO - Evaluating on next checkpoint ckp_5. 
+2025-07-12 15:51:41,599 - root - INFO - Number of samples: 12, acc: 0.6667, balanced acc: 0.6667, loss: 2.4906. 
+2025-07-12 15:51:41,599 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_I12/upper_bound/2025-07-12-15-51-24/bioclip2/full_text_head/2025-07-12-15-51-29/log. 
+2025-07-12 15:51:41,600 - root - INFO - Training on checkpoint ckp_6. 
+2025-07-12 15:51:41,600 - root - INFO - Gathering samples from checkpoints: ['ckp_5']
+2025-07-12 15:51:41,605 - root - INFO - Subset length: 185
+2025-07-12 15:51:41,605 - root - INFO - Gathering samples from checkpoints: ['ckp_6']
+2025-07-12 15:51:41,606 - root - INFO - Subset length: 24
+2025-07-12 15:51:41,606 - root - INFO - Training dataset size: 185. 
+2025-07-12 15:51:41,606 - root - INFO - Evaluation dataset size: 24. 
+2025-07-12 15:51:41,606 - root - INFO - OOD mask: 0 / 185. 
+2025-07-12 15:51:41,606 - root - INFO - AL mask: 0 / 185. 
+2025-07-12 15:51:41,606 - root - INFO - Evaluating on current checkpoint ckp_5. 
+2025-07-12 15:51:41,606 - root - INFO - Gathering samples from checkpoints: ['ckp_5']
+2025-07-12 15:51:41,606 - root - INFO - Subset length: 12
+2025-07-12 15:51:41,716 - root - INFO - Eval on current training checkpoint ckp_5: Number of samples: 12, acc: 0.6667, balanced acc: 0.6667, loss: 2.4906. 
+2025-07-12 15:51:41,716 - root - INFO - Evaluating on next checkpoint ckp_6. 
+2025-07-12 15:51:42,068 - root - INFO - Number of samples: 24, acc: 0.7917, balanced acc: 0.7917, loss: 2.4844. 
+2025-07-12 15:51:42,068 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_I12/upper_bound/2025-07-12-15-51-24/bioclip2/full_text_head/2025-07-12-15-51-29/log. 
+2025-07-12 15:51:42,069 - root - INFO - Training on checkpoint ckp_7. 
+2025-07-12 15:51:42,070 - root - INFO - Gathering samples from checkpoints: ['ckp_6']
+2025-07-12 15:51:42,073 - root - INFO - Subset length: 173
+2025-07-12 15:51:42,074 - root - INFO - Gathering samples from checkpoints: ['ckp_7']
+2025-07-12 15:51:42,074 - root - INFO - Subset length: 10
+2025-07-12 15:51:42,074 - root - INFO - Training dataset size: 173. 
+2025-07-12 15:51:42,074 - root - INFO - Evaluation dataset size: 10. 
+2025-07-12 15:51:42,074 - root - INFO - OOD mask: 0 / 173. 
+2025-07-12 15:51:42,074 - root - INFO - AL mask: 0 / 173. 
+2025-07-12 15:51:42,074 - root - INFO - Evaluating on current checkpoint ckp_6. 
+2025-07-12 15:51:42,074 - root - INFO - Gathering samples from checkpoints: ['ckp_6']
+2025-07-12 15:51:42,075 - root - INFO - Subset length: 24
+2025-07-12 15:51:42,286 - root - INFO - Eval on current training checkpoint ckp_6: Number of samples: 24, acc: 0.7917, balanced acc: 0.7917, loss: 2.4844. 
+2025-07-12 15:51:42,287 - root - INFO - Evaluating on next checkpoint ckp_7. 
+2025-07-12 15:51:42,622 - root - INFO - Number of samples: 10, acc: 0.8000, balanced acc: 0.8000, loss: 2.5004. 
+2025-07-12 15:51:42,623 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_I12/upper_bound/2025-07-12-15-51-24/bioclip2/full_text_head/2025-07-12-15-51-29/log. 
+2025-07-12 15:51:42,623 - root - INFO - Training on checkpoint ckp_8. 
+2025-07-12 15:51:42,624 - root - INFO - Gathering samples from checkpoints: ['ckp_7']
+2025-07-12 15:51:42,630 - root - INFO - Subset length: 306
+2025-07-12 15:51:42,630 - root - INFO - Gathering samples from checkpoints: ['ckp_8']
+2025-07-12 15:51:42,631 - root - INFO - Subset length: 46
+2025-07-12 15:51:42,631 - root - INFO - Training dataset size: 306. 
+2025-07-12 15:51:42,631 - root - INFO - Evaluation dataset size: 46. 
+2025-07-12 15:51:42,631 - root - INFO - OOD mask: 0 / 306. 
+2025-07-12 15:51:42,631 - root - INFO - AL mask: 0 / 306. 
+2025-07-12 15:51:42,631 - root - INFO - Evaluating on current checkpoint ckp_7. 
+2025-07-12 15:51:42,631 - root - INFO - Gathering samples from checkpoints: ['ckp_7']
+2025-07-12 15:51:42,632 - root - INFO - Subset length: 10
+2025-07-12 15:51:42,810 - root - INFO - Eval on current training checkpoint ckp_7: Number of samples: 10, acc: 0.8000, balanced acc: 0.8000, loss: 2.5004. 
+2025-07-12 15:51:42,810 - root - INFO - Evaluating on next checkpoint ckp_8. 
+2025-07-12 15:51:43,823 - root - INFO - Number of samples: 46, acc: 0.7826, balanced acc: 0.7917, loss: 2.4851. 
+2025-07-12 15:51:43,823 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_I12/upper_bound/2025-07-12-15-51-24/bioclip2/full_text_head/2025-07-12-15-51-29/log. 
+2025-07-12 15:51:43,824 - root - INFO - Training on checkpoint ckp_9. 
+2025-07-12 15:51:43,824 - root - INFO - Gathering samples from checkpoints: ['ckp_8']
+2025-07-12 15:51:43,827 - root - INFO - Subset length: 124
+2025-07-12 15:51:43,827 - root - INFO - Gathering samples from checkpoints: ['ckp_9']
+2025-07-12 15:51:43,827 - root - INFO - Subset length: 10
+2025-07-12 15:51:43,827 - root - INFO - Training dataset size: 124. 
+2025-07-12 15:51:43,827 - root - INFO - Evaluation dataset size: 10. 
+2025-07-12 15:51:43,827 - root - INFO - OOD mask: 0 / 124. 
+2025-07-12 15:51:43,828 - root - INFO - AL mask: 0 / 124. 
+2025-07-12 15:51:43,828 - root - INFO - Evaluating on current checkpoint ckp_8. 
+2025-07-12 15:51:43,828 - root - INFO - Gathering samples from checkpoints: ['ckp_8']
+2025-07-12 15:51:43,829 - root - INFO - Subset length: 46
+2025-07-12 15:51:44,404 - root - INFO - Eval on current training checkpoint ckp_8: Number of samples: 46, acc: 0.7826, balanced acc: 0.7917, loss: 2.4851. 
+2025-07-12 15:51:44,404 - root - INFO - Evaluating on next checkpoint ckp_9. 
+2025-07-12 15:51:44,647 - root - INFO - Number of samples: 10, acc: 0.6000, balanced acc: 0.6000, loss: 2.5014. 
+2025-07-12 15:51:44,647 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_I12/upper_bound/2025-07-12-15-51-24/bioclip2/full_text_head/2025-07-12-15-51-29/log. 
+2025-07-12 15:51:44,648 - root - INFO - Training on checkpoint ckp_10. 
+2025-07-12 15:51:44,648 - root - INFO - Gathering samples from checkpoints: ['ckp_9']
+2025-07-12 15:51:44,652 - root - INFO - Subset length: 165
+2025-07-12 15:51:44,652 - root - INFO - Gathering samples from checkpoints: ['ckp_10']
+2025-07-12 15:51:44,653 - root - INFO - Subset length: 32
+2025-07-12 15:51:44,653 - root - INFO - Training dataset size: 165. 
+2025-07-12 15:51:44,653 - root - INFO - Evaluation dataset size: 32. 
+2025-07-12 15:51:44,653 - root - INFO - OOD mask: 0 / 165. 
+2025-07-12 15:51:44,653 - root - INFO - AL mask: 0 / 165. 
+2025-07-12 15:51:44,653 - root - INFO - Evaluating on current checkpoint ckp_9. 
+2025-07-12 15:51:44,653 - root - INFO - Gathering samples from checkpoints: ['ckp_9']
+2025-07-12 15:51:44,654 - root - INFO - Subset length: 10
+2025-07-12 15:51:44,794 - root - INFO - Eval on current training checkpoint ckp_9: Number of samples: 10, acc: 0.6000, balanced acc: 0.6000, loss: 2.5014. 
+2025-07-12 15:51:44,794 - root - INFO - Evaluating on next checkpoint ckp_10. 
+2025-07-12 15:51:45,520 - root - INFO - Number of samples: 32, acc: 0.7812, balanced acc: 0.7833, loss: 2.4684. 
+2025-07-12 15:51:45,520 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_I12/upper_bound/2025-07-12-15-51-24/bioclip2/full_text_head/2025-07-12-15-51-29/log. 
+2025-07-12 15:51:45,522 - root - INFO - Training on checkpoint ckp_11. 
+2025-07-12 15:51:45,522 - root - INFO - Gathering samples from checkpoints: ['ckp_10']
+2025-07-12 15:51:45,526 - root - INFO - Subset length: 156
+2025-07-12 15:51:45,526 - root - INFO - Gathering samples from checkpoints: ['ckp_11']
+2025-07-12 15:51:45,527 - root - INFO - Subset length: 45
+2025-07-12 15:51:45,527 - root - INFO - Training dataset size: 156. 
+2025-07-12 15:51:45,527 - root - INFO - Evaluation dataset size: 45. 
+2025-07-12 15:51:45,527 - root - INFO - OOD mask: 0 / 156. 
+2025-07-12 15:51:45,527 - root - INFO - AL mask: 0 / 156. 
+2025-07-12 15:51:45,527 - root - INFO - Evaluating on current checkpoint ckp_10. 
+2025-07-12 15:51:45,527 - root - INFO - Gathering samples from checkpoints: ['ckp_10']
+2025-07-12 15:51:45,528 - root - INFO - Subset length: 32
+2025-07-12 15:51:45,933 - root - INFO - Eval on current training checkpoint ckp_10: Number of samples: 32, acc: 0.7812, balanced acc: 0.7833, loss: 2.4684. 
+2025-07-12 15:51:45,933 - root - INFO - Evaluating on next checkpoint ckp_11. 
+2025-07-12 15:51:47,010 - root - INFO - Number of samples: 45, acc: 0.3778, balanced acc: 0.3811, loss: 2.5082. 
+2025-07-12 15:51:47,010 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_I12/upper_bound/2025-07-12-15-51-24/bioclip2/full_text_head/2025-07-12-15-51-29/log. 
+2025-07-12 15:51:47,011 - root - INFO - Training on checkpoint ckp_12. 
+2025-07-12 15:51:47,011 - root - INFO - Gathering samples from checkpoints: ['ckp_11']
+2025-07-12 15:51:47,014 - root - INFO - Subset length: 113
+2025-07-12 15:51:47,014 - root - INFO - Gathering samples from checkpoints: ['ckp_12']
+2025-07-12 15:51:47,015 - root - INFO - Subset length: 51
+2025-07-12 15:51:47,015 - root - INFO - Training dataset size: 113. 
+2025-07-12 15:51:47,015 - root - INFO - Evaluation dataset size: 51. 
+2025-07-12 15:51:47,015 - root - INFO - OOD mask: 0 / 113. 
+2025-07-12 15:51:47,015 - root - INFO - AL mask: 0 / 113. 
+2025-07-12 15:51:47,016 - root - INFO - Evaluating on current checkpoint ckp_11. 
+2025-07-12 15:51:47,016 - root - INFO - Gathering samples from checkpoints: ['ckp_11']
+2025-07-12 15:51:47,017 - root - INFO - Subset length: 45
+2025-07-12 15:51:47,620 - root - INFO - Eval on current training checkpoint ckp_11: Number of samples: 45, acc: 0.3778, balanced acc: 0.3811, loss: 2.5082. 
+2025-07-12 15:51:47,620 - root - INFO - Evaluating on next checkpoint ckp_12. 
+2025-07-12 15:51:49,104 - root - INFO - Number of samples: 51, acc: 0.8627, balanced acc: 0.8618, loss: 2.4614. 
+2025-07-12 15:51:49,104 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_I12/upper_bound/2025-07-12-15-51-24/bioclip2/full_text_head/2025-07-12-15-51-29/log. 
+2025-07-12 15:51:49,105 - root - INFO - Training on checkpoint ckp_13. 
+2025-07-12 15:51:49,105 - root - INFO - Gathering samples from checkpoints: ['ckp_12']
+2025-07-12 15:51:49,109 - root - INFO - Subset length: 146
+2025-07-12 15:51:49,109 - root - INFO - Gathering samples from checkpoints: ['ckp_13']
+2025-07-12 15:51:49,110 - root - INFO - Subset length: 64
+2025-07-12 15:51:49,110 - root - INFO - Training dataset size: 146. 
+2025-07-12 15:51:49,110 - root - INFO - Evaluation dataset size: 64. 
+2025-07-12 15:51:49,111 - root - INFO - OOD mask: 0 / 146. 
+2025-07-12 15:51:49,111 - root - INFO - AL mask: 0 / 146. 
+2025-07-12 15:51:49,111 - root - INFO - Evaluating on current checkpoint ckp_12. 
+2025-07-12 15:51:49,111 - root - INFO - Gathering samples from checkpoints: ['ckp_12']
+2025-07-12 15:51:49,112 - root - INFO - Subset length: 51
+2025-07-12 15:51:49,877 - root - INFO - Eval on current training checkpoint ckp_12: Number of samples: 51, acc: 0.8627, balanced acc: 0.8618, loss: 2.4614. 
+2025-07-12 15:51:49,878 - root - INFO - Evaluating on next checkpoint ckp_13. 
+2025-07-12 15:51:50,949 - root - INFO - Number of samples: 64, acc: 0.9219, balanced acc: 0.9167, loss: 2.4591. 
+2025-07-12 15:51:50,949 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_I12/upper_bound/2025-07-12-15-51-24/bioclip2/full_text_head/2025-07-12-15-51-29/log. 
+wandb:                                                                                
+wandb: 
+wandb: Run history:
+wandb:          accuracy ███▃▅▆▆▆▄▆▁▇█
+wandb: balanced_accuracy ███▃▅▆▆▆▄▆▁▇█
+wandb: 
+wandb: Run summary:
+wandb:          accuracy 0.92188
+wandb: balanced_accuracy 0.91667
+wandb: 
+wandb: 🚀 View run serengeti_serengeti_I12 | upper_bound | 2025-07-12-15-51-24 | bioclip2 | full_text_head | 2025-07-12-15-51-29 at: https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark/runs/t3g2ffwf
+wandb: ⭐️ View project at: https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark
+wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: ./wandb/run-20250712_155129-t3g2ffwf/logs
+2025-07-12 15:51:51,566 - root - INFO - Elapsed time: 22.25 seconds. 
+/users/PAS2099/mino/miniconda3/envs/ICICLE/lib/python3.11/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+2025-07-12 15:51:57,826 - root - INFO - Saving to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_E10/upper_bound/2025-07-12-15-51-53/bioclip2/full_text_head/2025-07-12-15-51-57/log. 
+wandb: Currently logged in as: minodaze (minodaze-the-ohio-state-university) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.20.1
+wandb: Run data is saved locally in /users/PAS2099/mino/ICICLE/wandb/run-20250712_155158-rr4sylxd
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run serengeti_serengeti_E10 | upper_bound | 2025-07-12-15-51-53 | bioclip2 | full_text_head | 2025-07-12-15-51-57
+wandb: ⭐️ View project at https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark
+wandb: 🚀 View run at https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark/runs/rr4sylxd
+2025-07-12 15:51:58,764 - root - INFO - wandb logging is enabled.
+2025-07-12 15:51:58,764 - root - INFO - {'accu_eval': False,
+ 'adapter_bottleneck': 64,
+ 'adapter_init': 'lora_kaiming',
+ 'adapter_scaler': 0.1,
+ 'al_config': {'method': 'none'},
+ 'attention_index': None,
+ 'attention_type': 'full',
+ 'bitfit': False,
+ 'block_index': None,
+ 'c': '/fs/scratch/PAS2099/mino/ICICLE/configs/generated_common/serengeti_serengeti_E10_upper_bound.yaml',
+ 'cl_config': {'method': 'none'},
+ 'common_config': {'model': 'bioclip2', 'train_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_E10/30/train.json', 'eval_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_E10/30/test.json', 'all_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_E10/30/train-all.json', 'train_batch_size': 32, 'eval_batch_size': 512, 'optimizer_name': 'AdamW', 'optimizer_params': {'lr': 2.5e-05, 'weight_decay': 0.0001}, 'chop_head': False, 'scheduler': 'CosineAnnealingLR', 'scheduler_params': {'T_max': 30, 'eta_min': 2.5e-06}},
+ 'convpass_bottleneck': 8,
+ 'convpass_init': 'lora_xavier',
+ 'convpass_scaler': 10,
+ 'convpass_xavier_init': False,
+ 'debug': False,
+ 'device': 'cuda',
+ 'difffit': False,
+ 'drop_path_rate': 0.0,
+ 'eval_only': False,
+ 'eval_per_epoch': False,
+ 'fact_dim': 8,
+ 'fact_scaler': 1.0,
+ 'fact_type': None,
+ 'ft_attn_ln': 'before',
+ 'ft_attn_mode': 'parallel',
+ 'ft_attn_module': None,
+ 'ft_mlp_ln': 'before',
+ 'ft_mlp_mode': 'parallel',
+ 'ft_mlp_module': None,
+ 'full': True,
+ 'generalization_test': 'a',
+ 'gpu_id': None,
+ 'gpu_memory_monitor': False,
+ 'interpolation_alpha': 0.5,
+ 'interpolation_head': False,
+ 'interpolation_model': False,
+ 'is_save': False,
+ 'label_type': 'common',
+ 'ln': False,
+ 'log_path': '/fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_E10/upper_bound/2025-07-12-15-51-53/',
+ 'lora_bottleneck': 0,
+ 'merge_factor': 1,
+ 'mlp_index': None,
+ 'mlp_type': 'full',
+ 'module_name': 'upper_bound',
+ 'no_gpu_monitor_colors': False,
+ 'ood_config': {'method': 'none'},
+ 'pretrain_config': {'pretrain': False},
+ 'pretrained_weights': 'bioclip2',
+ 'repadapter_bottleneck': 8,
+ 'repadapter_group': 2,
+ 'repadapter_init': 'lora_xavier',
+ 'repadapter_scaler': 1,
+ 'save_dir': '/fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_E10/upper_bound/2025-07-12-15-51-53/bioclip2/full_text_head/2025-07-12-15-51-57/log',
+ 'seed': 9527,
+ 'ssf': False,
+ 'text': 'head',
+ 'text_template': 'openai',
+ 'vpt_dropout': 0.1,
+ 'vpt_layer': None,
+ 'vpt_mode': None,
+ 'vpt_num': 10,
+ 'vqt_dropout': 0.1,
+ 'vqt_num': 0,
+ 'wandb': True}
+2025-07-12 15:51:58,766 - root - INFO - Using Bioclip-2 model. 
+2025-07-12 15:51:58,767 - root - INFO - Loaded ViT-L-14 model config.
+2025-07-12 15:52:00,678 - root - INFO - Loading pretrained ViT-L-14 weights (pretrained_weights/bioclip-2/open_clip_pytorch_model.bin).
+2025-07-12 15:52:02,717 - root - INFO - Skipping pretraining... 
+2025-07-12 15:52:02,725 - root - INFO - Checkpoint list, length: 5: 
+2025-07-12 15:52:02,725 - root - INFO - 	ckp_1 
+2025-07-12 15:52:02,725 - root - INFO - 	ckp_2 
+2025-07-12 15:52:02,725 - root - INFO - 	ckp_3 
+2025-07-12 15:52:02,725 - root - INFO - 	ckp_4 
+2025-07-12 15:52:02,726 - root - INFO - 	ckp_5 
+2025-07-12 15:52:02,741 - root - INFO - Training on checkpoint ckp_1. 
+2025-07-12 15:52:02,741 - root - INFO - Subset length: 0
+2025-07-12 15:52:02,741 - root - INFO - Gathering samples from checkpoints: ['ckp_1']
+2025-07-12 15:52:02,742 - root - INFO - Subset length: 45
+2025-07-12 15:52:02,742 - root - INFO - Training dataset size: 0. 
+2025-07-12 15:52:02,742 - root - INFO - Evaluation dataset size: 45. 
+2025-07-12 15:52:02,742 - root - INFO - OOD mask: 0 / 0. 
+2025-07-12 15:52:02,744 - root - INFO - AL mask: 0 / 0. 
+2025-07-12 15:52:02,744 - root - INFO - Evaluating on next checkpoint ckp_1. 
+2025-07-12 15:52:03,445 - root - INFO - Number of samples: 45, acc: 0.8667, balanced acc: 0.8708, loss: 2.0050. 
+2025-07-12 15:52:03,446 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_E10/upper_bound/2025-07-12-15-51-53/bioclip2/full_text_head/2025-07-12-15-51-57/log. 
+2025-07-12 15:52:03,447 - root - INFO - Training on checkpoint ckp_2. 
+2025-07-12 15:52:03,447 - root - INFO - Gathering samples from checkpoints: ['ckp_1']
+2025-07-12 15:52:03,449 - root - INFO - Subset length: 112
+2025-07-12 15:52:03,449 - root - INFO - Gathering samples from checkpoints: ['ckp_2']
+2025-07-12 15:52:03,450 - root - INFO - Subset length: 44
+2025-07-12 15:52:03,450 - root - INFO - Training dataset size: 112. 
+2025-07-12 15:52:03,451 - root - INFO - Evaluation dataset size: 44. 
+2025-07-12 15:52:03,451 - root - INFO - OOD mask: 0 / 112. 
+2025-07-12 15:52:03,451 - root - INFO - AL mask: 0 / 112. 
+2025-07-12 15:52:03,451 - root - INFO - Evaluating on current checkpoint ckp_1. 
+2025-07-12 15:52:03,451 - root - INFO - Gathering samples from checkpoints: ['ckp_1']
+2025-07-12 15:52:03,452 - root - INFO - Subset length: 45
+2025-07-12 15:52:03,827 - root - INFO - Eval on current training checkpoint ckp_1: Number of samples: 45, acc: 0.8667, balanced acc: 0.8708, loss: 2.0050. 
+2025-07-12 15:52:03,827 - root - INFO - Evaluating on next checkpoint ckp_2. 
+2025-07-12 15:52:04,269 - root - INFO - Number of samples: 44, acc: 0.8864, balanced acc: 0.8814, loss: 2.0084. 
+2025-07-12 15:52:04,269 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_E10/upper_bound/2025-07-12-15-51-53/bioclip2/full_text_head/2025-07-12-15-51-57/log. 
+2025-07-12 15:52:04,271 - root - INFO - Training on checkpoint ckp_3. 
+2025-07-12 15:52:04,271 - root - INFO - Gathering samples from checkpoints: ['ckp_2']
+2025-07-12 15:52:04,274 - root - INFO - Subset length: 144
+2025-07-12 15:52:04,274 - root - INFO - Gathering samples from checkpoints: ['ckp_3']
+2025-07-12 15:52:04,275 - root - INFO - Subset length: 45
+2025-07-12 15:52:04,275 - root - INFO - Training dataset size: 144. 
+2025-07-12 15:52:04,275 - root - INFO - Evaluation dataset size: 45. 
+2025-07-12 15:52:04,275 - root - INFO - OOD mask: 0 / 144. 
+2025-07-12 15:52:04,275 - root - INFO - AL mask: 0 / 144. 
+2025-07-12 15:52:04,275 - root - INFO - Evaluating on current checkpoint ckp_2. 
+2025-07-12 15:52:04,275 - root - INFO - Gathering samples from checkpoints: ['ckp_2']
+2025-07-12 15:52:04,276 - root - INFO - Subset length: 44
+2025-07-12 15:52:04,571 - root - INFO - Eval on current training checkpoint ckp_2: Number of samples: 44, acc: 0.8864, balanced acc: 0.8814, loss: 2.0084. 
+2025-07-12 15:52:04,572 - root - INFO - Evaluating on next checkpoint ckp_3. 
+2025-07-12 15:52:05,296 - root - INFO - Number of samples: 45, acc: 0.8222, balanced acc: 0.8333, loss: 2.0112. 
+2025-07-12 15:52:05,297 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_E10/upper_bound/2025-07-12-15-51-53/bioclip2/full_text_head/2025-07-12-15-51-57/log. 
+2025-07-12 15:52:05,297 - root - INFO - Training on checkpoint ckp_4. 
+2025-07-12 15:52:05,297 - root - INFO - Gathering samples from checkpoints: ['ckp_3']
+2025-07-12 15:52:05,301 - root - INFO - Subset length: 142
+2025-07-12 15:52:05,301 - root - INFO - Gathering samples from checkpoints: ['ckp_4']
+2025-07-12 15:52:05,302 - root - INFO - Subset length: 55
+2025-07-12 15:52:05,302 - root - INFO - Training dataset size: 142. 
+2025-07-12 15:52:05,302 - root - INFO - Evaluation dataset size: 55. 
+2025-07-12 15:52:05,302 - root - INFO - OOD mask: 0 / 142. 
+2025-07-12 15:52:05,303 - root - INFO - AL mask: 0 / 142. 
+2025-07-12 15:52:05,303 - root - INFO - Evaluating on current checkpoint ckp_3. 
+2025-07-12 15:52:05,303 - root - INFO - Gathering samples from checkpoints: ['ckp_3']
+2025-07-12 15:52:05,304 - root - INFO - Subset length: 45
+2025-07-12 15:52:05,734 - root - INFO - Eval on current training checkpoint ckp_3: Number of samples: 45, acc: 0.8222, balanced acc: 0.8333, loss: 2.0112. 
+2025-07-12 15:52:05,734 - root - INFO - Evaluating on next checkpoint ckp_4. 
+2025-07-12 15:52:06,678 - root - INFO - Number of samples: 55, acc: 0.8545, balanced acc: 0.8533, loss: 1.9954. 
+2025-07-12 15:52:06,679 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_E10/upper_bound/2025-07-12-15-51-53/bioclip2/full_text_head/2025-07-12-15-51-57/log. 
+2025-07-12 15:52:06,680 - root - INFO - Training on checkpoint ckp_5. 
+2025-07-12 15:52:06,680 - root - INFO - Gathering samples from checkpoints: ['ckp_4']
+2025-07-12 15:52:06,683 - root - INFO - Subset length: 118
+2025-07-12 15:52:06,684 - root - INFO - Gathering samples from checkpoints: ['ckp_5']
+2025-07-12 15:52:06,685 - root - INFO - Subset length: 63
+2025-07-12 15:52:06,685 - root - INFO - Training dataset size: 118. 
+2025-07-12 15:52:06,685 - root - INFO - Evaluation dataset size: 63. 
+2025-07-12 15:52:06,685 - root - INFO - OOD mask: 0 / 118. 
+2025-07-12 15:52:06,685 - root - INFO - AL mask: 0 / 118. 
+2025-07-12 15:52:06,685 - root - INFO - Evaluating on current checkpoint ckp_4. 
+2025-07-12 15:52:06,685 - root - INFO - Gathering samples from checkpoints: ['ckp_4']
+2025-07-12 15:52:06,687 - root - INFO - Subset length: 55
+2025-07-12 15:52:07,222 - root - INFO - Eval on current training checkpoint ckp_4: Number of samples: 55, acc: 0.8545, balanced acc: 0.8533, loss: 1.9954. 
+2025-07-12 15:52:07,222 - root - INFO - Evaluating on next checkpoint ckp_5. 
+2025-07-12 15:52:08,077 - root - INFO - Number of samples: 63, acc: 0.8889, balanced acc: 0.8909, loss: 1.9984. 
+2025-07-12 15:52:08,078 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_E10/upper_bound/2025-07-12-15-51-53/bioclip2/full_text_head/2025-07-12-15-51-57/log. 
+wandb:                                                                                
+wandb: 
+wandb: Run history:
+wandb:          accuracy ▆█▁▄█
+wandb: balanced_accuracy ▆▇▁▃█
+wandb: 
+wandb: Run summary:
+wandb:          accuracy 0.88889
+wandb: balanced_accuracy 0.89091
+wandb: 
+wandb: 🚀 View run serengeti_serengeti_E10 | upper_bound | 2025-07-12-15-51-53 | bioclip2 | full_text_head | 2025-07-12-15-51-57 at: https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark/runs/rr4sylxd
+wandb: ⭐️ View project at: https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark
+wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: ./wandb/run-20250712_155158-rr4sylxd/logs
+2025-07-12 15:52:08,624 - root - INFO - Elapsed time: 10.79 seconds. 
+/users/PAS2099/mino/miniconda3/envs/ICICLE/lib/python3.11/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+2025-07-12 15:52:14,591 - root - INFO - Saving to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_O04/upper_bound/2025-07-12-15-52-10/bioclip2/full_text_head/2025-07-12-15-52-14/log. 
+wandb: Currently logged in as: minodaze (minodaze-the-ohio-state-university) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.20.1
+wandb: Run data is saved locally in /users/PAS2099/mino/ICICLE/wandb/run-20250712_155214-4mcvhck7
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run serengeti_serengeti_O04 | upper_bound | 2025-07-12-15-52-10 | bioclip2 | full_text_head | 2025-07-12-15-52-14
+wandb: ⭐️ View project at https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark
+wandb: 🚀 View run at https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark/runs/4mcvhck7
+2025-07-12 15:52:15,524 - root - INFO - wandb logging is enabled.
+2025-07-12 15:52:15,525 - root - INFO - {'accu_eval': False,
+ 'adapter_bottleneck': 64,
+ 'adapter_init': 'lora_kaiming',
+ 'adapter_scaler': 0.1,
+ 'al_config': {'method': 'none'},
+ 'attention_index': None,
+ 'attention_type': 'full',
+ 'bitfit': False,
+ 'block_index': None,
+ 'c': '/fs/scratch/PAS2099/mino/ICICLE/configs/generated_common/serengeti_serengeti_O04_upper_bound.yaml',
+ 'cl_config': {'method': 'none'},
+ 'common_config': {'model': 'bioclip2', 'train_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_O04/30/train.json', 'eval_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_O04/30/test.json', 'all_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_O04/30/train-all.json', 'train_batch_size': 32, 'eval_batch_size': 512, 'optimizer_name': 'AdamW', 'optimizer_params': {'lr': 2.5e-05, 'weight_decay': 0.0001}, 'chop_head': False, 'scheduler': 'CosineAnnealingLR', 'scheduler_params': {'T_max': 30, 'eta_min': 2.5e-06}},
+ 'convpass_bottleneck': 8,
+ 'convpass_init': 'lora_xavier',
+ 'convpass_scaler': 10,
+ 'convpass_xavier_init': False,
+ 'debug': False,
+ 'device': 'cuda',
+ 'difffit': False,
+ 'drop_path_rate': 0.0,
+ 'eval_only': False,
+ 'eval_per_epoch': False,
+ 'fact_dim': 8,
+ 'fact_scaler': 1.0,
+ 'fact_type': None,
+ 'ft_attn_ln': 'before',
+ 'ft_attn_mode': 'parallel',
+ 'ft_attn_module': None,
+ 'ft_mlp_ln': 'before',
+ 'ft_mlp_mode': 'parallel',
+ 'ft_mlp_module': None,
+ 'full': True,
+ 'generalization_test': 'a',
+ 'gpu_id': None,
+ 'gpu_memory_monitor': False,
+ 'interpolation_alpha': 0.5,
+ 'interpolation_head': False,
+ 'interpolation_model': False,
+ 'is_save': False,
+ 'label_type': 'common',
+ 'ln': False,
+ 'log_path': '/fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_O04/upper_bound/2025-07-12-15-52-10/',
+ 'lora_bottleneck': 0,
+ 'merge_factor': 1,
+ 'mlp_index': None,
+ 'mlp_type': 'full',
+ 'module_name': 'upper_bound',
+ 'no_gpu_monitor_colors': False,
+ 'ood_config': {'method': 'none'},
+ 'pretrain_config': {'pretrain': False},
+ 'pretrained_weights': 'bioclip2',
+ 'repadapter_bottleneck': 8,
+ 'repadapter_group': 2,
+ 'repadapter_init': 'lora_xavier',
+ 'repadapter_scaler': 1,
+ 'save_dir': '/fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_O04/upper_bound/2025-07-12-15-52-10/bioclip2/full_text_head/2025-07-12-15-52-14/log',
+ 'seed': 9527,
+ 'ssf': False,
+ 'text': 'head',
+ 'text_template': 'openai',
+ 'vpt_dropout': 0.1,
+ 'vpt_layer': None,
+ 'vpt_mode': None,
+ 'vpt_num': 10,
+ 'vqt_dropout': 0.1,
+ 'vqt_num': 0,
+ 'wandb': True}
+2025-07-12 15:52:15,529 - root - INFO - Using Bioclip-2 model. 
+2025-07-12 15:52:15,529 - root - INFO - Loaded ViT-L-14 model config.
+2025-07-12 15:52:17,456 - root - INFO - Loading pretrained ViT-L-14 weights (pretrained_weights/bioclip-2/open_clip_pytorch_model.bin).
+2025-07-12 15:52:19,590 - root - INFO - Skipping pretraining... 
+2025-07-12 15:52:19,607 - root - INFO - Checkpoint list, length: 8: 
+2025-07-12 15:52:19,607 - root - INFO - 	ckp_1 
+2025-07-12 15:52:19,607 - root - INFO - 	ckp_2 
+2025-07-12 15:52:19,607 - root - INFO - 	ckp_3 
+2025-07-12 15:52:19,607 - root - INFO - 	ckp_4 
+2025-07-12 15:52:19,607 - root - INFO - 	ckp_5 
+2025-07-12 15:52:19,608 - root - INFO - 	ckp_6 
+2025-07-12 15:52:19,608 - root - INFO - 	ckp_7 
+2025-07-12 15:52:19,608 - root - INFO - 	ckp_8 
+2025-07-12 15:52:19,622 - root - INFO - Training on checkpoint ckp_1. 
+2025-07-12 15:52:19,622 - root - INFO - Subset length: 0
+2025-07-12 15:52:19,622 - root - INFO - Gathering samples from checkpoints: ['ckp_1']
+2025-07-12 15:52:19,623 - root - INFO - Subset length: 32
+2025-07-12 15:52:19,623 - root - INFO - Training dataset size: 0. 
+2025-07-12 15:52:19,624 - root - INFO - Evaluation dataset size: 32. 
+2025-07-12 15:52:19,625 - root - INFO - OOD mask: 0 / 0. 
+2025-07-12 15:52:19,625 - root - INFO - AL mask: 0 / 0. 
+2025-07-12 15:52:19,625 - root - INFO - Evaluating on next checkpoint ckp_1. 
+2025-07-12 15:52:20,095 - root - INFO - Number of samples: 32, acc: 0.9688, balanced acc: 0.9667, loss: 2.3792. 
+2025-07-12 15:52:20,095 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_O04/upper_bound/2025-07-12-15-52-10/bioclip2/full_text_head/2025-07-12-15-52-14/log. 
+2025-07-12 15:52:20,096 - root - INFO - Training on checkpoint ckp_2. 
+2025-07-12 15:52:20,096 - root - INFO - Gathering samples from checkpoints: ['ckp_1']
+2025-07-12 15:52:20,100 - root - INFO - Subset length: 142
+2025-07-12 15:52:20,100 - root - INFO - Gathering samples from checkpoints: ['ckp_2']
+2025-07-12 15:52:20,102 - root - INFO - Subset length: 68
+2025-07-12 15:52:20,102 - root - INFO - Training dataset size: 142. 
+2025-07-12 15:52:20,102 - root - INFO - Evaluation dataset size: 68. 
+2025-07-12 15:52:20,102 - root - INFO - OOD mask: 0 / 142. 
+2025-07-12 15:52:20,102 - root - INFO - AL mask: 0 / 142. 
+2025-07-12 15:52:20,102 - root - INFO - Evaluating on current checkpoint ckp_1. 
+2025-07-12 15:52:20,102 - root - INFO - Gathering samples from checkpoints: ['ckp_1']
+2025-07-12 15:52:20,103 - root - INFO - Subset length: 32
+2025-07-12 15:52:20,343 - root - INFO - Eval on current training checkpoint ckp_1: Number of samples: 32, acc: 0.9688, balanced acc: 0.9667, loss: 2.3792. 
+2025-07-12 15:52:20,344 - root - INFO - Evaluating on next checkpoint ckp_2. 
+2025-07-12 15:52:21,289 - root - INFO - Number of samples: 68, acc: 0.6176, balanced acc: 0.6237, loss: 2.4150. 
+2025-07-12 15:52:21,289 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_O04/upper_bound/2025-07-12-15-52-10/bioclip2/full_text_head/2025-07-12-15-52-14/log. 
+2025-07-12 15:52:21,290 - root - INFO - Training on checkpoint ckp_3. 
+2025-07-12 15:52:21,290 - root - INFO - Gathering samples from checkpoints: ['ckp_2']
+2025-07-12 15:52:21,301 - root - INFO - Subset length: 536
+2025-07-12 15:52:21,301 - root - INFO - Gathering samples from checkpoints: ['ckp_3']
+2025-07-12 15:52:21,302 - root - INFO - Subset length: 24
+2025-07-12 15:52:21,302 - root - INFO - Training dataset size: 536. 
+2025-07-12 15:52:21,302 - root - INFO - Evaluation dataset size: 24. 
+2025-07-12 15:52:21,302 - root - INFO - OOD mask: 0 / 536. 
+2025-07-12 15:52:21,302 - root - INFO - AL mask: 0 / 536. 
+2025-07-12 15:52:21,302 - root - INFO - Evaluating on current checkpoint ckp_2. 
+2025-07-12 15:52:21,302 - root - INFO - Gathering samples from checkpoints: ['ckp_2']
+2025-07-12 15:52:21,304 - root - INFO - Subset length: 68
+2025-07-12 15:52:21,871 - root - INFO - Eval on current training checkpoint ckp_2: Number of samples: 68, acc: 0.6176, balanced acc: 0.6237, loss: 2.4150. 
+2025-07-12 15:52:21,872 - root - INFO - Evaluating on next checkpoint ckp_3. 
+2025-07-12 15:52:22,287 - root - INFO - Number of samples: 24, acc: 0.5417, balanced acc: 0.5417, loss: 2.4271. 
+2025-07-12 15:52:22,287 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_O04/upper_bound/2025-07-12-15-52-10/bioclip2/full_text_head/2025-07-12-15-52-14/log. 
+2025-07-12 15:52:22,288 - root - INFO - Training on checkpoint ckp_4. 
+2025-07-12 15:52:22,288 - root - INFO - Gathering samples from checkpoints: ['ckp_3']
+2025-07-12 15:52:22,292 - root - INFO - Subset length: 164
+2025-07-12 15:52:22,292 - root - INFO - Gathering samples from checkpoints: ['ckp_4']
+2025-07-12 15:52:22,292 - root - INFO - Subset length: 12
+2025-07-12 15:52:22,292 - root - INFO - Training dataset size: 164. 
+2025-07-12 15:52:22,292 - root - INFO - Evaluation dataset size: 12. 
+2025-07-12 15:52:22,292 - root - INFO - OOD mask: 0 / 164. 
+2025-07-12 15:52:22,293 - root - INFO - AL mask: 0 / 164. 
+2025-07-12 15:52:22,293 - root - INFO - Evaluating on current checkpoint ckp_3. 
+2025-07-12 15:52:22,293 - root - INFO - Gathering samples from checkpoints: ['ckp_3']
+2025-07-12 15:52:22,293 - root - INFO - Subset length: 24
+2025-07-12 15:52:22,559 - root - INFO - Eval on current training checkpoint ckp_3: Number of samples: 24, acc: 0.5417, balanced acc: 0.5417, loss: 2.4271. 
+2025-07-12 15:52:22,559 - root - INFO - Evaluating on next checkpoint ckp_4. 
+2025-07-12 15:52:22,917 - root - INFO - Number of samples: 12, acc: 0.5833, balanced acc: 0.5833, loss: 2.4345. 
+2025-07-12 15:52:22,917 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_O04/upper_bound/2025-07-12-15-52-10/bioclip2/full_text_head/2025-07-12-15-52-14/log. 
+2025-07-12 15:52:22,919 - root - INFO - Training on checkpoint ckp_5. 
+2025-07-12 15:52:22,919 - root - INFO - Gathering samples from checkpoints: ['ckp_4']
+2025-07-12 15:52:22,931 - root - INFO - Subset length: 633
+2025-07-12 15:52:22,932 - root - INFO - Gathering samples from checkpoints: ['ckp_5']
+2025-07-12 15:52:22,933 - root - INFO - Subset length: 86
+2025-07-12 15:52:22,933 - root - INFO - Training dataset size: 633. 
+2025-07-12 15:52:22,934 - root - INFO - Evaluation dataset size: 86. 
+2025-07-12 15:52:22,934 - root - INFO - OOD mask: 0 / 633. 
+2025-07-12 15:52:22,934 - root - INFO - AL mask: 0 / 633. 
+2025-07-12 15:52:22,934 - root - INFO - Evaluating on current checkpoint ckp_4. 
+2025-07-12 15:52:22,934 - root - INFO - Gathering samples from checkpoints: ['ckp_4']
+2025-07-12 15:52:22,934 - root - INFO - Subset length: 12
+2025-07-12 15:52:23,134 - root - INFO - Eval on current training checkpoint ckp_4: Number of samples: 12, acc: 0.5833, balanced acc: 0.5833, loss: 2.4345. 
+2025-07-12 15:52:23,135 - root - INFO - Evaluating on next checkpoint ckp_5. 
+2025-07-12 15:52:23,824 - root - INFO - Number of samples: 86, acc: 0.6512, balanced acc: 0.6352, loss: 2.4144. 
+2025-07-12 15:52:23,824 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_O04/upper_bound/2025-07-12-15-52-10/bioclip2/full_text_head/2025-07-12-15-52-14/log. 
+2025-07-12 15:52:23,825 - root - INFO - Training on checkpoint ckp_6. 
+2025-07-12 15:52:23,825 - root - INFO - Gathering samples from checkpoints: ['ckp_5']
+2025-07-12 15:52:23,827 - root - INFO - Subset length: 83
+2025-07-12 15:52:23,827 - root - INFO - Gathering samples from checkpoints: ['ckp_6']
+2025-07-12 15:52:23,829 - root - INFO - Subset length: 57
+2025-07-12 15:52:23,829 - root - INFO - Training dataset size: 83. 
+2025-07-12 15:52:23,829 - root - INFO - Evaluation dataset size: 57. 
+2025-07-12 15:52:23,829 - root - INFO - OOD mask: 0 / 83. 
+2025-07-12 15:52:23,829 - root - INFO - AL mask: 0 / 83. 
+2025-07-12 15:52:23,829 - root - INFO - Evaluating on current checkpoint ckp_5. 
+2025-07-12 15:52:23,829 - root - INFO - Gathering samples from checkpoints: ['ckp_5']
+2025-07-12 15:52:23,831 - root - INFO - Subset length: 86
+2025-07-12 15:52:24,325 - root - INFO - Eval on current training checkpoint ckp_5: Number of samples: 86, acc: 0.6512, balanced acc: 0.6352, loss: 2.4144. 
+2025-07-12 15:52:24,325 - root - INFO - Evaluating on next checkpoint ckp_6. 
+2025-07-12 15:52:25,106 - root - INFO - Number of samples: 57, acc: 0.7544, balanced acc: 0.7367, loss: 2.4046. 
+2025-07-12 15:52:25,106 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_O04/upper_bound/2025-07-12-15-52-10/bioclip2/full_text_head/2025-07-12-15-52-14/log. 
+2025-07-12 15:52:25,108 - root - INFO - Training on checkpoint ckp_7. 
+2025-07-12 15:52:25,108 - root - INFO - Gathering samples from checkpoints: ['ckp_6']
+2025-07-12 15:52:25,111 - root - INFO - Subset length: 102
+2025-07-12 15:52:25,111 - root - INFO - Gathering samples from checkpoints: ['ckp_7']
+2025-07-12 15:52:25,112 - root - INFO - Subset length: 23
+2025-07-12 15:52:25,112 - root - INFO - Training dataset size: 102. 
+2025-07-12 15:52:25,112 - root - INFO - Evaluation dataset size: 23. 
+2025-07-12 15:52:25,112 - root - INFO - OOD mask: 0 / 102. 
+2025-07-12 15:52:25,112 - root - INFO - AL mask: 0 / 102. 
+2025-07-12 15:52:25,112 - root - INFO - Evaluating on current checkpoint ckp_6. 
+2025-07-12 15:52:25,112 - root - INFO - Gathering samples from checkpoints: ['ckp_6']
+2025-07-12 15:52:25,113 - root - INFO - Subset length: 57
+2025-07-12 15:52:25,584 - root - INFO - Eval on current training checkpoint ckp_6: Number of samples: 57, acc: 0.7544, balanced acc: 0.7367, loss: 2.4046. 
+2025-07-12 15:52:25,584 - root - INFO - Evaluating on next checkpoint ckp_7. 
+2025-07-12 15:52:25,941 - root - INFO - Number of samples: 23, acc: 0.9130, balanced acc: 0.9091, loss: 2.3865. 
+2025-07-12 15:52:25,942 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_O04/upper_bound/2025-07-12-15-52-10/bioclip2/full_text_head/2025-07-12-15-52-14/log. 
+2025-07-12 15:52:25,943 - root - INFO - Training on checkpoint ckp_8. 
+2025-07-12 15:52:25,943 - root - INFO - Gathering samples from checkpoints: ['ckp_7']
+2025-07-12 15:52:25,947 - root - INFO - Subset length: 165
+2025-07-12 15:52:25,947 - root - INFO - Gathering samples from checkpoints: ['ckp_8']
+2025-07-12 15:52:25,948 - root - INFO - Subset length: 58
+2025-07-12 15:52:25,949 - root - INFO - Training dataset size: 165. 
+2025-07-12 15:52:25,949 - root - INFO - Evaluation dataset size: 58. 
+2025-07-12 15:52:25,949 - root - INFO - OOD mask: 0 / 165. 
+2025-07-12 15:52:25,949 - root - INFO - AL mask: 0 / 165. 
+2025-07-12 15:52:25,949 - root - INFO - Evaluating on current checkpoint ckp_7. 
+2025-07-12 15:52:25,949 - root - INFO - Gathering samples from checkpoints: ['ckp_7']
+2025-07-12 15:52:25,949 - root - INFO - Subset length: 23
+2025-07-12 15:52:26,152 - root - INFO - Eval on current training checkpoint ckp_7: Number of samples: 23, acc: 0.9130, balanced acc: 0.9091, loss: 2.3865. 
+2025-07-12 15:52:26,152 - root - INFO - Evaluating on next checkpoint ckp_8. 
+2025-07-12 15:52:27,199 - root - INFO - Number of samples: 58, acc: 0.7586, balanced acc: 0.7667, loss: 2.4065. 
+2025-07-12 15:52:27,200 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_O04/upper_bound/2025-07-12-15-52-10/bioclip2/full_text_head/2025-07-12-15-52-14/log. 
+wandb:                                                                                
+wandb: 
+wandb: Run history:
+wandb:          accuracy █▂▁▂▃▄▇▅
+wandb: balanced_accuracy █▂▁▂▃▄▇▅
+wandb: 
+wandb: Run summary:
+wandb:          accuracy 0.75862
+wandb: balanced_accuracy 0.76667
+wandb: 
+wandb: 🚀 View run serengeti_serengeti_O04 | upper_bound | 2025-07-12-15-52-10 | bioclip2 | full_text_head | 2025-07-12-15-52-14 at: https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark/runs/4mcvhck7
+wandb: ⭐️ View project at: https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark
+wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: ./wandb/run-20250712_155214-4mcvhck7/logs
+2025-07-12 15:52:27,859 - root - INFO - Elapsed time: 13.26 seconds. 
+/users/PAS2099/mino/miniconda3/envs/ICICLE/lib/python3.11/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+2025-07-12 15:52:34,017 - root - INFO - Saving to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_O03/upper_bound/2025-07-12-15-52-29/bioclip2/full_text_head/2025-07-12-15-52-34/log. 
+wandb: Currently logged in as: minodaze (minodaze-the-ohio-state-university) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.20.1
+wandb: Run data is saved locally in /users/PAS2099/mino/ICICLE/wandb/run-20250712_155234-anf4a4so
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run serengeti_serengeti_O03 | upper_bound | 2025-07-12-15-52-29 | bioclip2 | full_text_head | 2025-07-12-15-52-34
+wandb: ⭐️ View project at https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark
+wandb: 🚀 View run at https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark/runs/anf4a4so
+2025-07-12 15:52:34,990 - root - INFO - wandb logging is enabled.
+2025-07-12 15:52:34,991 - root - INFO - {'accu_eval': False,
+ 'adapter_bottleneck': 64,
+ 'adapter_init': 'lora_kaiming',
+ 'adapter_scaler': 0.1,
+ 'al_config': {'method': 'none'},
+ 'attention_index': None,
+ 'attention_type': 'full',
+ 'bitfit': False,
+ 'block_index': None,
+ 'c': '/fs/scratch/PAS2099/mino/ICICLE/configs/generated_common/serengeti_serengeti_O03_upper_bound.yaml',
+ 'cl_config': {'method': 'none'},
+ 'common_config': {'model': 'bioclip2', 'train_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_O03/30/train.json', 'eval_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_O03/30/test.json', 'all_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_O03/30/train-all.json', 'train_batch_size': 32, 'eval_batch_size': 512, 'optimizer_name': 'AdamW', 'optimizer_params': {'lr': 2.5e-05, 'weight_decay': 0.0001}, 'chop_head': False, 'scheduler': 'CosineAnnealingLR', 'scheduler_params': {'T_max': 30, 'eta_min': 2.5e-06}},
+ 'convpass_bottleneck': 8,
+ 'convpass_init': 'lora_xavier',
+ 'convpass_scaler': 10,
+ 'convpass_xavier_init': False,
+ 'debug': False,
+ 'device': 'cuda',
+ 'difffit': False,
+ 'drop_path_rate': 0.0,
+ 'eval_only': False,
+ 'eval_per_epoch': False,
+ 'fact_dim': 8,
+ 'fact_scaler': 1.0,
+ 'fact_type': None,
+ 'ft_attn_ln': 'before',
+ 'ft_attn_mode': 'parallel',
+ 'ft_attn_module': None,
+ 'ft_mlp_ln': 'before',
+ 'ft_mlp_mode': 'parallel',
+ 'ft_mlp_module': None,
+ 'full': True,
+ 'generalization_test': 'a',
+ 'gpu_id': None,
+ 'gpu_memory_monitor': False,
+ 'interpolation_alpha': 0.5,
+ 'interpolation_head': False,
+ 'interpolation_model': False,
+ 'is_save': False,
+ 'label_type': 'common',
+ 'ln': False,
+ 'log_path': '/fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_O03/upper_bound/2025-07-12-15-52-29/',
+ 'lora_bottleneck': 0,
+ 'merge_factor': 1,
+ 'mlp_index': None,
+ 'mlp_type': 'full',
+ 'module_name': 'upper_bound',
+ 'no_gpu_monitor_colors': False,
+ 'ood_config': {'method': 'none'},
+ 'pretrain_config': {'pretrain': False},
+ 'pretrained_weights': 'bioclip2',
+ 'repadapter_bottleneck': 8,
+ 'repadapter_group': 2,
+ 'repadapter_init': 'lora_xavier',
+ 'repadapter_scaler': 1,
+ 'save_dir': '/fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_O03/upper_bound/2025-07-12-15-52-29/bioclip2/full_text_head/2025-07-12-15-52-34/log',
+ 'seed': 9527,
+ 'ssf': False,
+ 'text': 'head',
+ 'text_template': 'openai',
+ 'vpt_dropout': 0.1,
+ 'vpt_layer': None,
+ 'vpt_mode': None,
+ 'vpt_num': 10,
+ 'vqt_dropout': 0.1,
+ 'vqt_num': 0,
+ 'wandb': True}
+2025-07-12 15:52:34,995 - root - INFO - Using Bioclip-2 model. 
+2025-07-12 15:52:34,996 - root - INFO - Loaded ViT-L-14 model config.
+2025-07-12 15:52:36,917 - root - INFO - Loading pretrained ViT-L-14 weights (pretrained_weights/bioclip-2/open_clip_pytorch_model.bin).
+2025-07-12 15:52:39,172 - root - INFO - Skipping pretraining... 
+2025-07-12 15:52:39,192 - root - INFO - Checkpoint list, length: 4: 
+2025-07-12 15:52:39,192 - root - INFO - 	ckp_1 
+2025-07-12 15:52:39,192 - root - INFO - 	ckp_2 
+2025-07-12 15:52:39,192 - root - INFO - 	ckp_3 
+2025-07-12 15:52:39,192 - root - INFO - 	ckp_4 
+2025-07-12 15:52:39,206 - root - INFO - Training on checkpoint ckp_1. 
+2025-07-12 15:52:39,207 - root - INFO - Subset length: 0
+2025-07-12 15:52:39,207 - root - INFO - Gathering samples from checkpoints: ['ckp_1']
+2025-07-12 15:52:39,208 - root - INFO - Subset length: 55
+2025-07-12 15:52:39,208 - root - INFO - Training dataset size: 0. 
+2025-07-12 15:52:39,208 - root - INFO - Evaluation dataset size: 55. 
+2025-07-12 15:52:39,208 - root - INFO - OOD mask: 0 / 0. 
+2025-07-12 15:52:39,208 - root - INFO - AL mask: 0 / 0. 
+2025-07-12 15:52:39,210 - root - INFO - Evaluating on next checkpoint ckp_1. 
+2025-07-12 15:52:39,875 - root - INFO - Number of samples: 55, acc: 0.7091, balanced acc: 0.7270, loss: 2.4897. 
+2025-07-12 15:52:39,876 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_O03/upper_bound/2025-07-12-15-52-29/bioclip2/full_text_head/2025-07-12-15-52-34/log. 
+2025-07-12 15:52:39,877 - root - INFO - Training on checkpoint ckp_2. 
+2025-07-12 15:52:39,877 - root - INFO - Gathering samples from checkpoints: ['ckp_1']
+2025-07-12 15:52:39,886 - root - INFO - Subset length: 429
+2025-07-12 15:52:39,886 - root - INFO - Gathering samples from checkpoints: ['ckp_2']
+2025-07-12 15:52:39,888 - root - INFO - Subset length: 90
+2025-07-12 15:52:39,888 - root - INFO - Training dataset size: 429. 
+2025-07-12 15:52:39,888 - root - INFO - Evaluation dataset size: 90. 
+2025-07-12 15:52:39,888 - root - INFO - OOD mask: 0 / 429. 
+2025-07-12 15:52:39,888 - root - INFO - AL mask: 0 / 429. 
+2025-07-12 15:52:39,888 - root - INFO - Evaluating on current checkpoint ckp_1. 
+2025-07-12 15:52:39,888 - root - INFO - Gathering samples from checkpoints: ['ckp_1']
+2025-07-12 15:52:39,889 - root - INFO - Subset length: 55
+2025-07-12 15:52:40,258 - root - INFO - Eval on current training checkpoint ckp_1: Number of samples: 55, acc: 0.7091, balanced acc: 0.7270, loss: 2.4897. 
+2025-07-12 15:52:40,258 - root - INFO - Evaluating on next checkpoint ckp_2. 
+2025-07-12 15:52:41,794 - root - INFO - Number of samples: 90, acc: 0.8556, balanced acc: 0.8439, loss: 2.4617. 
+2025-07-12 15:52:41,794 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_O03/upper_bound/2025-07-12-15-52-29/bioclip2/full_text_head/2025-07-12-15-52-34/log. 
+2025-07-12 15:52:41,796 - root - INFO - Training on checkpoint ckp_3. 
+2025-07-12 15:52:41,796 - root - INFO - Gathering samples from checkpoints: ['ckp_2']
+2025-07-12 15:52:41,805 - root - INFO - Subset length: 420
+2025-07-12 15:52:41,805 - root - INFO - Gathering samples from checkpoints: ['ckp_3']
+2025-07-12 15:52:41,806 - root - INFO - Subset length: 69
+2025-07-12 15:52:41,806 - root - INFO - Training dataset size: 420. 
+2025-07-12 15:52:41,806 - root - INFO - Evaluation dataset size: 69. 
+2025-07-12 15:52:41,807 - root - INFO - OOD mask: 0 / 420. 
+2025-07-12 15:52:41,807 - root - INFO - AL mask: 0 / 420. 
+2025-07-12 15:52:41,807 - root - INFO - Evaluating on current checkpoint ckp_2. 
+2025-07-12 15:52:41,807 - root - INFO - Gathering samples from checkpoints: ['ckp_2']
+2025-07-12 15:52:41,809 - root - INFO - Subset length: 90
+2025-07-12 15:52:42,676 - root - INFO - Eval on current training checkpoint ckp_2: Number of samples: 90, acc: 0.8556, balanced acc: 0.8439, loss: 2.4617. 
+2025-07-12 15:52:42,676 - root - INFO - Evaluating on next checkpoint ckp_3. 
+2025-07-12 15:52:43,950 - root - INFO - Number of samples: 69, acc: 0.6522, balanced acc: 0.6528, loss: 2.4772. 
+2025-07-12 15:52:43,950 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_O03/upper_bound/2025-07-12-15-52-29/bioclip2/full_text_head/2025-07-12-15-52-34/log. 
+2025-07-12 15:52:43,951 - root - INFO - Training on checkpoint ckp_4. 
+2025-07-12 15:52:43,952 - root - INFO - Gathering samples from checkpoints: ['ckp_3']
+2025-07-12 15:52:43,964 - root - INFO - Subset length: 660
+2025-07-12 15:52:43,965 - root - INFO - Gathering samples from checkpoints: ['ckp_4']
+2025-07-12 15:52:43,966 - root - INFO - Subset length: 70
+2025-07-12 15:52:43,966 - root - INFO - Training dataset size: 660. 
+2025-07-12 15:52:43,966 - root - INFO - Evaluation dataset size: 70. 
+2025-07-12 15:52:43,967 - root - INFO - OOD mask: 0 / 660. 
+2025-07-12 15:52:43,967 - root - INFO - AL mask: 0 / 660. 
+2025-07-12 15:52:43,967 - root - INFO - Evaluating on current checkpoint ckp_3. 
+2025-07-12 15:52:43,967 - root - INFO - Gathering samples from checkpoints: ['ckp_3']
+2025-07-12 15:52:43,968 - root - INFO - Subset length: 69
+2025-07-12 15:52:44,647 - root - INFO - Eval on current training checkpoint ckp_3: Number of samples: 69, acc: 0.6522, balanced acc: 0.6528, loss: 2.4772. 
+2025-07-12 15:52:44,648 - root - INFO - Evaluating on next checkpoint ckp_4. 
+2025-07-12 15:52:45,945 - root - INFO - Number of samples: 70, acc: 0.6143, balanced acc: 0.6250, loss: 2.4794. 
+2025-07-12 15:52:45,945 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_O03/upper_bound/2025-07-12-15-52-29/bioclip2/full_text_head/2025-07-12-15-52-34/log. 
+wandb:                                                                                
+wandb: 
+wandb: Run history:
+wandb:          accuracy ▄█▂▁
+wandb: balanced_accuracy ▄█▂▁
+wandb: 
+wandb: Run summary:
+wandb:          accuracy 0.61429
+wandb: balanced_accuracy 0.625
+wandb: 
+wandb: 🚀 View run serengeti_serengeti_O03 | upper_bound | 2025-07-12-15-52-29 | bioclip2 | full_text_head | 2025-07-12-15-52-34 at: https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark/runs/anf4a4so
+wandb: ⭐️ View project at: https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark
+wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: ./wandb/run-20250712_155234-anf4a4so/logs
+2025-07-12 15:52:46,499 - root - INFO - Elapsed time: 12.48 seconds. 
+/users/PAS2099/mino/miniconda3/envs/ICICLE/lib/python3.11/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+2025-07-12 15:52:52,572 - root - INFO - Saving to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_L01/upper_bound/2025-07-12-15-52-48/bioclip2/full_text_head/2025-07-12-15-52-52/log. 
+wandb: Currently logged in as: minodaze (minodaze-the-ohio-state-university) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.20.1
+wandb: Run data is saved locally in /users/PAS2099/mino/ICICLE/wandb/run-20250712_155252-cmuj2pq9
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run serengeti_serengeti_L01 | upper_bound | 2025-07-12-15-52-48 | bioclip2 | full_text_head | 2025-07-12-15-52-52
+wandb: ⭐️ View project at https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark
+wandb: 🚀 View run at https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark/runs/cmuj2pq9
+2025-07-12 15:52:53,525 - root - INFO - wandb logging is enabled.
+2025-07-12 15:52:53,526 - root - INFO - {'accu_eval': False,
+ 'adapter_bottleneck': 64,
+ 'adapter_init': 'lora_kaiming',
+ 'adapter_scaler': 0.1,
+ 'al_config': {'method': 'none'},
+ 'attention_index': None,
+ 'attention_type': 'full',
+ 'bitfit': False,
+ 'block_index': None,
+ 'c': '/fs/scratch/PAS2099/mino/ICICLE/configs/generated_common/serengeti_serengeti_L01_upper_bound.yaml',
+ 'cl_config': {'method': 'none'},
+ 'common_config': {'model': 'bioclip2', 'train_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_L01/30/train.json', 'eval_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_L01/30/test.json', 'all_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_L01/30/train-all.json', 'train_batch_size': 32, 'eval_batch_size': 512, 'optimizer_name': 'AdamW', 'optimizer_params': {'lr': 2.5e-05, 'weight_decay': 0.0001}, 'chop_head': False, 'scheduler': 'CosineAnnealingLR', 'scheduler_params': {'T_max': 30, 'eta_min': 2.5e-06}},
+ 'convpass_bottleneck': 8,
+ 'convpass_init': 'lora_xavier',
+ 'convpass_scaler': 10,
+ 'convpass_xavier_init': False,
+ 'debug': False,
+ 'device': 'cuda',
+ 'difffit': False,
+ 'drop_path_rate': 0.0,
+ 'eval_only': False,
+ 'eval_per_epoch': False,
+ 'fact_dim': 8,
+ 'fact_scaler': 1.0,
+ 'fact_type': None,
+ 'ft_attn_ln': 'before',
+ 'ft_attn_mode': 'parallel',
+ 'ft_attn_module': None,
+ 'ft_mlp_ln': 'before',
+ 'ft_mlp_mode': 'parallel',
+ 'ft_mlp_module': None,
+ 'full': True,
+ 'generalization_test': 'a',
+ 'gpu_id': None,
+ 'gpu_memory_monitor': False,
+ 'interpolation_alpha': 0.5,
+ 'interpolation_head': False,
+ 'interpolation_model': False,
+ 'is_save': False,
+ 'label_type': 'common',
+ 'ln': False,
+ 'log_path': '/fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_L01/upper_bound/2025-07-12-15-52-48/',
+ 'lora_bottleneck': 0,
+ 'merge_factor': 1,
+ 'mlp_index': None,
+ 'mlp_type': 'full',
+ 'module_name': 'upper_bound',
+ 'no_gpu_monitor_colors': False,
+ 'ood_config': {'method': 'none'},
+ 'pretrain_config': {'pretrain': False},
+ 'pretrained_weights': 'bioclip2',
+ 'repadapter_bottleneck': 8,
+ 'repadapter_group': 2,
+ 'repadapter_init': 'lora_xavier',
+ 'repadapter_scaler': 1,
+ 'save_dir': '/fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_L01/upper_bound/2025-07-12-15-52-48/bioclip2/full_text_head/2025-07-12-15-52-52/log',
+ 'seed': 9527,
+ 'ssf': False,
+ 'text': 'head',
+ 'text_template': 'openai',
+ 'vpt_dropout': 0.1,
+ 'vpt_layer': None,
+ 'vpt_mode': None,
+ 'vpt_num': 10,
+ 'vqt_dropout': 0.1,
+ 'vqt_num': 0,
+ 'wandb': True}
+2025-07-12 15:52:53,528 - root - INFO - Using Bioclip-2 model. 
+2025-07-12 15:52:53,528 - root - INFO - Loaded ViT-L-14 model config.
+2025-07-12 15:52:55,453 - root - INFO - Loading pretrained ViT-L-14 weights (pretrained_weights/bioclip-2/open_clip_pytorch_model.bin).
+2025-07-12 15:52:57,563 - root - INFO - Skipping pretraining... 
+2025-07-12 15:52:57,571 - root - INFO - Checkpoint list, length: 5: 
+2025-07-12 15:52:57,571 - root - INFO - 	ckp_1 
+2025-07-12 15:52:57,571 - root - INFO - 	ckp_2 
+2025-07-12 15:52:57,571 - root - INFO - 	ckp_3 
+2025-07-12 15:52:57,571 - root - INFO - 	ckp_4 
+2025-07-12 15:52:57,571 - root - INFO - 	ckp_5 
+2025-07-12 15:52:57,586 - root - INFO - Training on checkpoint ckp_1. 
+2025-07-12 15:52:57,586 - root - INFO - Subset length: 0
+2025-07-12 15:52:57,586 - root - INFO - Gathering samples from checkpoints: ['ckp_1']
+2025-07-12 15:52:57,588 - root - INFO - Subset length: 65
+2025-07-12 15:52:57,588 - root - INFO - Training dataset size: 0. 
+2025-07-12 15:52:57,588 - root - INFO - Evaluation dataset size: 65. 
+2025-07-12 15:52:57,588 - root - INFO - OOD mask: 0 / 0. 
+2025-07-12 15:52:57,589 - root - INFO - AL mask: 0 / 0. 
+2025-07-12 15:52:57,590 - root - INFO - Evaluating on next checkpoint ckp_1. 
+2025-07-12 15:52:58,561 - root - INFO - Number of samples: 65, acc: 0.7538, balanced acc: 0.7500, loss: 2.2139. 
+2025-07-12 15:52:58,561 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_L01/upper_bound/2025-07-12-15-52-48/bioclip2/full_text_head/2025-07-12-15-52-52/log. 
+2025-07-12 15:52:58,562 - root - INFO - Training on checkpoint ckp_2. 
+2025-07-12 15:52:58,562 - root - INFO - Gathering samples from checkpoints: ['ckp_1']
+2025-07-12 15:52:58,565 - root - INFO - Subset length: 166
+2025-07-12 15:52:58,566 - root - INFO - Gathering samples from checkpoints: ['ckp_2']
+2025-07-12 15:52:58,567 - root - INFO - Subset length: 43
+2025-07-12 15:52:58,567 - root - INFO - Training dataset size: 166. 
+2025-07-12 15:52:58,567 - root - INFO - Evaluation dataset size: 43. 
+2025-07-12 15:52:58,567 - root - INFO - OOD mask: 0 / 166. 
+2025-07-12 15:52:58,567 - root - INFO - AL mask: 0 / 166. 
+2025-07-12 15:52:58,567 - root - INFO - Evaluating on current checkpoint ckp_1. 
+2025-07-12 15:52:58,567 - root - INFO - Gathering samples from checkpoints: ['ckp_1']
+2025-07-12 15:52:58,569 - root - INFO - Subset length: 65
+2025-07-12 15:52:59,067 - root - INFO - Eval on current training checkpoint ckp_1: Number of samples: 65, acc: 0.7538, balanced acc: 0.7500, loss: 2.2139. 
+2025-07-12 15:52:59,068 - root - INFO - Evaluating on next checkpoint ckp_2. 
+2025-07-12 15:52:59,826 - root - INFO - Number of samples: 43, acc: 0.9767, balanced acc: 0.9750, loss: 2.1915. 
+2025-07-12 15:52:59,827 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_L01/upper_bound/2025-07-12-15-52-48/bioclip2/full_text_head/2025-07-12-15-52-52/log. 
+2025-07-12 15:52:59,828 - root - INFO - Training on checkpoint ckp_3. 
+2025-07-12 15:52:59,828 - root - INFO - Gathering samples from checkpoints: ['ckp_2']
+2025-07-12 15:52:59,831 - root - INFO - Subset length: 127
+2025-07-12 15:52:59,831 - root - INFO - Gathering samples from checkpoints: ['ckp_3']
+2025-07-12 15:52:59,833 - root - INFO - Subset length: 56
+2025-07-12 15:52:59,833 - root - INFO - Training dataset size: 127. 
+2025-07-12 15:52:59,833 - root - INFO - Evaluation dataset size: 56. 
+2025-07-12 15:52:59,833 - root - INFO - OOD mask: 0 / 127. 
+2025-07-12 15:52:59,833 - root - INFO - AL mask: 0 / 127. 
+2025-07-12 15:52:59,833 - root - INFO - Evaluating on current checkpoint ckp_2. 
+2025-07-12 15:52:59,833 - root - INFO - Gathering samples from checkpoints: ['ckp_2']
+2025-07-12 15:52:59,834 - root - INFO - Subset length: 43
+2025-07-12 15:53:00,242 - root - INFO - Eval on current training checkpoint ckp_2: Number of samples: 43, acc: 0.9767, balanced acc: 0.9750, loss: 2.1915. 
+2025-07-12 15:53:00,243 - root - INFO - Evaluating on next checkpoint ckp_3. 
+2025-07-12 15:53:01,150 - root - INFO - Number of samples: 56, acc: 0.8750, balanced acc: 0.8673, loss: 2.2126. 
+2025-07-12 15:53:01,151 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_L01/upper_bound/2025-07-12-15-52-48/bioclip2/full_text_head/2025-07-12-15-52-52/log. 
+2025-07-12 15:53:01,152 - root - INFO - Training on checkpoint ckp_4. 
+2025-07-12 15:53:01,152 - root - INFO - Gathering samples from checkpoints: ['ckp_3']
+2025-07-12 15:53:01,154 - root - INFO - Subset length: 113
+2025-07-12 15:53:01,155 - root - INFO - Gathering samples from checkpoints: ['ckp_4']
+2025-07-12 15:53:01,156 - root - INFO - Subset length: 56
+2025-07-12 15:53:01,156 - root - INFO - Training dataset size: 113. 
+2025-07-12 15:53:01,156 - root - INFO - Evaluation dataset size: 56. 
+2025-07-12 15:53:01,156 - root - INFO - OOD mask: 0 / 113. 
+2025-07-12 15:53:01,156 - root - INFO - AL mask: 0 / 113. 
+2025-07-12 15:53:01,156 - root - INFO - Evaluating on current checkpoint ckp_3. 
+2025-07-12 15:53:01,156 - root - INFO - Gathering samples from checkpoints: ['ckp_3']
+2025-07-12 15:53:01,157 - root - INFO - Subset length: 56
+2025-07-12 15:53:01,665 - root - INFO - Eval on current training checkpoint ckp_3: Number of samples: 56, acc: 0.8750, balanced acc: 0.8673, loss: 2.2126. 
+2025-07-12 15:53:01,665 - root - INFO - Evaluating on next checkpoint ckp_4. 
+2025-07-12 15:53:02,593 - root - INFO - Number of samples: 56, acc: 0.9464, balanced acc: 0.9400, loss: 2.1992. 
+2025-07-12 15:53:02,593 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_L01/upper_bound/2025-07-12-15-52-48/bioclip2/full_text_head/2025-07-12-15-52-52/log. 
+2025-07-12 15:53:02,594 - root - INFO - Training on checkpoint ckp_5. 
+2025-07-12 15:53:02,594 - root - INFO - Gathering samples from checkpoints: ['ckp_4']
+2025-07-12 15:53:02,596 - root - INFO - Subset length: 102
+2025-07-12 15:53:02,597 - root - INFO - Gathering samples from checkpoints: ['ckp_5']
+2025-07-12 15:53:02,598 - root - INFO - Subset length: 78
+2025-07-12 15:53:02,598 - root - INFO - Training dataset size: 102. 
+2025-07-12 15:53:02,599 - root - INFO - Evaluation dataset size: 78. 
+2025-07-12 15:53:02,599 - root - INFO - OOD mask: 0 / 102. 
+2025-07-12 15:53:02,599 - root - INFO - AL mask: 0 / 102. 
+2025-07-12 15:53:02,599 - root - INFO - Evaluating on current checkpoint ckp_4. 
+2025-07-12 15:53:02,599 - root - INFO - Gathering samples from checkpoints: ['ckp_4']
+2025-07-12 15:53:02,600 - root - INFO - Subset length: 56
+2025-07-12 15:53:03,081 - root - INFO - Eval on current training checkpoint ckp_4: Number of samples: 56, acc: 0.9464, balanced acc: 0.9400, loss: 2.1992. 
+2025-07-12 15:53:03,082 - root - INFO - Evaluating on next checkpoint ckp_5. 
+2025-07-12 15:53:04,374 - root - INFO - Number of samples: 78, acc: 0.9487, balanced acc: 0.9513, loss: 2.2063. 
+2025-07-12 15:53:04,374 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_L01/upper_bound/2025-07-12-15-52-48/bioclip2/full_text_head/2025-07-12-15-52-52/log. 
+wandb:                                                                                
+wandb: 
+wandb: Run history:
+wandb:          accuracy ▁█▅▇▇
+wandb: balanced_accuracy ▁█▅▇▇
+wandb: 
+wandb: Run summary:
+wandb:          accuracy 0.94872
+wandb: balanced_accuracy 0.9513
+wandb: 
+wandb: 🚀 View run serengeti_serengeti_L01 | upper_bound | 2025-07-12-15-52-48 | bioclip2 | full_text_head | 2025-07-12-15-52-52 at: https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark/runs/cmuj2pq9
+wandb: ⭐️ View project at: https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark
+wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: ./wandb/run-20250712_155252-cmuj2pq9/logs
+2025-07-12 15:53:04,979 - root - INFO - Elapsed time: 12.40 seconds. 
+/users/PAS2099/mino/miniconda3/envs/ICICLE/lib/python3.11/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+2025-07-12 15:53:11,036 - root - INFO - Saving to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+wandb: Currently logged in as: minodaze (minodaze-the-ohio-state-university) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.20.1
+wandb: Run data is saved locally in /users/PAS2099/mino/ICICLE/wandb/run-20250712_155311-pyyfl36m
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run serengeti_serengeti_D11 | upper_bound | 2025-07-12-15-53-06 | bioclip2 | full_text_head | 2025-07-12-15-53-11
+wandb: ⭐️ View project at https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark
+wandb: 🚀 View run at https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark/runs/pyyfl36m
+2025-07-12 15:53:11,980 - root - INFO - wandb logging is enabled.
+2025-07-12 15:53:11,981 - root - INFO - {'accu_eval': False,
+ 'adapter_bottleneck': 64,
+ 'adapter_init': 'lora_kaiming',
+ 'adapter_scaler': 0.1,
+ 'al_config': {'method': 'none'},
+ 'attention_index': None,
+ 'attention_type': 'full',
+ 'bitfit': False,
+ 'block_index': None,
+ 'c': '/fs/scratch/PAS2099/mino/ICICLE/configs/generated_common/serengeti_serengeti_D11_upper_bound.yaml',
+ 'cl_config': {'method': 'none'},
+ 'common_config': {'model': 'bioclip2', 'train_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_D11/30/train.json', 'eval_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_D11/30/test.json', 'all_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_D11/30/train-all.json', 'train_batch_size': 32, 'eval_batch_size': 512, 'optimizer_name': 'AdamW', 'optimizer_params': {'lr': 2.5e-05, 'weight_decay': 0.0001}, 'chop_head': False, 'scheduler': 'CosineAnnealingLR', 'scheduler_params': {'T_max': 30, 'eta_min': 2.5e-06}},
+ 'convpass_bottleneck': 8,
+ 'convpass_init': 'lora_xavier',
+ 'convpass_scaler': 10,
+ 'convpass_xavier_init': False,
+ 'debug': False,
+ 'device': 'cuda',
+ 'difffit': False,
+ 'drop_path_rate': 0.0,
+ 'eval_only': False,
+ 'eval_per_epoch': False,
+ 'fact_dim': 8,
+ 'fact_scaler': 1.0,
+ 'fact_type': None,
+ 'ft_attn_ln': 'before',
+ 'ft_attn_mode': 'parallel',
+ 'ft_attn_module': None,
+ 'ft_mlp_ln': 'before',
+ 'ft_mlp_mode': 'parallel',
+ 'ft_mlp_module': None,
+ 'full': True,
+ 'generalization_test': 'a',
+ 'gpu_id': None,
+ 'gpu_memory_monitor': False,
+ 'interpolation_alpha': 0.5,
+ 'interpolation_head': False,
+ 'interpolation_model': False,
+ 'is_save': False,
+ 'label_type': 'common',
+ 'ln': False,
+ 'log_path': '/fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/',
+ 'lora_bottleneck': 0,
+ 'merge_factor': 1,
+ 'mlp_index': None,
+ 'mlp_type': 'full',
+ 'module_name': 'upper_bound',
+ 'no_gpu_monitor_colors': False,
+ 'ood_config': {'method': 'none'},
+ 'pretrain_config': {'pretrain': False},
+ 'pretrained_weights': 'bioclip2',
+ 'repadapter_bottleneck': 8,
+ 'repadapter_group': 2,
+ 'repadapter_init': 'lora_xavier',
+ 'repadapter_scaler': 1,
+ 'save_dir': '/fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log',
+ 'seed': 9527,
+ 'ssf': False,
+ 'text': 'head',
+ 'text_template': 'openai',
+ 'vpt_dropout': 0.1,
+ 'vpt_layer': None,
+ 'vpt_mode': None,
+ 'vpt_num': 10,
+ 'vqt_dropout': 0.1,
+ 'vqt_num': 0,
+ 'wandb': True}
+2025-07-12 15:53:11,991 - root - INFO - Using Bioclip-2 model. 
+2025-07-12 15:53:11,991 - root - INFO - Loaded ViT-L-14 model config.
+2025-07-12 15:53:13,914 - root - INFO - Loading pretrained ViT-L-14 weights (pretrained_weights/bioclip-2/open_clip_pytorch_model.bin).
+2025-07-12 15:53:16,198 - root - INFO - Skipping pretraining... 
+2025-07-12 15:53:16,240 - root - INFO - Checkpoint list, length: 18: 
+2025-07-12 15:53:16,240 - root - INFO - 	ckp_1 
+2025-07-12 15:53:16,240 - root - INFO - 	ckp_2 
+2025-07-12 15:53:16,240 - root - INFO - 	ckp_3 
+2025-07-12 15:53:16,240 - root - INFO - 	ckp_4 
+2025-07-12 15:53:16,240 - root - INFO - 	ckp_5 
+2025-07-12 15:53:16,240 - root - INFO - 	ckp_6 
+2025-07-12 15:53:16,240 - root - INFO - 	ckp_7 
+2025-07-12 15:53:16,240 - root - INFO - 	ckp_8 
+2025-07-12 15:53:16,240 - root - INFO - 	ckp_9 
+2025-07-12 15:53:16,240 - root - INFO - 	ckp_10 
+2025-07-12 15:53:16,241 - root - INFO - 	ckp_11 
+2025-07-12 15:53:16,241 - root - INFO - 	ckp_12 
+2025-07-12 15:53:16,241 - root - INFO - 	ckp_13 
+2025-07-12 15:53:16,241 - root - INFO - 	ckp_14 
+2025-07-12 15:53:16,241 - root - INFO - 	ckp_15 
+2025-07-12 15:53:16,242 - root - INFO - 	ckp_16 
+2025-07-12 15:53:16,242 - root - INFO - 	ckp_17 
+2025-07-12 15:53:16,242 - root - INFO - 	ckp_18 
+2025-07-12 15:53:16,256 - root - INFO - Training on checkpoint ckp_1. 
+2025-07-12 15:53:16,256 - root - INFO - Subset length: 0
+2025-07-12 15:53:16,257 - root - INFO - Gathering samples from checkpoints: ['ckp_1']
+2025-07-12 15:53:16,258 - root - INFO - Subset length: 46
+2025-07-12 15:53:16,258 - root - INFO - Training dataset size: 0. 
+2025-07-12 15:53:16,258 - root - INFO - Evaluation dataset size: 46. 
+2025-07-12 15:53:16,258 - root - INFO - OOD mask: 0 / 0. 
+2025-07-12 15:53:16,258 - root - INFO - AL mask: 0 / 0. 
+2025-07-12 15:53:16,258 - root - INFO - Evaluating on next checkpoint ckp_1. 
+2025-07-12 15:53:16,980 - root - INFO - Number of samples: 46, acc: 0.7826, balanced acc: 0.7875, loss: 2.5470. 
+2025-07-12 15:53:16,981 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+2025-07-12 15:53:16,982 - root - INFO - Training on checkpoint ckp_2. 
+2025-07-12 15:53:16,983 - root - INFO - Gathering samples from checkpoints: ['ckp_1']
+2025-07-12 15:53:16,986 - root - INFO - Subset length: 144
+2025-07-12 15:53:16,986 - root - INFO - Gathering samples from checkpoints: ['ckp_2']
+2025-07-12 15:53:16,987 - root - INFO - Subset length: 32
+2025-07-12 15:53:16,987 - root - INFO - Training dataset size: 144. 
+2025-07-12 15:53:16,987 - root - INFO - Evaluation dataset size: 32. 
+2025-07-12 15:53:16,987 - root - INFO - OOD mask: 0 / 144. 
+2025-07-12 15:53:16,988 - root - INFO - AL mask: 0 / 144. 
+2025-07-12 15:53:16,988 - root - INFO - Evaluating on current checkpoint ckp_1. 
+2025-07-12 15:53:16,988 - root - INFO - Gathering samples from checkpoints: ['ckp_1']
+2025-07-12 15:53:16,989 - root - INFO - Subset length: 46
+2025-07-12 15:53:17,383 - root - INFO - Eval on current training checkpoint ckp_1: Number of samples: 46, acc: 0.7826, balanced acc: 0.7875, loss: 2.5470. 
+2025-07-12 15:53:17,383 - root - INFO - Evaluating on next checkpoint ckp_2. 
+2025-07-12 15:53:17,665 - root - INFO - Number of samples: 32, acc: 0.8438, balanced acc: 0.8611, loss: 2.5438. 
+2025-07-12 15:53:17,665 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+2025-07-12 15:53:17,666 - root - INFO - Training on checkpoint ckp_3. 
+2025-07-12 15:53:17,666 - root - INFO - Gathering samples from checkpoints: ['ckp_2']
+2025-07-12 15:53:17,670 - root - INFO - Subset length: 148
+2025-07-12 15:53:17,670 - root - INFO - Gathering samples from checkpoints: ['ckp_3']
+2025-07-12 15:53:17,671 - root - INFO - Subset length: 34
+2025-07-12 15:53:17,671 - root - INFO - Training dataset size: 148. 
+2025-07-12 15:53:17,671 - root - INFO - Evaluation dataset size: 34. 
+2025-07-12 15:53:17,671 - root - INFO - OOD mask: 0 / 148. 
+2025-07-12 15:53:17,671 - root - INFO - AL mask: 0 / 148. 
+2025-07-12 15:53:17,671 - root - INFO - Evaluating on current checkpoint ckp_2. 
+2025-07-12 15:53:17,671 - root - INFO - Gathering samples from checkpoints: ['ckp_2']
+2025-07-12 15:53:17,672 - root - INFO - Subset length: 32
+2025-07-12 15:53:17,867 - root - INFO - Eval on current training checkpoint ckp_2: Number of samples: 32, acc: 0.8438, balanced acc: 0.8611, loss: 2.5438. 
+2025-07-12 15:53:17,867 - root - INFO - Evaluating on next checkpoint ckp_3. 
+2025-07-12 15:53:18,332 - root - INFO - Number of samples: 34, acc: 0.7941, balanced acc: 0.8056, loss: 2.5666. 
+2025-07-12 15:53:18,333 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+2025-07-12 15:53:18,334 - root - INFO - Training on checkpoint ckp_4. 
+2025-07-12 15:53:18,334 - root - INFO - Gathering samples from checkpoints: ['ckp_3']
+2025-07-12 15:53:18,351 - root - INFO - Subset length: 882
+2025-07-12 15:53:18,352 - root - INFO - Gathering samples from checkpoints: ['ckp_4']
+2025-07-12 15:53:18,352 - root - INFO - Subset length: 35
+2025-07-12 15:53:18,353 - root - INFO - Training dataset size: 882. 
+2025-07-12 15:53:18,353 - root - INFO - Evaluation dataset size: 35. 
+2025-07-12 15:53:18,353 - root - INFO - OOD mask: 0 / 882. 
+2025-07-12 15:53:18,353 - root - INFO - AL mask: 0 / 882. 
+2025-07-12 15:53:18,353 - root - INFO - Evaluating on current checkpoint ckp_3. 
+2025-07-12 15:53:18,353 - root - INFO - Gathering samples from checkpoints: ['ckp_3']
+2025-07-12 15:53:18,354 - root - INFO - Subset length: 34
+2025-07-12 15:53:18,658 - root - INFO - Eval on current training checkpoint ckp_3: Number of samples: 34, acc: 0.7941, balanced acc: 0.8056, loss: 2.5666. 
+2025-07-12 15:53:18,658 - root - INFO - Evaluating on next checkpoint ckp_4. 
+2025-07-12 15:53:19,029 - root - INFO - Number of samples: 35, acc: 0.8571, balanced acc: 0.8561, loss: 2.5403. 
+2025-07-12 15:53:19,030 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+2025-07-12 15:53:19,031 - root - INFO - Training on checkpoint ckp_5. 
+2025-07-12 15:53:19,031 - root - INFO - Gathering samples from checkpoints: ['ckp_4']
+2025-07-12 15:53:19,035 - root - INFO - Subset length: 148
+2025-07-12 15:53:19,035 - root - INFO - Gathering samples from checkpoints: ['ckp_5']
+2025-07-12 15:53:19,036 - root - INFO - Subset length: 12
+2025-07-12 15:53:19,036 - root - INFO - Training dataset size: 148. 
+2025-07-12 15:53:19,036 - root - INFO - Evaluation dataset size: 12. 
+2025-07-12 15:53:19,036 - root - INFO - OOD mask: 0 / 148. 
+2025-07-12 15:53:19,036 - root - INFO - AL mask: 0 / 148. 
+2025-07-12 15:53:19,036 - root - INFO - Evaluating on current checkpoint ckp_4. 
+2025-07-12 15:53:19,036 - root - INFO - Gathering samples from checkpoints: ['ckp_4']
+2025-07-12 15:53:19,037 - root - INFO - Subset length: 35
+2025-07-12 15:53:19,285 - root - INFO - Eval on current training checkpoint ckp_4: Number of samples: 35, acc: 0.8571, balanced acc: 0.8561, loss: 2.5403. 
+2025-07-12 15:53:19,285 - root - INFO - Evaluating on next checkpoint ckp_5. 
+2025-07-12 15:53:19,446 - root - INFO - Number of samples: 12, acc: 0.8333, balanced acc: 0.8333, loss: 2.5475. 
+2025-07-12 15:53:19,447 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+2025-07-12 15:53:19,448 - root - INFO - Training on checkpoint ckp_6. 
+2025-07-12 15:53:19,448 - root - INFO - Gathering samples from checkpoints: ['ckp_5']
+2025-07-12 15:53:19,451 - root - INFO - Subset length: 177
+2025-07-12 15:53:19,452 - root - INFO - Gathering samples from checkpoints: ['ckp_6']
+2025-07-12 15:53:19,452 - root - INFO - Subset length: 30
+2025-07-12 15:53:19,452 - root - INFO - Training dataset size: 177. 
+2025-07-12 15:53:19,452 - root - INFO - Evaluation dataset size: 30. 
+2025-07-12 15:53:19,453 - root - INFO - OOD mask: 0 / 177. 
+2025-07-12 15:53:19,453 - root - INFO - AL mask: 0 / 177. 
+2025-07-12 15:53:19,453 - root - INFO - Evaluating on current checkpoint ckp_5. 
+2025-07-12 15:53:19,453 - root - INFO - Gathering samples from checkpoints: ['ckp_5']
+2025-07-12 15:53:19,453 - root - INFO - Subset length: 12
+2025-07-12 15:53:19,559 - root - INFO - Eval on current training checkpoint ckp_5: Number of samples: 12, acc: 0.8333, balanced acc: 0.8333, loss: 2.5475. 
+2025-07-12 15:53:19,559 - root - INFO - Evaluating on next checkpoint ckp_6. 
+2025-07-12 15:53:19,943 - root - INFO - Number of samples: 30, acc: 0.7333, balanced acc: 0.7333, loss: 2.5525. 
+2025-07-12 15:53:19,944 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+2025-07-12 15:53:19,944 - root - INFO - Training on checkpoint ckp_7. 
+2025-07-12 15:53:19,945 - root - INFO - Gathering samples from checkpoints: ['ckp_6']
+2025-07-12 15:53:19,951 - root - INFO - Subset length: 319
+2025-07-12 15:53:19,951 - root - INFO - Gathering samples from checkpoints: ['ckp_7']
+2025-07-12 15:53:19,952 - root - INFO - Subset length: 44
+2025-07-12 15:53:19,952 - root - INFO - Training dataset size: 319. 
+2025-07-12 15:53:19,953 - root - INFO - Evaluation dataset size: 44. 
+2025-07-12 15:53:19,953 - root - INFO - OOD mask: 0 / 319. 
+2025-07-12 15:53:19,953 - root - INFO - AL mask: 0 / 319. 
+2025-07-12 15:53:19,953 - root - INFO - Evaluating on current checkpoint ckp_6. 
+2025-07-12 15:53:19,953 - root - INFO - Gathering samples from checkpoints: ['ckp_6']
+2025-07-12 15:53:19,954 - root - INFO - Subset length: 30
+2025-07-12 15:53:20,187 - root - INFO - Eval on current training checkpoint ckp_6: Number of samples: 30, acc: 0.7333, balanced acc: 0.7333, loss: 2.5525. 
+2025-07-12 15:53:20,188 - root - INFO - Evaluating on next checkpoint ckp_7. 
+2025-07-12 15:53:21,081 - root - INFO - Number of samples: 44, acc: 0.7727, balanced acc: 0.7792, loss: 2.5666. 
+2025-07-12 15:53:21,082 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+2025-07-12 15:53:21,084 - root - INFO - Training on checkpoint ckp_8. 
+2025-07-12 15:53:21,084 - root - INFO - Gathering samples from checkpoints: ['ckp_7']
+2025-07-12 15:53:21,089 - root - INFO - Subset length: 248
+2025-07-12 15:53:21,090 - root - INFO - Gathering samples from checkpoints: ['ckp_8']
+2025-07-12 15:53:21,091 - root - INFO - Subset length: 42
+2025-07-12 15:53:21,091 - root - INFO - Training dataset size: 248. 
+2025-07-12 15:53:21,091 - root - INFO - Evaluation dataset size: 42. 
+2025-07-12 15:53:21,091 - root - INFO - OOD mask: 0 / 248. 
+2025-07-12 15:53:21,091 - root - INFO - AL mask: 0 / 248. 
+2025-07-12 15:53:21,091 - root - INFO - Evaluating on current checkpoint ckp_7. 
+2025-07-12 15:53:21,091 - root - INFO - Gathering samples from checkpoints: ['ckp_7']
+2025-07-12 15:53:21,092 - root - INFO - Subset length: 44
+2025-07-12 15:53:21,611 - root - INFO - Eval on current training checkpoint ckp_7: Number of samples: 44, acc: 0.7727, balanced acc: 0.7792, loss: 2.5666. 
+2025-07-12 15:53:21,612 - root - INFO - Evaluating on next checkpoint ckp_8. 
+2025-07-12 15:53:22,097 - root - INFO - Number of samples: 42, acc: 0.8571, balanced acc: 0.8500, loss: 2.5458. 
+2025-07-12 15:53:22,097 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+2025-07-12 15:53:22,098 - root - INFO - Training on checkpoint ckp_9. 
+2025-07-12 15:53:22,098 - root - INFO - Gathering samples from checkpoints: ['ckp_8']
+2025-07-12 15:53:22,238 - root - INFO - Subset length: 138
+2025-07-12 15:53:22,238 - root - INFO - Gathering samples from checkpoints: ['ckp_9']
+2025-07-12 15:53:22,239 - root - INFO - Subset length: 35
+2025-07-12 15:53:22,239 - root - INFO - Training dataset size: 138. 
+2025-07-12 15:53:22,239 - root - INFO - Evaluation dataset size: 35. 
+2025-07-12 15:53:22,239 - root - INFO - OOD mask: 0 / 138. 
+2025-07-12 15:53:22,239 - root - INFO - AL mask: 0 / 138. 
+2025-07-12 15:53:22,239 - root - INFO - Evaluating on current checkpoint ckp_8. 
+2025-07-12 15:53:22,240 - root - INFO - Gathering samples from checkpoints: ['ckp_8']
+2025-07-12 15:53:22,240 - root - INFO - Subset length: 42
+2025-07-12 15:53:22,551 - root - INFO - Eval on current training checkpoint ckp_8: Number of samples: 42, acc: 0.8571, balanced acc: 0.8500, loss: 2.5458. 
+2025-07-12 15:53:22,551 - root - INFO - Evaluating on next checkpoint ckp_9. 
+2025-07-12 15:53:22,850 - root - INFO - Number of samples: 35, acc: 0.7714, balanced acc: 0.7778, loss: 2.5593. 
+2025-07-12 15:53:22,851 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+2025-07-12 15:53:22,852 - root - INFO - Training on checkpoint ckp_10. 
+2025-07-12 15:53:22,852 - root - INFO - Gathering samples from checkpoints: ['ckp_9']
+2025-07-12 15:53:22,868 - root - INFO - Subset length: 776
+2025-07-12 15:53:22,868 - root - INFO - Gathering samples from checkpoints: ['ckp_10']
+2025-07-12 15:53:22,869 - root - INFO - Subset length: 32
+2025-07-12 15:53:22,869 - root - INFO - Training dataset size: 776. 
+2025-07-12 15:53:22,869 - root - INFO - Evaluation dataset size: 32. 
+2025-07-12 15:53:22,870 - root - INFO - OOD mask: 0 / 776. 
+2025-07-12 15:53:22,870 - root - INFO - AL mask: 0 / 776. 
+2025-07-12 15:53:22,870 - root - INFO - Evaluating on current checkpoint ckp_9. 
+2025-07-12 15:53:22,870 - root - INFO - Gathering samples from checkpoints: ['ckp_9']
+2025-07-12 15:53:22,871 - root - INFO - Subset length: 35
+2025-07-12 15:53:23,089 - root - INFO - Eval on current training checkpoint ckp_9: Number of samples: 35, acc: 0.7714, balanced acc: 0.7778, loss: 2.5593. 
+2025-07-12 15:53:23,089 - root - INFO - Evaluating on next checkpoint ckp_10. 
+2025-07-12 15:53:23,424 - root - INFO - Number of samples: 32, acc: 0.8750, balanced acc: 0.8833, loss: 2.5491. 
+2025-07-12 15:53:23,425 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+2025-07-12 15:53:23,426 - root - INFO - Training on checkpoint ckp_11. 
+2025-07-12 15:53:23,426 - root - INFO - Gathering samples from checkpoints: ['ckp_10']
+2025-07-12 15:53:23,430 - root - INFO - Subset length: 146
+2025-07-12 15:53:23,430 - root - INFO - Gathering samples from checkpoints: ['ckp_11']
+2025-07-12 15:53:23,431 - root - INFO - Subset length: 42
+2025-07-12 15:53:23,431 - root - INFO - Training dataset size: 146. 
+2025-07-12 15:53:23,431 - root - INFO - Evaluation dataset size: 42. 
+2025-07-12 15:53:23,431 - root - INFO - OOD mask: 0 / 146. 
+2025-07-12 15:53:23,432 - root - INFO - AL mask: 0 / 146. 
+2025-07-12 15:53:23,432 - root - INFO - Evaluating on current checkpoint ckp_10. 
+2025-07-12 15:53:23,432 - root - INFO - Gathering samples from checkpoints: ['ckp_10']
+2025-07-12 15:53:23,432 - root - INFO - Subset length: 32
+2025-07-12 15:53:23,654 - root - INFO - Eval on current training checkpoint ckp_10: Number of samples: 32, acc: 0.8750, balanced acc: 0.8833, loss: 2.5491. 
+2025-07-12 15:53:23,655 - root - INFO - Evaluating on next checkpoint ckp_11. 
+2025-07-12 15:53:24,286 - root - INFO - Number of samples: 42, acc: 0.8810, balanced acc: 0.8841, loss: 2.5484. 
+2025-07-12 15:53:24,287 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+2025-07-12 15:53:24,288 - root - INFO - Training on checkpoint ckp_12. 
+2025-07-12 15:53:24,288 - root - INFO - Gathering samples from checkpoints: ['ckp_11']
+2025-07-12 15:53:24,291 - root - INFO - Subset length: 140
+2025-07-12 15:53:24,291 - root - INFO - Gathering samples from checkpoints: ['ckp_12']
+2025-07-12 15:53:24,291 - root - INFO - Subset length: 11
+2025-07-12 15:53:24,291 - root - INFO - Training dataset size: 140. 
+2025-07-12 15:53:24,292 - root - INFO - Evaluation dataset size: 11. 
+2025-07-12 15:53:24,292 - root - INFO - OOD mask: 0 / 140. 
+2025-07-12 15:53:24,292 - root - INFO - AL mask: 0 / 140. 
+2025-07-12 15:53:24,292 - root - INFO - Evaluating on current checkpoint ckp_11. 
+2025-07-12 15:53:24,292 - root - INFO - Gathering samples from checkpoints: ['ckp_11']
+2025-07-12 15:53:24,293 - root - INFO - Subset length: 42
+2025-07-12 15:53:24,667 - root - INFO - Eval on current training checkpoint ckp_11: Number of samples: 42, acc: 0.8810, balanced acc: 0.8841, loss: 2.5484. 
+2025-07-12 15:53:24,667 - root - INFO - Evaluating on next checkpoint ckp_12. 
+2025-07-12 15:53:24,929 - root - INFO - Number of samples: 11, acc: 0.0000, balanced acc: 0.0000, loss: 2.6222. 
+2025-07-12 15:53:24,930 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+2025-07-12 15:53:24,932 - root - INFO - Training on checkpoint ckp_13. 
+2025-07-12 15:53:24,932 - root - INFO - Gathering samples from checkpoints: ['ckp_12']
+2025-07-12 15:53:24,940 - root - INFO - Subset length: 347
+2025-07-12 15:53:24,940 - root - INFO - Gathering samples from checkpoints: ['ckp_13']
+2025-07-12 15:53:24,941 - root - INFO - Subset length: 57
+2025-07-12 15:53:24,941 - root - INFO - Training dataset size: 347. 
+2025-07-12 15:53:24,941 - root - INFO - Evaluation dataset size: 57. 
+2025-07-12 15:53:24,941 - root - INFO - OOD mask: 0 / 347. 
+2025-07-12 15:53:24,941 - root - INFO - AL mask: 0 / 347. 
+2025-07-12 15:53:24,941 - root - INFO - Evaluating on current checkpoint ckp_12. 
+2025-07-12 15:53:24,941 - root - INFO - Gathering samples from checkpoints: ['ckp_12']
+2025-07-12 15:53:24,942 - root - INFO - Subset length: 11
+2025-07-12 15:53:25,103 - root - INFO - Eval on current training checkpoint ckp_12: Number of samples: 11, acc: 0.0000, balanced acc: 0.0000, loss: 2.6222. 
+2025-07-12 15:53:25,103 - root - INFO - Evaluating on next checkpoint ckp_13. 
+2025-07-12 15:53:26,233 - root - INFO - Number of samples: 57, acc: 0.5965, balanced acc: 0.6055, loss: 2.5666. 
+2025-07-12 15:53:26,233 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+2025-07-12 15:53:26,234 - root - INFO - Training on checkpoint ckp_14. 
+2025-07-12 15:53:26,234 - root - INFO - Gathering samples from checkpoints: ['ckp_13']
+2025-07-12 15:53:26,240 - root - INFO - Subset length: 286
+2025-07-12 15:53:26,241 - root - INFO - Gathering samples from checkpoints: ['ckp_14']
+2025-07-12 15:53:26,242 - root - INFO - Subset length: 40
+2025-07-12 15:53:26,242 - root - INFO - Training dataset size: 286. 
+2025-07-12 15:53:26,242 - root - INFO - Evaluation dataset size: 40. 
+2025-07-12 15:53:26,242 - root - INFO - OOD mask: 0 / 286. 
+2025-07-12 15:53:26,242 - root - INFO - AL mask: 0 / 286. 
+2025-07-12 15:53:26,242 - root - INFO - Evaluating on current checkpoint ckp_13. 
+2025-07-12 15:53:26,242 - root - INFO - Gathering samples from checkpoints: ['ckp_13']
+2025-07-12 15:53:26,243 - root - INFO - Subset length: 57
+2025-07-12 15:53:26,895 - root - INFO - Eval on current training checkpoint ckp_13: Number of samples: 57, acc: 0.5965, balanced acc: 0.6055, loss: 2.5666. 
+2025-07-12 15:53:26,895 - root - INFO - Evaluating on next checkpoint ckp_14. 
+2025-07-12 15:53:27,680 - root - INFO - Number of samples: 40, acc: 0.7250, balanced acc: 0.7250, loss: 2.5577. 
+2025-07-12 15:53:27,681 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+2025-07-12 15:53:27,681 - root - INFO - Training on checkpoint ckp_15. 
+2025-07-12 15:53:27,682 - root - INFO - Gathering samples from checkpoints: ['ckp_14']
+2025-07-12 15:53:27,685 - root - INFO - Subset length: 138
+2025-07-12 15:53:27,685 - root - INFO - Gathering samples from checkpoints: ['ckp_15']
+2025-07-12 15:53:27,686 - root - INFO - Subset length: 36
+2025-07-12 15:53:27,686 - root - INFO - Training dataset size: 138. 
+2025-07-12 15:53:27,686 - root - INFO - Evaluation dataset size: 36. 
+2025-07-12 15:53:27,686 - root - INFO - OOD mask: 0 / 138. 
+2025-07-12 15:53:27,686 - root - INFO - AL mask: 0 / 138. 
+2025-07-12 15:53:27,686 - root - INFO - Evaluating on current checkpoint ckp_14. 
+2025-07-12 15:53:27,686 - root - INFO - Gathering samples from checkpoints: ['ckp_14']
+2025-07-12 15:53:27,687 - root - INFO - Subset length: 40
+2025-07-12 15:53:28,125 - root - INFO - Eval on current training checkpoint ckp_14: Number of samples: 40, acc: 0.7250, balanced acc: 0.7250, loss: 2.5577. 
+2025-07-12 15:53:28,126 - root - INFO - Evaluating on next checkpoint ckp_15. 
+2025-07-12 15:53:29,139 - root - INFO - Number of samples: 36, acc: 0.7500, balanced acc: 0.7500, loss: 2.5552. 
+2025-07-12 15:53:29,140 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+2025-07-12 15:53:29,141 - root - INFO - Training on checkpoint ckp_16. 
+2025-07-12 15:53:29,141 - root - INFO - Gathering samples from checkpoints: ['ckp_15']
+2025-07-12 15:53:29,157 - root - INFO - Subset length: 790
+2025-07-12 15:53:29,157 - root - INFO - Gathering samples from checkpoints: ['ckp_16']
+2025-07-12 15:53:29,158 - root - INFO - Subset length: 34
+2025-07-12 15:53:29,158 - root - INFO - Training dataset size: 790. 
+2025-07-12 15:53:29,158 - root - INFO - Evaluation dataset size: 34. 
+2025-07-12 15:53:29,158 - root - INFO - OOD mask: 0 / 790. 
+2025-07-12 15:53:29,158 - root - INFO - AL mask: 0 / 790. 
+2025-07-12 15:53:29,158 - root - INFO - Evaluating on current checkpoint ckp_15. 
+2025-07-12 15:53:29,158 - root - INFO - Gathering samples from checkpoints: ['ckp_15']
+2025-07-12 15:53:29,159 - root - INFO - Subset length: 36
+2025-07-12 15:53:29,690 - root - INFO - Eval on current training checkpoint ckp_15: Number of samples: 36, acc: 0.7500, balanced acc: 0.7500, loss: 2.5552. 
+2025-07-12 15:53:29,691 - root - INFO - Evaluating on next checkpoint ckp_16. 
+2025-07-12 15:53:30,512 - root - INFO - Number of samples: 34, acc: 0.3824, balanced acc: 0.3833, loss: 2.5937. 
+2025-07-12 15:53:30,512 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+2025-07-12 15:53:30,513 - root - INFO - Training on checkpoint ckp_17. 
+2025-07-12 15:53:30,513 - root - INFO - Gathering samples from checkpoints: ['ckp_16']
+2025-07-12 15:53:30,518 - root - INFO - Subset length: 223
+2025-07-12 15:53:30,518 - root - INFO - Gathering samples from checkpoints: ['ckp_17']
+2025-07-12 15:53:30,519 - root - INFO - Subset length: 20
+2025-07-12 15:53:30,519 - root - INFO - Training dataset size: 223. 
+2025-07-12 15:53:30,519 - root - INFO - Evaluation dataset size: 20. 
+2025-07-12 15:53:30,519 - root - INFO - OOD mask: 0 / 223. 
+2025-07-12 15:53:30,520 - root - INFO - AL mask: 0 / 223. 
+2025-07-12 15:53:30,520 - root - INFO - Evaluating on current checkpoint ckp_16. 
+2025-07-12 15:53:30,520 - root - INFO - Gathering samples from checkpoints: ['ckp_16']
+2025-07-12 15:53:30,521 - root - INFO - Subset length: 34
+2025-07-12 15:53:30,955 - root - INFO - Eval on current training checkpoint ckp_16: Number of samples: 34, acc: 0.3824, balanced acc: 0.3833, loss: 2.5937. 
+2025-07-12 15:53:30,955 - root - INFO - Evaluating on next checkpoint ckp_17. 
+2025-07-12 15:53:31,282 - root - INFO - Number of samples: 20, acc: 0.9000, balanced acc: 0.9000, loss: 2.5573. 
+2025-07-12 15:53:31,282 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+2025-07-12 15:53:31,283 - root - INFO - Training on checkpoint ckp_18. 
+2025-07-12 15:53:31,283 - root - INFO - Gathering samples from checkpoints: ['ckp_17']
+2025-07-12 15:53:31,286 - root - INFO - Subset length: 150
+2025-07-12 15:53:31,287 - root - INFO - Gathering samples from checkpoints: ['ckp_18']
+2025-07-12 15:53:31,288 - root - INFO - Subset length: 57
+2025-07-12 15:53:31,288 - root - INFO - Training dataset size: 150. 
+2025-07-12 15:53:31,288 - root - INFO - Evaluation dataset size: 57. 
+2025-07-12 15:53:31,288 - root - INFO - OOD mask: 0 / 150. 
+2025-07-12 15:53:31,288 - root - INFO - AL mask: 0 / 150. 
+2025-07-12 15:53:31,288 - root - INFO - Evaluating on current checkpoint ckp_17. 
+2025-07-12 15:53:31,288 - root - INFO - Gathering samples from checkpoints: ['ckp_17']
+2025-07-12 15:53:31,289 - root - INFO - Subset length: 20
+2025-07-12 15:53:31,479 - root - INFO - Eval on current training checkpoint ckp_17: Number of samples: 20, acc: 0.9000, balanced acc: 0.9000, loss: 2.5573. 
+2025-07-12 15:53:31,479 - root - INFO - Evaluating on next checkpoint ckp_18. 
+2025-07-12 15:53:32,311 - root - INFO - Number of samples: 57, acc: 0.7895, balanced acc: 0.8000, loss: 2.5484. 
+2025-07-12 15:53:32,311 - root - INFO - Saving predictions to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_D11/upper_bound/2025-07-12-15-53-06/bioclip2/full_text_head/2025-07-12-15-53-11/log. 
+wandb:                                                                                
+wandb: 
+wandb: Run history:
+wandb:          accuracy ▇█▇█▇▇▇█▇██▁▆▇▇▄█▇
+wandb: balanced_accuracy ▇█▇█▇▇▇█▇██▁▆▇▇▄█▇
+wandb: 
+wandb: Run summary:
+wandb:          accuracy 0.78947
+wandb: balanced_accuracy 0.8
+wandb: 
+wandb: 🚀 View run serengeti_serengeti_D11 | upper_bound | 2025-07-12-15-53-06 | bioclip2 | full_text_head | 2025-07-12-15-53-11 at: https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark/runs/pyyfl36m
+wandb: ⭐️ View project at: https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark
+wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: ./wandb/run-20250712_155311-pyyfl36m/logs
+2025-07-12 15:53:32,888 - root - INFO - Elapsed time: 21.85 seconds. 

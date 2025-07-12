@@ -337,7 +337,10 @@ def run(args):
         acc, balanced_acc = 0.0, 0.0  # Initialize metrics
         if args.accu_eval:
             logging.info(f'Accu-eval start on {ckp_list[i]}')
-            for c in range(i, len(ckp_list)):
+            start = i
+            if i != 0:
+                start = i - 1
+            for c in range(start, len(ckp_list)):
                 eval_ckp = ckp_list[c]
                 ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=eval_ckp)
                 cl_eval_loader = DataLoader(ckp_eval_dset, batch_size=common_config['eval_batch_size'], shuffle=False)
@@ -350,6 +353,13 @@ def run(args):
                 if c == i:
                     acc, balanced_acc = a, b  # Only log for the first checkpoint in the accu-eval loop
         else:
+            if ckp_prev is not None:
+                logging.info(f'Evaluating on current checkpoint {ckp_prev}. ')
+                current_ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp_prev)
+                current_cl_eval_loader = DataLoader(current_ckp_eval_dset, batch_size=common_config['eval_batch_size'], shuffle=False)
+                loss_arr, preds_arr, labels_arr = eval(classifier, current_cl_eval_loader, args.device, chop_head=common_config['chop_head'])
+                print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"Eval on current training checkpoint {ckp_prev}: ")
+            logging.info(f'Evaluating on next checkpoint {ckp}. ')
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
             loss_arr, preds_arr, labels_arr = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'])
@@ -433,7 +443,7 @@ def parse_args():
 
     ############################## Text Encoder ##############################
     parser.add_argument('--text', type=str, default='head',
-                        choices=['head', 'full', 'lora'],
+                        choices=['head', 'petl', 'full'],
                         help='text encoder type, head for head only, full for full text encoder')
     parser.add_argument('--text_template', type=str, default='openai',
                         choices=['bioclip', 'openai'],

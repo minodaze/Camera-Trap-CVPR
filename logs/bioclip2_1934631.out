@@ -1,0 +1,10 @@
+Processing 3 datasets: serengeti/serengeti_M10 serengeti/serengeti_C11 serengeti/serengeti_C03
+=== Processing serengeti/serengeti_M10 ===
+Running pipeline for serengeti/serengeti_M10
+Incompatible keys: <All keys matched successfully>
+=== Processing serengeti/serengeti_C11 ===
+Running pipeline for serengeti/serengeti_C11
+Incompatible keys: <All keys matched successfully>
+=== Processing serengeti/serengeti_C03 ===
+Running pipeline for serengeti/serengeti_C03
+Incompatible keys: <All keys matched successfully>

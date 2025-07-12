@@ -18,6 +18,9 @@ import timm
 from .petl_model.vision_transformer import VisionTransformerPETL
 from .open_clip import create_model_and_transforms, get_cast_dtype, get_tokenizer
 
+TUNE_MODULES = ['ft_attn_module', 'ft_mlp_module', 'head', 'vpt', 'ssf_scale', 'ssf_shift', 'lora', 'fact', 'vqt',
+                'difffit']
+
 OPENAI_IMAGENET_TEMPLATE = [
     'a photo of {CLZ_NAME}.',
     'a bad photo of a {CLZ_NAME}.',
@@ -260,9 +263,6 @@ def build_classifier(params, class_name_idx, device):
     if isinstance(class_name_idx, list):
         class_name_idx = {c: i for i, c in enumerate(class_name_idx)}
     class_num = len(class_name_idx)
-
-    if params.text == 'petl':
-        raise NotImplementedError("Petl text model is not implemented yet. ")
         
     # Log initial GPU memory before model loading
     if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
@@ -335,37 +335,25 @@ def build_classifier(params, class_name_idx, device):
     if params.text == 'head':
         class_embedding = get_class_embedding(bioclip_model, tokenizer, text_embed_dim, class_name_idx, text_template=params.text_template)
         classifier.init_head(class_embedding)
-    
+    else:
+        classifier.set_text(bioclip_model, tokenizer, text_embed_dim, class_name_idx, params.text_template)
+        
     for name, parameter in bioclip_model.named_parameters():
-        if params.text == 'head':
-            if 'visual' not in name:
-                parameter.requires_grad = False
-            else:
-                parameter.requires_grad = True
-                if params.debug:
-                    logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
-        elif params.text == 'full':
+        if params.full:
             parameter.requires_grad = True
             if params.debug:
                 logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
-        elif params.text == 'lora' and params.lora_bottleneck > 0:
-            if 'lora' in name:
+        else:
+            if any(m in name for m in TUNE_MODULES):
                 parameter.requires_grad = True
                 if params.debug:
                     logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
             else:
                 parameter.requires_grad = False
-        else:
-            raise NotImplementedError(f"Not implemented yet: {params.text}")
-
     # Log memory after class embedding
     if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
         log_gpu_memory("model_build", "after_class_embedding", device=device, enable_wandb=getattr(params, 'wandb', False))
     
-    if params.text != 'head':
-        classifier.set_text(bioclip_model, tokenizer, text_embed_dim, class_name_idx, params.text_template)
-    else:
-        del bioclip_model, tokenizer
     classifier = classifier.to(device)
 
     # if params.model_path != 'None':
@@ -430,9 +418,6 @@ def get_class_embedding(model, tokenizer, embed_dim, class_name_idx, text_templa
             _class_embedding = F.normalize(_class_embedding, dim=-1)
             class_embedding[class_idx] = _class_embedding
     return class_embedding
-
-TUNE_MODULES = ['ft_attn_module', 'ft_mlp_module', 'head', 'vpt', 'ssf_scale', 'ssf_shift', 'lora', 'fact', 'vqt',
-                'difffit']
 
 def get_model(params, class_num, text_model=None):
     # if torch.cuda.is_available():
