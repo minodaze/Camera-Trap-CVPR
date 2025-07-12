@@ -1,0 +1,19 @@
+Processing 6 datasets: serengeti/serengeti_Q09 serengeti/serengeti_G12 serengeti/serengeti_B12 serengeti/serengeti_F13 serengeti/serengeti_L09 serengeti/serengeti_D13
+=== Processing serengeti/serengeti_Q09 ===
+Running pipeline for serengeti/serengeti_Q09
+Incompatible keys: <All keys matched successfully>
+=== Processing serengeti/serengeti_G12 ===
+Running pipeline for serengeti/serengeti_G12
+Incompatible keys: <All keys matched successfully>
+=== Processing serengeti/serengeti_B12 ===
+Running pipeline for serengeti/serengeti_B12
+Incompatible keys: <All keys matched successfully>
+=== Processing serengeti/serengeti_F13 ===
+Running pipeline for serengeti/serengeti_F13
+Incompatible keys: <All keys matched successfully>
+=== Processing serengeti/serengeti_L09 ===
+Running pipeline for serengeti/serengeti_L09
+Incompatible keys: <All keys matched successfully>
+=== Processing serengeti/serengeti_D13 ===
+Running pipeline for serengeti/serengeti_D13
+Incompatible keys: <All keys matched successfully>

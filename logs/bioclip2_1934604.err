@@ -1,0 +1,127 @@
+/users/PAS2099/mino/miniconda3/envs/ICICLE/lib/python3.11/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+2025-07-12 15:53:38,467 - root - INFO - Saving to /fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_Q09/upper_bound/2025-07-12-15-53-31/bioclip2/full_text_head/2025-07-12-15-53-37/log. 
+wandb: Currently logged in as: minodaze (minodaze-the-ohio-state-university) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.20.1
+wandb: Run data is saved locally in /users/PAS2099/mino/ICICLE/wandb/run-20250712_155338-n82sz2ol
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run serengeti_serengeti_Q09 | upper_bound | 2025-07-12-15-53-31 | bioclip2 | full_text_head | 2025-07-12-15-53-37
+wandb: ⭐️ View project at https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark
+wandb: 🚀 View run at https://wandb.ai/minodaze-the-ohio-state-university/ICICLE-Benchmark/runs/n82sz2ol
+2025-07-12 15:53:39,538 - root - INFO - wandb logging is enabled.
+2025-07-12 15:53:39,539 - root - INFO - {'accu_eval': False,
+ 'adapter_bottleneck': 64,
+ 'adapter_init': 'lora_kaiming',
+ 'adapter_scaler': 0.1,
+ 'al_config': {'method': 'none'},
+ 'attention_index': None,
+ 'attention_type': 'full',
+ 'bitfit': False,
+ 'block_index': None,
+ 'c': '/fs/scratch/PAS2099/mino/ICICLE/configs/generated_common/serengeti_serengeti_Q09_upper_bound.yaml',
+ 'cl_config': {'method': 'none'},
+ 'common_config': {'model': 'bioclip2', 'train_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_Q09/30/train.json', 'eval_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_Q09/30/test.json', 'all_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_Q09/30/train-all.json', 'train_batch_size': 32, 'eval_batch_size': 512, 'optimizer_name': 'AdamW', 'optimizer_params': {'lr': 2.5e-05, 'weight_decay': 0.0001}, 'chop_head': False, 'scheduler': 'CosineAnnealingLR', 'scheduler_params': {'T_max': 30, 'eta_min': 2.5e-06}},
+ 'convpass_bottleneck': 8,
+ 'convpass_init': 'lora_xavier',
+ 'convpass_scaler': 10,
+ 'convpass_xavier_init': False,
+ 'debug': False,
+ 'device': 'cuda',
+ 'difffit': False,
+ 'drop_path_rate': 0.0,
+ 'eval_only': False,
+ 'eval_per_epoch': False,
+ 'fact_dim': 8,
+ 'fact_scaler': 1.0,
+ 'fact_type': None,
+ 'ft_attn_ln': 'before',
+ 'ft_attn_mode': 'parallel',
+ 'ft_attn_module': None,
+ 'ft_mlp_ln': 'before',
+ 'ft_mlp_mode': 'parallel',
+ 'ft_mlp_module': None,
+ 'full': True,
+ 'generalization_test': 'a',
+ 'gpu_id': None,
+ 'gpu_memory_monitor': False,
+ 'interpolation_alpha': 0.5,
+ 'interpolation_head': False,
+ 'interpolation_model': False,
+ 'is_save': False,
+ 'label_type': 'common',
+ 'ln': False,
+ 'log_path': '/fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_Q09/upper_bound/2025-07-12-15-53-31/',
+ 'lora_bottleneck': 0,
+ 'merge_factor': 1,
+ 'mlp_index': None,
+ 'mlp_type': 'full',
+ 'module_name': 'upper_bound',
+ 'no_gpu_monitor_colors': False,
+ 'ood_config': {'method': 'none'},
+ 'pretrain_config': {'pretrain': True, 'pretrain_data_config_path': '/fs/scratch/PAS2099/camera-trap-benchmark/serengeti/serengeti_Q09/30/train-all.json', 'epochs': 60, 'loss_type': 'ce'},
+ 'pretrained_weights': 'bioclip2',
+ 'repadapter_bottleneck': 8,
+ 'repadapter_group': 2,
+ 'repadapter_init': 'lora_xavier',
+ 'repadapter_scaler': 1,
+ 'save_dir': '/fs/scratch/PAS2099/mino/ICICLE/log_auto/pipeline/serengeti_serengeti_Q09/upper_bound/2025-07-12-15-53-31/bioclip2/full_text_head/2025-07-12-15-53-37/log',
+ 'seed': 9527,
+ 'ssf': False,
+ 'text': 'head',
+ 'text_template': 'openai',
+ 'vpt_dropout': 0.1,
+ 'vpt_layer': None,
+ 'vpt_mode': None,
+ 'vpt_num': 10,
+ 'vqt_dropout': 0.1,
+ 'vqt_num': 0,
+ 'wandb': True}
+2025-07-12 15:53:39,550 - root - INFO - Using Bioclip-2 model. 
+2025-07-12 15:53:39,550 - root - INFO - Loaded ViT-L-14 model config.
+2025-07-12 15:53:41,476 - root - INFO - Loading pretrained ViT-L-14 weights (pretrained_weights/bioclip-2/open_clip_pytorch_model.bin).
+2025-07-12 15:53:45,368 - root - INFO - Pretraining classifier... 
+2025-07-12 15:53:45,389 - root - INFO - Gathering samples from checkpoints: ['ckp_-1', 'ckp_1']
+2025-07-12 15:53:45,439 - root - INFO - Checkpoint ckp_1 not found
+2025-07-12 15:53:45,439 - root - INFO - Subset length: 2586
+2025-07-12 15:53:45,440 - root - INFO - Pretrain dataset size: 2586. 
+2025-07-12 15:54:18,526 - root - INFO - Epoch 0, loss: 2.2671, acc: 0.9188, lr: 0.00002500. 
+2025-07-12 15:54:51,555 - root - INFO - Epoch 1, loss: 2.1692, acc: 0.9691, lr: 0.00002494. 
+2025-07-12 15:55:24,340 - root - INFO - Epoch 2, loss: 2.1042, acc: 0.9861, lr: 0.00002475. 
+2025-07-12 15:55:57,199 - root - INFO - Epoch 3, loss: 2.0569, acc: 0.9679, lr: 0.00002445. 
+2025-07-12 15:56:30,000 - root - INFO - Epoch 4, loss: 1.9897, acc: 0.9853, lr: 0.00002403. 
+2025-07-12 15:57:02,735 - root - INFO - Epoch 5, loss: 1.9374, acc: 0.9791, lr: 0.00002349. 
+2025-07-12 15:57:35,618 - root - INFO - Epoch 6, loss: 1.8830, acc: 0.9845, lr: 0.00002285. 
+2025-07-12 15:58:08,641 - root - INFO - Epoch 7, loss: 1.8262, acc: 0.9892, lr: 0.00002211. 
+2025-07-12 15:58:41,465 - root - INFO - Epoch 8, loss: 1.7766, acc: 0.9884, lr: 0.00002128. 
+2025-07-12 15:59:14,292 - root - INFO - Epoch 9, loss: 1.7232, acc: 0.9985, lr: 0.00002036. 
+2025-07-12 15:59:47,134 - root - INFO - Epoch 10, loss: 1.6777, acc: 0.9996, lr: 0.00001937. 
+2025-07-12 16:00:19,908 - root - INFO - Epoch 11, loss: 1.6360, acc: 1.0000, lr: 0.00001833. 
+2025-07-12 16:00:53,040 - root - INFO - Epoch 12, loss: 1.5975, acc: 1.0000, lr: 0.00001723. 
+2025-07-12 16:01:25,913 - root - INFO - Epoch 13, loss: 1.5620, acc: 1.0000, lr: 0.00001609. 
+2025-07-12 16:01:58,836 - root - INFO - Epoch 14, loss: 1.5296, acc: 1.0000, lr: 0.00001493. 
+2025-07-12 16:02:31,861 - root - INFO - Epoch 15, loss: 1.5003, acc: 1.0000, lr: 0.00001375. 
+2025-07-12 16:03:04,726 - root - INFO - Epoch 16, loss: 1.4739, acc: 1.0000, lr: 0.00001257. 
+2025-07-12 16:03:37,549 - root - INFO - Epoch 17, loss: 1.4501, acc: 1.0000, lr: 0.00001141. 
+2025-07-12 16:04:10,416 - root - INFO - Epoch 18, loss: 1.4289, acc: 1.0000, lr: 0.00001027. 
+2025-07-12 16:04:43,360 - root - INFO - Epoch 19, loss: 1.4102, acc: 1.0000, lr: 0.00000917. 
+2025-07-12 16:05:16,222 - root - INFO - Epoch 20, loss: 1.3936, acc: 1.0000, lr: 0.00000813. 
+2025-07-12 16:05:49,233 - root - INFO - Epoch 21, loss: 1.3792, acc: 1.0000, lr: 0.00000714. 
+2025-07-12 16:06:22,252 - root - INFO - Epoch 22, loss: 1.3668, acc: 1.0000, lr: 0.00000622. 
+2025-07-12 16:06:55,126 - root - INFO - Epoch 23, loss: 1.3557, acc: 1.0000, lr: 0.00000539. 
+2025-07-12 16:07:28,055 - root - INFO - Epoch 24, loss: 1.3465, acc: 1.0000, lr: 0.00000465. 
+2025-07-12 16:08:00,842 - root - INFO - Epoch 25, loss: 1.3385, acc: 1.0000, lr: 0.00000401. 
+2025-07-12 16:08:33,761 - root - INFO - Epoch 26, loss: 1.3314, acc: 1.0000, lr: 0.00000347. 
+2025-07-12 16:09:06,533 - root - INFO - Epoch 27, loss: 1.3256, acc: 1.0000, lr: 0.00000305. 
+2025-07-12 16:09:39,550 - root - INFO - Epoch 28, loss: 1.3202, acc: 1.0000, lr: 0.00000275. 
+2025-07-12 16:10:12,493 - root - INFO - Epoch 29, loss: 1.3153, acc: 1.0000, lr: 0.00000256. 
+2025-07-12 16:10:45,359 - root - INFO - Epoch 30, loss: 1.3107, acc: 1.0000, lr: 0.00000250. 
+2025-07-12 16:11:18,336 - root - INFO - Epoch 31, loss: 1.3059, acc: 1.0000, lr: 0.00000256. 
+2025-07-12 16:11:51,280 - root - INFO - Epoch 32, loss: 1.3013, acc: 1.0000, lr: 0.00000275. 
+2025-07-12 16:12:24,172 - root - INFO - Epoch 33, loss: 1.2958, acc: 1.0000, lr: 0.00000305. 
+2025-07-12 16:12:57,000 - root - INFO - Epoch 34, loss: 1.2897, acc: 1.0000, lr: 0.00000347. 
+2025-07-12 16:13:29,990 - root - INFO - Epoch 35, loss: 1.2832, acc: 1.0000, lr: 0.00000401. 
+2025-07-12 16:14:03,091 - root - INFO - Epoch 36, loss: 1.2754, acc: 1.0000, lr: 0.00000465. 
+2025-07-12 16:14:36,031 - root - INFO - Epoch 37, loss: 1.2662, acc: 1.0000, lr: 0.00000539. 
+2025-07-12 16:15:08,932 - root - INFO - Epoch 38, loss: 1.2558, acc: 1.0000, lr: 0.00000622. 
+2025-07-12 16:15:42,044 - root - INFO - Epoch 39, loss: 1.2440, acc: 1.0000, lr: 0.00000714. 
+2025-07-12 16:16:14,914 - root - INFO - Epoch 40, loss: 1.2306, acc: 1.0000, lr: 0.00000813. 
