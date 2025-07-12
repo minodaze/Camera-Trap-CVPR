@@ -12,3 +12,6 @@ pretrained_weights/
 wandb/
 plot.py
 *.sh
+# Additional patterns for SLURM job outputs
+slurm-*.out
+slurm-*.err
