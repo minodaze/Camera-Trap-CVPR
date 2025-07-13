@@ -18,6 +18,14 @@ from core.module import get_al_module, get_cl_module, get_ood_module
 from utils.misc import method_name
 from utils.gpu_monitor import get_gpu_monitor, log_gpu_memory, monitor_model_memory
 
+# Global worker init function for deterministic DataLoader behavior
+def worker_init_fn(worker_id):
+    # This will be set by the main process
+    import os
+    seed = int(os.environ.get('WORKER_SEED', 9527))
+    np.random.seed(seed + worker_id)
+    torch.manual_seed(seed + worker_id)
+
 def setup_logging(log_path, debug, params):
     """Setup logging for the training process.
     
@@ -30,21 +38,25 @@ def setup_logging(log_path, debug, params):
     """
     # Setup logging
     logger = logging.getLogger()
-    log_time = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
+    # Use deterministic timestamp based on configuration for reproducibility
+    deterministic_time = f"2025-07-12-20-{abs(hash(str(vars(params)))) % 10000:04d}-00"
     petl_method_name = method_name(params)
     log_path = os.path.join(log_path, params.pretrained_weights)
-    log_class_type = params.class_type
-    log_path = f"{log_path}_{log_time}_{log_class_type}"
+
+    petl_method_name = petl_method_name + f'_text_{params.text}'
+    if params.interpolation_model:
+        petl_method_name += f'_interpolation_model_{params.interpolation_alpha}'
     log_path = os.path.join(log_path, petl_method_name)
-    log_path = os.path.join(log_path, log_time)
+    log_path = os.path.join(log_path, deterministic_time)
     if not debug:
         logger.setLevel(logging.INFO)
         log_path = os.path.join(log_path, 'log')
     else:
         logger.setLevel(logging.DEBUG)
-        curr_time = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
-        # loss_type = params.loss
-        log_path = os.path.join(log_path, f'debug_{curr_time}')
+
+        curr_time = f"debug-{deterministic_time}"
+        log_path = os.path.join(log_path, curr_time)
+
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
     # Log to stdout
@@ -64,7 +76,9 @@ def setup_logging(log_path, debug, params):
         logger.addHandler(fh)
     return log_path
 
-def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None, interpolation_model=False, interpolation_head=False, interpolation_alpha=0.5):
+
+def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None, interpolation_model=False, interpolation_head=False, interpolation_alpha=0.5, eval_per_epoch=False, save_dir=None, args=None):
+
     """Pretrain the classifier on the pretraining dataset.
         
         Args:
@@ -92,6 +106,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
 
     # Get optimizer
     optimizer = get_optimizer(classifier, optimizer_name, optimizer_params)
+    logging.info(f'Pretraining with learning rate: {optimizer.param_groups[0]["lr"]:.8f}, optimizer: {optimizer_name}')
     
     # Get Scheduler
     if common_config['scheduler'] is not None:
@@ -103,6 +118,106 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
     dataset = CkpDataset(pretrain_data_config_path, class_names)
     dataset = dataset.get_subset(is_train=True, ckp_list=["ckp_-1", "ckp_1"])
     logging.info(f'Pretrain dataset size: {len(dataset)}. ')
+    
+    # Get evaluation dataset for pretrain eval_per_epoch if needed
+    eval_loader = None
+    if eval_per_epoch:
+        # For pretraining, use 2 randomly selected images from each class across all checkpoint data
+        # Load all training data (across all checkpoints)
+        full_dataset = CkpDataset(pretrain_data_config_path, class_names)
+        full_dataset = full_dataset.get_subset(is_train=True, ckp_list=["ckp_-1", "ckp_1"])
+        
+        from collections import defaultdict
+        import random
+        
+        # Group samples by class
+        class_to_samples = defaultdict(list)
+        for i, sample in enumerate(full_dataset.samples):
+            class_to_samples[sample.label].append(i)
+        
+        # Set random seed for reproducible splits
+        random.seed(42)
+        logging.info(f'Using fixed random seed (42) for validation split - this ensures consistent comparison across different LRs')
+        
+        train_indices = []
+        val_indices = []
+        
+        # For pretraining: select exactly 2 images from each class for validation
+        val_samples_per_class = 2
+        logging.info(f'Using {val_samples_per_class} validation samples per class for pretraining (full training mode)')
+        
+        for class_label, sample_indices in class_to_samples.items():
+            # Shuffle indices for this class
+            shuffled_indices = sample_indices.copy()
+            random.shuffle(shuffled_indices)
+            
+            # Select 2 samples for validation from each class
+            if len(shuffled_indices) >= val_samples_per_class:
+                class_val_indices = shuffled_indices[:val_samples_per_class]
+                class_train_indices = shuffled_indices[val_samples_per_class:]
+            else:
+                # If a class has fewer than 2 samples, use 1 for validation
+                class_val_indices = shuffled_indices[:1] if len(shuffled_indices) > 0 else []
+                class_train_indices = shuffled_indices[1:] if len(shuffled_indices) > 1 else shuffled_indices
+                logging.warning(f'Class {class_label} has only {len(shuffled_indices)} samples, using {len(class_val_indices)} for validation')
+            
+            val_indices.extend(class_val_indices)
+            train_indices.extend(class_train_indices)
+        
+        # Shuffle the final indices to avoid class ordering
+        random.shuffle(train_indices)
+        random.shuffle(val_indices)
+        
+        # Create validation dataset by filtering samples
+        val_samples = [full_dataset.samples[i] for i in val_indices]
+        eval_dataset = CkpDataset.__new__(CkpDataset)
+        eval_dataset.is_crop = full_dataset.is_crop
+        eval_dataset.is_train = False  # Use validation transforms
+        eval_dataset.class_names = full_dataset.class_names
+        eval_dataset.class_name_idx = full_dataset.class_name_idx
+        eval_dataset.transform = full_dataset.val_transform
+        eval_dataset.val_transform = full_dataset.val_transform
+        eval_dataset.train_transform = full_dataset.train_transform
+        eval_dataset.crop_train_transform = full_dataset.crop_train_transform
+        eval_dataset.samples = val_samples
+        eval_dataset.cache = full_dataset.cache
+        
+        # Update the main training dataset to exclude validation samples
+        train_samples = [full_dataset.samples[i] for i in train_indices]
+        dataset.samples = train_samples
+        
+        # Log class distribution in validation set
+        val_class_counts = defaultdict(int)
+        train_class_counts = defaultdict(int)
+        for sample in val_samples:
+            val_class_counts[sample.label] += 1
+        for sample in train_samples:
+            train_class_counts[sample.label] += 1
+        
+        logging.info(f'Pretraining validation split (2 samples per class):')
+        logging.info(f'{"Class":<20} {"Train":<8} {"Val":<8} {"Val%":<8}')
+        logging.info(f'{"-"*44}')
+        for class_idx in sorted(set(list(val_class_counts.keys()) + list(train_class_counts.keys()))):
+            class_name = class_names[class_idx] if class_idx < len(class_names) else f"class_{class_idx}"
+            train_count = train_class_counts[class_idx]
+            val_count = val_class_counts[class_idx]
+            total_count = train_count + val_count
+            val_percentage = (val_count / total_count * 100) if total_count > 0 else 0
+            logging.info(f'{class_name:<20} {train_count:<8} {val_count:<8} {val_percentage:<8.1f}%')
+        
+        total_train = sum(train_class_counts.values())
+        total_val = sum(val_class_counts.values())
+        total_all = total_train + total_val
+        overall_val_percentage = (total_val / total_all * 100) if total_all > 0 else 0
+        
+        logging.info(f'{"-"*44}')
+        logging.info(f'{"TOTAL":<20} {total_train:<8} {total_val:<8} {overall_val_percentage:<8.1f}%')
+        logging.info(f'Validation classes: {len(val_class_counts)} out of {len(class_names)} possible classes')
+        
+        eval_batch_size = common_config.get('eval_batch_size', train_batch_size)
+        eval_loader = DataLoader(eval_dataset, batch_size=eval_batch_size, shuffle=False, num_workers=4, worker_init_fn=worker_init_fn)
+        logging.info(f'Pretrain eval dataset size: {len(eval_dataset)} (2 samples per class from full training data). ')
+        logging.info(f'Updated pretrain training dataset size: {len(dataset)} (excluding validation samples). ')
     
     # Get loss function
     f_loss = get_f_loss(
@@ -117,10 +232,22 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
     )
     
     # Get dataloader
-    loader = DataLoader(dataset, batch_size=train_batch_size, shuffle=True, num_workers=4)
 
+    loader = DataLoader(dataset, batch_size=train_batch_size, shuffle=True, num_workers=4, worker_init_fn=worker_init_fn)
+
+    # Get model saving setting from args, with fallback
+    save_best_model = getattr(args, 'save_best_model', True) if args else True
+    
     # Train
-    train(classifier, optimizer, loader, epochs, device, f_loss, scheduler=scheduler, gpu_monitor=gpu_monitor)
+    train(classifier, optimizer, loader, epochs, device, f_loss, 
+          scheduler=scheduler, 
+          gpu_monitor=gpu_monitor, 
+          eval_per_epoch=eval_per_epoch, 
+          eval_loader=eval_loader,
+          save_best_model=save_best_model,
+          save_dir=save_dir,
+          model_name_prefix="pretrain")
+
     if interpolation_model or interpolation_head:
         if gpu_monitor:
             gpu_monitor.log_memory_usage("interpolation", "after_pretrain")
@@ -136,6 +263,12 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
 
 def run(args):
     """Main execution workflow for the adaptive learning pipeline.
+    
+    Validation Strategies:
+    1. For pretraining (full training): Uses 2 randomly selected images from each class 
+       across all checkpoint data for validation
+    2. For accumulative training: Uses current checkpoint's test data as validation 
+       (e.g., when training on ckp_4, validation uses ckp_4's test data)
         
         Args:
             args (argparse.Namespace): Parsed command-line arguments.
@@ -223,7 +356,11 @@ def run(args):
                               gpu_monitor,
                               interpolation_model=args.interpolation_model,
                               interpolation_head=args.interpolation_head,
-                              interpolation_alpha=args.interpolation_alpha)
+                              interpolation_alpha=args.interpolation_alpha,
+                              eval_per_epoch=args.eval_per_epoch,
+                              save_dir=args.save_dir,
+                              args=args)
+
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("pretrain", "after")
             gpu_monitor.clear_cache_and_log("pretrain")
@@ -304,7 +441,21 @@ def run(args):
         logging.info(f'AL mask: {al_mask.sum()} / {len(al_mask)}. ')
 
         # Prepare evaluation dataloader
-        cl_eval_loader = DataLoader(ckp_eval_dset, batch_size=common_config['eval_batch_size'], shuffle=False)
+        cl_eval_loader = DataLoader(ckp_eval_dset, batch_size=common_config['eval_batch_size'], shuffle=False, worker_init_fn=worker_init_fn)
+
+        # Prepare validation loader for continual learning
+        cl_validation_loader = None
+        if args.eval_per_epoch:
+            # Check if we're using accumulative training (which trains incrementally)
+            cl_method = cl_config.get('method', 'none')
+            if 'accumulative' in cl_method:
+                # For accumulative training: use current checkpoint's test data as validation
+                cl_validation_loader = cl_eval_loader
+                logging.info(f'Using current checkpoint {ckp} test data as validation for accumulative training')
+            else:
+                # For other methods: keep using the regular evaluation loader
+                cl_validation_loader = cl_eval_loader
+                logging.info(f'Using regular evaluation data as validation for {cl_method}')
 
         # Run continual learning
         if args.gpu_memory_monitor:
@@ -315,7 +466,7 @@ def run(args):
             ckp_eval_dset, 
             al_mask, 
             eval_per_epoch=args.eval_per_epoch, 
-            eval_loader=cl_eval_loader, 
+            eval_loader=cl_validation_loader, 
             ckp=ckp,
             gpu_monitor=gpu_monitor if args.gpu_memory_monitor else None
         )
@@ -335,35 +486,63 @@ def run(args):
 
         # Save model and predictions
         acc, balanced_acc = 0.0, 0.0  # Initialize metrics
+        eval_loss = 0.0  # Initialize eval_loss
+        
         if args.accu_eval:
             logging.info(f'Accu-eval start on {ckp_list[i]}')
-            for c in range(i, len(ckp_list)):
+            start = i
+            if i != 0:
+                start = i - 1
+            for c in range(start, len(ckp_list)):
                 eval_ckp = ckp_list[c]
                 ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=eval_ckp)
-                cl_eval_loader = DataLoader(ckp_eval_dset, batch_size=common_config['eval_batch_size'], shuffle=False)
+                cl_eval_loader = DataLoader(ckp_eval_dset, batch_size=common_config['eval_batch_size'], shuffle=False, worker_init_fn=worker_init_fn)
                 if args.gpu_memory_monitor:
                     gpu_monitor.log_memory_usage("evaluation", f"before_{eval_ckp}")
                 loss_arr, preds_arr, labels_arr = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'])
                 if args.gpu_memory_monitor:
                     gpu_monitor.log_memory_usage("evaluation", f"after_{eval_ckp}")
                 a, b = print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"Accu-eval start on {ckp_list[i]} at {eval_ckp}: ")
+                
+                # Log all accu-eval results to wandb, not just the first one
+                if wandb.run is not None:
+                    eval_loss_curr = np.mean(loss_arr)
+                    logging.info(f"Logging accu-eval metrics to wandb: ckp={ckp_list[i]}, eval_ckp={eval_ckp}, acc={a:.4f}, balanced_acc={b:.4f}, loss={eval_loss_curr:.4f}")
+                    wandb.log({
+                        f"accu_eval/accuracy_{eval_ckp}": a,
+                        f"accu_eval/balanced_accuracy_{eval_ckp}": b,
+                        f"accu_eval/loss_{eval_ckp}": eval_loss_curr,
+                        f"accu_eval/step": c,
+                        f"accu_eval/training_checkpoint": ckp_list[i]
+                    }, step=i * len(ckp_list) + c)  # Use unique step for each accu-eval
+                
                 if c == i:
-                    acc, balanced_acc = a, b  # Only log for the first checkpoint in the accu-eval loop
+                    acc, balanced_acc = a, b  # Only use first checkpoint metrics for main logging
+                    eval_loss = eval_loss_curr
         else:
+            if ckp_prev is not None:
+                logging.info(f'Evaluating on current checkpoint {ckp_prev}. ')
+                current_ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp_prev)
+                current_cl_eval_loader = DataLoader(current_ckp_eval_dset, batch_size=common_config['eval_batch_size'], shuffle=False)
+                loss_arr, preds_arr, labels_arr = eval(classifier, current_cl_eval_loader, args.device, chop_head=common_config['chop_head'])
+                print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"Eval on current training checkpoint {ckp_prev}: ")
+            logging.info(f'Evaluating on next checkpoint {ckp}. ')
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
             loss_arr, preds_arr, labels_arr = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'])
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("evaluation", f"after_{ckp}")
             acc, balanced_acc = print_metrics(loss_arr, preds_arr, labels_arr, len(class_names))
+            eval_loss = np.mean(loss_arr)
 
         # Log training and evaluation loss to wandb
-        if wandb.run is not None:
+        if args.wandb:
+            logging.info(f"Logging main metrics to wandb: ckp={ckp}, acc={acc:.4f}, balanced_acc={balanced_acc:.4f}, eval_loss={eval_loss:.4f}")
             wandb.log({
-                "accuracy": acc,  # Overall accuracy
-                "balanced_accuracy": balanced_acc,  # Balanced accuracy
-                # "eval_loss": np.mean(loss_arr),  # Evaluation loss
-                # "checkpoint": ckp
+                "test/accuracy": acc,  # Overall accuracy
+                "test/balanced_accuracy": balanced_acc,  # Balanced accuracy
+                "test/loss": eval_loss,  # Evaluation loss
+                "checkpoint": ckp
             }, step=i)
 
         if args.is_save:
@@ -406,6 +585,7 @@ def parse_args():
     parser.add_argument('--debug', action='store_true', help='Debug mode')
     parser.add_argument('--seed', type=int, default=9527, help='Random seed')
     parser.add_argument('--eval_per_epoch', action='store_true', help='Evaluate per epoch')
+    parser.add_argument('--save_best_model', action='store_true', default=True, help='Save best model during training')
     parser.add_argument('--is_save', action='store_true', help='Save model')
     parser.add_argument('--eval_only', action='store_true', help='Evaluate only')
     parser.add_argument('--gpu_id', type=int, default=0, help='GPU ID')
@@ -440,6 +620,18 @@ def parse_args():
     ############################## Text Encoder ##############################
     parser.add_argument('--text', type=str, default='head',
                         choices=['head', 'full', 'lora'],
+                        help='text encoder type, head for head only, full for full text encoder')
+    parser.add_argument('--text_template', type=str, default='openai',
+                        choices=['bioclip', 'openai'],
+                        help='text template type')
+
+    ############################## TEST #################################
+    parser.add_argument('--accu_eval', action='store_true',
+                        help='whether to test all later checkpoints after training on each checkpoint')
+
+    ############################## Text Encoder ##############################
+    parser.add_argument('--text', type=str, default='head',
+                        choices=['head', 'petl', 'full'],
                         help='text encoder type, head for head only, full for full text encoder')
     parser.add_argument('--text_template', type=str, default='openai',
                         choices=['bioclip', 'openai'],
@@ -591,6 +783,28 @@ if __name__ == '__main__':
     # Set random seed
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
+    
+    # Set PyTorch to deterministic mode for full reproducibility
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    
+    # Additional deterministic settings for CUDA operations
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
+        # Force deterministic behavior for specific CUDA operations
+        os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
+        try:
+            torch.use_deterministic_algorithms(True)
+        except:
+            # Fallback for older PyTorch versions
+            torch.backends.cudnn.deterministic = True
+    
+    # Set environment variable for deterministic behavior
+    os.environ['PYTHONHASHSEED'] = str(args.seed)
+    os.environ['WORKER_SEED'] = str(args.seed)  # Set seed for worker processes
+    
+    logging.info(f'Deterministic training enabled with seed: {args.seed}')
 
     save_dir = args.log_path
     if args.debug:

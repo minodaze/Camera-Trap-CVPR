@@ -251,6 +251,7 @@ def CDT_loss(logits, labels, samples_per_cls, no_of_classes, gamma=0.3, device='
 
     # Calculate class-dependent temperatures
     N_max = torch.max(samples_per_cls)
+
     temperatures = torch.pow(N_max / samples_per_cls, gamma)  # [no_of_classes]
     
     # Scale logits by temperatures for all classes

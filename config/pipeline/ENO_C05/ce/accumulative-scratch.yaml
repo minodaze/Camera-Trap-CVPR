@@ -14,9 +14,8 @@ class_names:
   - topi
   - african buffalo
 common_config:
-  model: bioclip
-  train_data_config_path: config/data/ENO_C05_common_name/train.json
-  eval_data_config_path: config/data/ENO_C05_common_name/test.json
+  train_data_config_path: config/data/ENO_C05/30/train.json
+  eval_data_config_path: config/data/ENO_C05/30/test.json
   train_batch_size: 32
   eval_batch_size: 512
   optimizer_name: AdamW

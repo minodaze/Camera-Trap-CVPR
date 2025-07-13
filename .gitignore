@@ -1,7 +1,10 @@
 _bioclip/
 _stale/
 log/
+logs/
 *.pyc
+*.out
+*.err
 data
 _scripts/
 figures/

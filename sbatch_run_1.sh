@@ -3,7 +3,7 @@
 #SBATCH --job-name=bioclip2_upper_bound
 #SBATCH --output=logs/bioclip2_%j.out
 #SBATCH --error=logs/bioclip2_%j.err
-#SBATCH --time=24:00:00
+#SBATCH --time=06:00:00
 #SBATCH --nodes=1                 # Request 4 nodes
 #SBATCH --ntasks-per-node=1       # One task per node
 #SBATCH --gpus-per-node=1         # One GPU per node
@@ -23,26 +23,31 @@ CONFIG_ROOT="/fs/scratch/PAS2099/${USER_NAME}/icicle/configs/generated_common"
 mkdir -p $CONFIG_ROOT
 # mkdir -p $(dirname "$CSV_PATH")
 
-# Get datasets from command line arguments
-if [ $# -eq 0 ]; then
-    echo "Error: No datasets provided as arguments"
-    echo "Usage: sbatch sbatch_run_1.sh 'dataset1 dataset2 dataset3'"
+# Get datasets and learning rate from command line arguments
+if [ $# -lt 2 ]; then
+    echo "Error: Missing required arguments"
+    echo "Usage: sbatch sbatch_run_1.sh 'dataset1 dataset2 dataset3' learning_rate"
     exit 1
 fi
 
 # Parse datasets from the first argument (space-separated string)
 IFS=' ' read -ra BIG_FOLDERS <<< "$1"
+# Get learning rate from the second argument
+LEARNING_RATE="$2"
 
 echo "Processing ${#BIG_FOLDERS[@]} datasets: ${BIG_FOLDERS[*]}"
-
+echo "Using learning rate: ${LEARNING_RATE}"
 
 for DATASET in "${BIG_FOLDERS[@]}"; do
     echo "=== Processing ${DATASET} ==="
     TRAIN_JSON="${DATA_ROOT}/${DATASET}/30/train.json"
     TEST_JSON="${DATA_ROOT}/${DATASET}/30/test.json"
     ALL_JSON="${DATA_ROOT}/${DATASET}/30/train-all.json"
-    # === Generate outer timestamp ===
-    PARENT_TIMESTAMP=$(date +%Y-%m-%d-%H-%M-%S)
+    # === Generate deterministic timestamp based on dataset and learning rate ===
+    # This ensures identical runs use the same directory, improving reproducibility
+    HASH_INPUT="${DATASET}_${LEARNING_RATE}"
+    PARENT_TIMESTAMP=$(echo -n "$HASH_INPUT" | sha256sum | cut -c1-16)
+    PARENT_TIMESTAMP="2025-07-12-20-$(echo $PARENT_TIMESTAMP | cut -c1-2)-$(echo $PARENT_TIMESTAMP | cut -c3-4)"
     # === Extract class names ===
 #     CLASS_NAMES=$(python -c "
 # import json
@@ -52,11 +57,11 @@ for DATASET in "${BIG_FOLDERS[@]}"; do
 # print('\n'.join(['  - ' + s for s in common]))
 # ")
 
-    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}_upper_bound.yaml"
+    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}_upper_bound_lr${LEARNING_RATE}.yaml"
 
     cat <<EOF > $CONFIG_FILE
 module_name: upper_bound
-log_path: /fs/scratch/PAS2099/${USER_NAME}/icicle/log_auto/pipeline/${DATASET//\//_}/upper_bound/${PARENT_TIMESTAMP}/
+log_path: /fs/scratch/PAS2099/${USER_NAME}/icicle/log_auto/pipeline/${DATASET//\//_}/upper_bound/lr_${LEARNING_RATE}/${PARENT_TIMESTAMP}/
 
 common_config:
   model: bioclip2
@@ -67,18 +72,18 @@ common_config:
   eval_batch_size: 512
   optimizer_name: AdamW
   optimizer_params:
-    lr: 0.000025
+    lr: ${LEARNING_RATE}
     weight_decay: 0.0001
   chop_head: false
   scheduler: CosineAnnealingLR
   scheduler_params:
     T_max: 30
-    eta_min: 0.0000025
+    eta_min: $(echo "${LEARNING_RATE} / 10" | bc -l)
 
 pretrain_config:
   pretrain: true
   pretrain_data_config_path: ${ALL_JSON}
-  epochs: 60
+  epochs: 30
   loss_type: ce
 
 ood_config:
@@ -91,8 +96,8 @@ cl_config:
   method: none
 EOF
 
-    echo "Running pipeline for ${DATASET}"
-    python run_pipeline.py --c $CONFIG_FILE --full --wandb
+    echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
+    python run_pipeline.py --c $CONFIG_FILE --full --wandb --eval_per_epoch --save_best_model
 
 #     # === Robust log path discovery ===
 #     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/icicle/log_auto/pipeline/${DATASET//\//_}/zs_common/${PARENT_TIMESTAMP}/"

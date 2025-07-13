@@ -18,6 +18,9 @@ import timm
 from .petl_model.vision_transformer import VisionTransformerPETL
 from .open_clip import create_model_and_transforms, get_cast_dtype, get_tokenizer
 
+TUNE_MODULES = ['ft_attn_module', 'ft_mlp_module', 'head', 'vpt', 'ssf_scale', 'ssf_shift', 'lora', 'fact', 'vqt',
+                'difffit']
+
 OPENAI_IMAGENET_TEMPLATE = [
     'a photo of {CLZ_NAME}.',
     'a bad photo of a {CLZ_NAME}.',
@@ -156,6 +159,7 @@ class CLIPClassifier(nn.Module):
             x = self.head(feats)
         else:
             raise RuntimeError("Forward pass requires either text model or initialized head.")
+
         x = self.visual_model(images)
         feats = F.normalize(x, dim=-1)  # Normalize the features
         if self.init_text:
@@ -173,7 +177,6 @@ class CLIPClassifier(nn.Module):
     
     def forward_features(self, images):
         """Forward pass to get the features from the visual model."""
-        x = self.visual_model(images)
         x = self.visual_model(images)
         feats = F.normalize(x, dim=-1)
         return feats
@@ -349,9 +352,6 @@ def build_classifier(params, class_name_idx, device):
     if isinstance(class_name_idx, list):
         class_name_idx = {c: i for i, c in enumerate(class_name_idx)}
     class_num = len(class_name_idx)
-
-    if params.text == 'petl':
-        raise NotImplementedError("Petl text model is not implemented yet. ")
         
     # Log initial GPU memory before model loading
     if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
@@ -406,14 +406,12 @@ def build_classifier(params, class_name_idx, device):
         log_gpu_memory("model_build", "after_bioclip_load", device=device, enable_wandb=getattr(params, 'wandb', False))
     
     # del bioclip_model.visual
-    # del bioclip_model.visual
     
     # Log memory after deleting visual model
     if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
         log_gpu_memory("model_build", "after_visual_delete", device=device, enable_wandb=getattr(params, 'wandb', False))
     
     # Get the model and tune parameters
-    # model, tune_parameters, model_grad_params_no_head = get_model(params, class_num, bioclip_model)
     # model, tune_parameters, model_grad_params_no_head = get_model(params, class_num, bioclip_model)
     
     # Log memory after getting PETL model
@@ -422,46 +420,32 @@ def build_classifier(params, class_name_idx, device):
 
     ###################################################################
     classifier = CLIPClassifier(bioclip_model.visual, bioclip_model.embed_dim, device)
-    classifier = CLIPClassifier(bioclip_model.visual, bioclip_model.embed_dim, device)
+
     text_embed_dim = bioclip_model.embed_dim
     if params.text == 'head':
         class_embedding = get_class_embedding(bioclip_model, tokenizer, text_embed_dim, class_name_idx, text_template=params.text_template)
         classifier.init_head(class_embedding)
-    
+
+    else:
+        classifier.set_text(bioclip_model, tokenizer, text_embed_dim, class_name_idx, params.text_template)
+        
     for name, parameter in bioclip_model.named_parameters():
-        if params.text == 'head':
-            if 'visual' not in name:
-                parameter.requires_grad = False
-            else:
-                parameter.requires_grad = True
-                if params.debug:
-                    logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
-        elif params.text == 'full':
+        if params.full:
             parameter.requires_grad = True
             if params.debug:
                 logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
-        elif params.text == 'lora' and params.lora_bottleneck > 0:
-            if 'lora' in name:
+        else:
+            if any(m in name for m in TUNE_MODULES):
                 parameter.requires_grad = True
                 if params.debug:
                     logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
             else:
                 parameter.requires_grad = False
-        else:
-            raise NotImplementedError(f"Not implemented yet: {params.text}")
 
     # Log memory after class embedding
     if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
         log_gpu_memory("model_build", "after_class_embedding", device=device, enable_wandb=getattr(params, 'wandb', False))
-    
-    if params.text != 'head':
-        classifier.set_text(bioclip_model, tokenizer, text_embed_dim, class_name_idx, params.template)
-    else:
-        del bioclip_model, tokenizer
     classifier = classifier.to(device)
-
-    # if params.model_path != 'None':
-    #     classifier.load(params.model_path)
 
     # if params.model_path != 'None':
     #     classifier.load(params.model_path)
@@ -474,32 +458,7 @@ def build_classifier(params, class_name_idx, device):
 
 # _LOOKUP_PATH = 'config/common_name_lookup.json'
 # _lookup = json.load(open(_LOOKUP_PATH))
-# _LOOKUP_PATH = 'config/common_name_lookup.json'
-# _lookup = json.load(open(_LOOKUP_PATH))
 
-def get_texts(c, text_template='openai'):
-    # use_bioclip_template = True
-    # if c not in _lookup:
-    #     use_bioclip_template = False
-    # else:
-    #     tax = _lookup[c]
-    #     for t in tax:
-    #         if not isinstance(t, str) and np.isnan(t):
-    #             use_bioclip_template = False
-    #             break
-    # if use_bioclip_template and text_template == 'bioclip':
-    #     tax = _lookup[c]
-    #     common = c
-    #     scientific = tax[-1]
-    #     taxonomic = ' '.join(tax)
-    #     scientific_common = f'{scientific} with common name {common}'
-    #     taxonomic_common = f'{taxonomic} with common name {common}'
-    #     names = [common, scientific, taxonomic, scientific_common, taxonomic_common]
-    #     texts = []
-    #     for n in names:
-    #         texts += [template.format(CLZ_NAME=n) for template in BIOCLIP_TEMPLATE]
-    # else:
-    texts = [template.format(CLZ_NAME=c) for template in OPENAI_IMAGENET_TEMPLATE]
 def get_texts(c, text_template='openai'):
     # use_bioclip_template = True
     # if c not in _lookup:
@@ -550,9 +509,6 @@ def get_class_embedding(model, tokenizer, embed_dim, class_name_idx, text_templa
             _class_embedding = F.normalize(_class_embedding, dim=-1)
             class_embedding[class_idx] = _class_embedding
     return class_embedding
-
-TUNE_MODULES = ['ft_attn_module', 'ft_mlp_module', 'head', 'vpt', 'ssf_scale', 'ssf_shift', 'lora', 'fact', 'vqt',
-                'difffit']
 
 def get_model(params, class_num, text_model=None):
     # if torch.cuda.is_available():

@@ -16,7 +16,7 @@ from torch.utils.checkpoint import checkpoint
 from .hf_model import HFTextEncoder
 from .modified_resnet import ModifiedResNet
 from .timm_model import TimmModel
-from .transformer import LayerNormFp32, LayerNorm, QuickGELU, Attention, VisionTransformer, TextTransformer, TextTransformerPETL
+from .transformer import LayerNormFp32, LayerNorm, QuickGELU, Attention, VisionTransformer, TextTransformer
 from .utils import to_2tuple
 from typing import Any, Optional
 
