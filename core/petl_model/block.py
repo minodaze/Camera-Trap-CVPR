@@ -7,7 +7,7 @@ from .convpass import ConvPass
 from .repadapter import RepAdapter
 from .ssf import init_ssf_scale_shift, ssf_ada
 import torch
-from typing import Any, Callable, Dict, Optional, Set, Tuple, Type, Union, List
+from typing import Optional
 from .mlp import MlpPETL
 from .attention import AttentionPETL
 

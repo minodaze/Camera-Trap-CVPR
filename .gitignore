@@ -29,3 +29,4 @@ config/pipeline/MAD_MAD05_new/ce/accumulative-scratch.yaml
 config/pipeline/MAD_MAD05_new/ce/percentage-1.yaml
 config/pipeline/MAD_MAD05_new/ce/zs.yaml
 scripts/train/train.sh
+*.err

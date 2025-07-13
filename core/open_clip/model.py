@@ -76,7 +76,8 @@ def _build_vision_tower(
         embed_dim: int,
         vision_cfg: CLIPVisionCfg,
         quick_gelu: bool = False,
-        cast_dtype: Optional[torch.dtype] = None
+        cast_dtype: Optional[torch.dtype] = None,
+        params: Optional[Any] = None
 ):
     if isinstance(vision_cfg, dict):
         vision_cfg = CLIPVisionCfg(**vision_cfg)
@@ -129,6 +130,7 @@ def _build_vision_tower(
             output_dim=embed_dim,
             act_layer=act_layer,
             norm_layer=norm_layer,
+            params=params,
         )
 
     return visual
@@ -190,7 +192,7 @@ class CLIP(nn.Module):
     ):
         super().__init__()
         self.output_dict = output_dict
-        self.visual = _build_vision_tower(embed_dim, vision_cfg, quick_gelu, cast_dtype)
+        self.visual = _build_vision_tower(embed_dim, vision_cfg, quick_gelu, cast_dtype, params)
 
         text = _build_text_tower(embed_dim, text_cfg, quick_gelu, cast_dtype, params)
         self.embed_dim = embed_dim

@@ -231,16 +231,11 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             })
 
         # Log training loss and accuracy to wandb if initialized
-        if wandb.run is not None:  # Check if wandb is initialized
-            wandb.log({
-                "train_loss": avg_loss,
-                "train_accuracy": avg_acc,
-                "epoch": epoch
-            })
-
-        if classifier.init_text:
-            logging.info(f'Rebuild head')
-            classifier.reset_head()
+        # if wandb.run is not None:  # Check if wandb is initialized
+        #     wandb.log({
+        #         "train_loss": avg_loss,
+        #         "train_accuracy": avg_acc,
+        #     }, step=epoch)
 
         if scheduler is not None:
             scheduler.step()
@@ -248,7 +243,6 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
         if eval_per_epoch:
             loss_arr, preds_arr, labels_arr = eval(classifier, eval_loader, device)
             print_metrics(loss_arr, preds_arr, labels_arr, len(loader.dataset.class_names), log_predix=f'Epoch {epoch}, ')
-
 
 def eval(classifier, loader, device, chop_head=False, return_logits=False):
     dset = loader.dataset
@@ -274,7 +268,7 @@ def eval(classifier, loader, device, chop_head=False, return_logits=False):
         chop_mask[observed_classes] = 0
     else:
         chop_mask = np.zeros(n_classes, dtype=bool)
-    
+
     classifier.eval()
     with torch.no_grad():
         for inputs, labels, _, _ in loader:

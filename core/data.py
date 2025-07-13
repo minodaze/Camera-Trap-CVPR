@@ -100,12 +100,13 @@ class ClassBalancedSampler(Sampler):
 class CkpDataset(Dataset):
     _global_cache = {}
 
-    def __init__(self, json_path, class_names, is_train=True, is_speciesnet=False, is_crop=False):
+    def __init__(self, json_path, class_names, is_train=True, is_speciesnet=False, is_crop=False, label_type='common'):
         self.cache = CkpDataset._global_cache
         self.json_path = json_path
         self.class_names = class_names
         self.is_train = is_train
         self.is_crop = is_crop
+        self.label_type = label_type
         self.crop_train_transform = _CROP_TRAIN_TRANSFORM
         self.train_transform = _TRAIN_TRANSFORM
         if is_speciesnet:
@@ -128,6 +129,18 @@ class CkpDataset(Dataset):
         self.ckp_samples = self._get_ckp_samples(self.samples)
         self._sort_samples()
 
+    def add_class_names(self, new_class_names):
+        """
+        Add new class names to the dataset.
+        """
+        for class_name in new_class_names:
+            if class_name not in self.class_names:
+                self.class_names.append(class_name)
+                self.class_name_idx[class_name] = len(self.class_names) - 1
+        class_num = len(self.class_names)
+        for sample in self.samples:
+            sample.logits = torch.empty(class_num)
+
     def train(self):
         self.is_train = True
         self.transform = self.train_transform
@@ -145,7 +158,7 @@ class CkpDataset(Dataset):
                 file_path = data.get("image_path")
                 if not file_path:
                     raise ValueError(f"image_path not found in {data}")
-                class_name = data.get("class_name")
+                class_name = data.get(self.label_type)
                 if not class_name:
                     raise ValueError(f"class_name not found in {data}")
                 assert class_name in self.class_names, f"class_name {class_name} not found in class_names. "
@@ -229,7 +242,10 @@ class CkpDataset(Dataset):
                 ckp_list = [ckp_list]
             logging.info(f"Gathering samples from checkpoints: {ckp_list}")
             for ckp in ckp_list:
-                assert ckp in self.ckp_samples, f"Checkpoint {ckp} not found"
+                # assert ckp in self.ckp_samples, f"Checkpoint {ckp} not found"
+                if ckp not in self.ckp_samples:
+                    logging.info(f"Checkpoint {ckp} not found")
+                    continue
                 _filtered_samples = copy.deepcopy(self.ckp_samples[ckp])
                 filtered_samples.extend(_filtered_samples)
         else:

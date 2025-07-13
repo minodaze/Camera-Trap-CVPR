@@ -1,22 +1,23 @@
 module_name: zs
-log_path: log/pipeline/ENO_C05_new/ce/zs
+log_path: log/pipeline/serengeti_C02/ce/zs
 class_names:
-  - baboon
-  - buffalo
-  - domesticanimal
-  - eland
-  - gazellethomsons
-  - giraffe
-  - hyenaspotted
-  - impala
-  - topi
+  - guineafowl
   - warthog
-  - wildebeestblue
-  - zebraplains
+  - buffalo
+  - giraffe
+  - impala
+  - hartebeest
+  - elephant
+  - zebra
+  - gazellegrants
+  - wildebeest
+  - hyenaspotted
+  - gazellethomsons
+  - topi
 common_config:
   model: bioclip
-  train_data_config_path: config/data/ENO_C05_new/train.json
-  eval_data_config_path: config/data/ENO_C05_new/test.json
+  train_data_config_path: config/data/serengeti_C02/train.json
+  eval_data_config_path: config/data/serengeti_C02/test.json
   train_batch_size: 128
   eval_batch_size: 512
   optimizer_name: AdamW

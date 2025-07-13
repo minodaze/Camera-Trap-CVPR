@@ -1,0 +1,41 @@
+module_name: percentage-1
+log_path: log/pipeline/ENO_C05_new/ce/percentage-1
+class_names:
+  - gray fox
+  - bobcat
+  - eastern gray squirrel
+  - california quail
+  - striped skunk
+  - wild boar
+  - domestic cow
+  - mountain lion
+  - american black bear
+  - california ground squirrel
+  - elk
+  - black-tailed jackrabbit
+common_config:
+  model: bioclip
+  train_data_config_path: config/data/ENO_C05_common_name/train.json
+  eval_data_config_path: config/data/ENO_C05_common_name/test.json
+  train_batch_size: 32
+  eval_batch_size: 512
+  optimizer_name: AdamW
+  optimizer_params:
+    lr: 0.000025
+    weight_decay: 0.0001
+  chop_head: false
+  scheduler: CosineAnnealingLR
+  scheduler_params:
+    T_max: 30
+    eta_min: 0.0000025
+pretrain_config:
+  pretrain: true
+  pretrain_data_config_path: config/data/ENO_C05/train-all.json
+  epochs: 30
+  loss_type: cdt
+ood_config:
+  method: none
+al_config:
+  method: none
+cl_config:
+  method: none
