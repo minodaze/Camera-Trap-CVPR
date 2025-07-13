@@ -49,7 +49,7 @@ class CLModule(ABC):
         self.device = device
         self.ref_model = None
 
-    def _train(self, classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor=None):
+    def _train(self, classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor=None, ckp=None, save_best_model=True):
         if len(cl_train_dset) == 0:
             logging.info('No samples to train classifier, skipping. ')
         else:
@@ -70,6 +70,12 @@ class CLModule(ABC):
                 gamma=self.cl_config.get('loss_gamma', None),
                 ref_model=self.ref_model,
             )
+            
+            # Determine model name prefix and save directory
+            model_name_prefix = f"ckp_{ckp}" if ckp is not None else "cl_model"
+            save_best_model_enabled = getattr(self.args, 'save_best_model', save_best_model)
+            save_dir = getattr(self.args, 'save_dir', None) if save_best_model_enabled else None
+            
             train(classifier, 
                     optimizer, 
                     cl_train_loader, 
@@ -79,7 +85,10 @@ class CLModule(ABC):
                     eval_per_epoch=eval_per_epoch, 
                     eval_loader=eval_loader,
                     scheduler=scheduler,
-                    gpu_monitor=gpu_monitor)
+                    gpu_monitor=gpu_monitor,
+                    save_best_model=save_best_model_enabled,
+                    save_dir=save_dir,
+                    model_name_prefix=model_name_prefix)
 
     @abstractmethod
     def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None):
@@ -120,7 +129,7 @@ class CLNaiveFT(CLModule):
         cl_train_dset = copy.deepcopy(train_dset)
         cl_train_dset.apply_mask(train_mask)
         # Train
-        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor)
+        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True)
         return classifier
 
     def refresh_buffer(self, new_samples):
@@ -141,7 +150,7 @@ class CLAccumulative(CLModule):
         cl_train_dset.apply_mask(train_mask)
         cl_train_dset.add_samples(self.buffer)
         # Train
-        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor)
+        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True)
         # Process buffer
         self.buffer.extend(train_dset.samples)
         return classifier
@@ -166,7 +175,7 @@ class CLAccumulativeScratch(CLModule):
         cl_train_dset.apply_mask(train_mask)
         cl_train_dset.add_samples(self.buffer)
         # Train
-        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor)
+        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True)
         # Process buffer
         for msk, sample in zip(train_mask, train_dset.samples):
             if msk:
@@ -195,7 +204,7 @@ class CLAccumulativeScratchLWF(CLModule):
         cl_train_dset.apply_mask(train_mask)
         cl_train_dset.add_samples(self.buffer)
         # Train
-        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor)
+        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True)
         # Process buffer
         for msk, sample in zip(train_mask, train_dset.samples):
             if msk:
@@ -289,7 +298,7 @@ class CLReplay(CLModule):
 
         # 4) train the classifier on NEW ⊕ REPLAY
         self._train(classifier, cl_train_dset,
-                    eval_dset, eval_per_epoch, eval_loader, gpu_monitor)
+                    eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True)
         
         # 5) after training
         self._after_train(classifier, train_dset, eval_dset, train_mask)
