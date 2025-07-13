@@ -1,5 +1,6 @@
 import logging
 import wandb  # Ensure wandb is imported
+import copy
 
 import os
 from contextlib import suppress
@@ -143,9 +144,25 @@ def get_scheduler(optimizer, scheduler_name, scheduler_params):
         raise ValueError(f'Unknown scheduler {scheduler_name}. ')
     return scheduler
 
-def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False, gpu_monitor=None):
-    best_balanced_acc = 0
-    best_acc = 0
+def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False, gpu_monitor=None, save_best_model=True, save_dir=None, model_name_prefix="model"):
+    # Initialize best model tracking
+    best_val_metric = float('-inf')  # For accuracy tracking (higher is better)
+    best_val_loss = float('inf')     # For loss - PRIMARY METRIC (lower is better)
+    best_epoch = 0
+    best_model_state = None
+    
+    # Use validation loss as primary metric for best model selection
+    use_loss_for_best = True
+    
+    logging.info(f'Training for all {epochs} epochs')
+    logging.info(f'Using validation loss as primary metric for best model selection')
+    if save_best_model:
+        if save_dir:
+            os.makedirs(save_dir, exist_ok=True)
+            logging.info(f'Best model will be saved to {save_dir} with prefix "{model_name_prefix}"')
+        else:
+            logging.warning('save_best_model=True but save_dir is None. Model will be kept in memory only.')
+    
     for epoch in range(epochs):
         # Log memory at epoch start
         if gpu_monitor:
@@ -158,6 +175,8 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             classifier.train()
         loss_arr = []
         correct_arr = []
+        preds_arr = []
+        labels_arr = []
         for batch_idx, (inputs, labels, old_logits, is_buf) in enumerate(loader):
             # Log memory for first few batches
             if gpu_monitor and batch_idx < 3:
@@ -192,11 +211,33 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             # Append
             loss_arr.append(loss.cpu().item())
             correct_arr.append(correct.cpu().numpy())
+            preds_arr.append(preds.cpu().numpy())
+            labels_arr.append(labels.cpu().numpy())
+        
         loss_arr = np.array(loss_arr)
         correct_arr = np.concatenate(correct_arr, axis=0)
-        avg_loss = loss_arr.mean()
+        preds_arr = np.concatenate(preds_arr, axis=0)
+        labels_arr = np.concatenate(labels_arr, axis=0)
+        
+        # Calculate overall accuracy and balanced accuracy
         avg_acc = correct_arr.mean()
-        logging.info(f'Epoch {epoch}, loss: {avg_loss:.4f}, acc: {avg_acc:.4f}, lr: {optimizer.param_groups[0]["lr"]:.8f}. ')
+        avg_loss = loss_arr.mean()
+        
+        # Calculate balanced accuracy using the same logic as print_metrics
+        n_classes = len(loader.dataset.class_names) if hasattr(loader.dataset, 'class_names') else len(set(labels_arr))
+        acc_per_class = []
+        for i in range(n_classes):
+            mask = labels_arr == i
+            if mask.sum() == 0:
+                continue
+            acc_per_class.append((preds_arr[mask] == labels_arr[mask]).mean())
+        
+        if len(acc_per_class) > 0:
+            balanced_acc = np.array(acc_per_class).mean()
+        else:
+            balanced_acc = avg_acc  # Fallback if no classes found
+        
+        logging.info(f'Epoch {epoch}, loss: {avg_loss:.4f}, acc: {avg_acc:.4f}, balanced_acc: {balanced_acc:.4f}, lr: {optimizer.param_groups[0]["lr"]:.8f}. ')
 
         # Log memory at epoch end
         if gpu_monitor:
@@ -206,24 +247,84 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             })
 
         # Log training loss and accuracy to wandb if initialized
-        # if wandb.run is not None:  # Check if wandb is initialized
-        #     wandb.log({
-        #         "train_loss": avg_loss,
-        #         "train_accuracy": avg_acc,
-        #     }, step=epoch)
+        try:
+            import wandb
+            if wandb.run is not None:  # Check if wandb is initialized
+                wandb.log({
+                    "train/loss": avg_loss,
+                    "train/acc": avg_acc,
+                    "train/balanced_acc": balanced_acc,
+                    "train/learning_rate": optimizer.param_groups[0]["lr"]
+                })
+        except (ImportError, AttributeError):
+            pass  # wandb not available or not initialized
 
         if scheduler is not None:
             scheduler.step()
 
         if eval_per_epoch:
             loss_arr, preds_arr, labels_arr = eval(classifier, eval_loader, device)
-            acc, balanced_acc = print_metrics(loss_arr, preds_arr, labels_arr, len(loader.dataset.class_names), log_predix=f'Epoch {epoch}, ')
-            if balanced_acc > best_balanced_acc:
-                best_balanced_acc = balanced_acc
-            if acc > best_acc:
-                best_acc = acc
-            logging.info(f'Best so far -- acc: {best_acc:.4f}, balanced acc: {best_balanced_acc:.4f}. ')
-
+            eval_acc, eval_balanced_acc = print_metrics(loss_arr, preds_arr, labels_arr, len(eval_loader.dataset.class_names), log_predix=f'Epoch {epoch} val, ')
+            
+            # Check if this is the best model so far
+            current_val_loss = loss_arr.mean()
+            current_val_metric = eval_balanced_acc  # Still track for logging
+            
+            is_best = False
+            # Use validation loss as primary metric (lower is better)
+            if current_val_loss < best_val_loss:
+                is_best = True
+                best_val_loss = current_val_loss
+                best_val_metric = current_val_metric
+                best_epoch = epoch
+                
+                # Save best model state
+                if save_best_model:
+                    best_model_state = copy.deepcopy(classifier.state_dict())
+                    if save_dir:
+                        best_model_path = os.path.join(save_dir, f'{model_name_prefix}_best_model.pth')
+                        torch.save(best_model_state, best_model_path)
+                        logging.info(f'New best model saved at epoch {epoch}: val_loss={current_val_loss:.4f}, val_balanced_acc={current_val_metric:.4f} -> {best_model_path}')
+            
+            # Log evaluation metrics to wandb if initialized
+            try:
+                import wandb
+                if wandb.run is not None:
+                    eval_loss = loss_arr.mean()
+                    logging.info(f'Epoch {epoch}: train_acc={avg_acc:.4f}, train_balanced_acc={balanced_acc:.4f}, val_acc={eval_acc:.4f}, val_balanced_acc={eval_balanced_acc:.4f}, val_loss={eval_loss:.4f}, LR={optimizer.param_groups[0]["lr"]:.8f} {"(BEST)" if is_best else ""}')
+                    wandb.log({
+                        "val/loss": eval_loss,
+                        "val/acc": eval_acc,
+                        "val/balanced_acc": eval_balanced_acc,
+                        "val/is_best": is_best,
+                        "val/best_epoch": best_epoch
+                    })
+            except (ImportError, AttributeError):
+                pass  # wandb not available or not initialized
+        else:
+            # If not evaluating per epoch, just continue training
+            pass
+    
+    # Load best model if we saved one
+    if save_best_model and best_model_state is not None:
+        classifier.load_state_dict(best_model_state)
+        logging.info(f'Loaded best model from epoch {best_epoch} (val_loss={best_val_loss:.4f}, val_balanced_acc={best_val_metric:.4f})')
+        
+        # Log final best model info to wandb
+        try:
+            import wandb
+            if wandb.run is not None:
+                wandb.log({
+                    "final/final_best_epoch": best_epoch,
+                    "final/final_best_val_loss": best_val_loss,
+                    "final/final_best_val_balanced_acc": best_val_metric,
+                    "final/total_epochs_trained": epoch + 1,
+                    "final/training_completed": True
+                })
+        except (ImportError, AttributeError):
+            pass
+    
+    return classifier
 
 def eval(classifier, loader, device, chop_head=False, return_logits=False):
     dset = loader.dataset
@@ -296,3 +397,34 @@ def get_autocast(precision):
         return lambda: torch.cuda.amp.autocast(dtype=torch.bfloat16)
     else:
         return suppress
+
+def load_best_model(classifier, save_dir, model_name_prefix="model", device="cuda"):
+    """Load the best model weights from saved file.
+    
+    Args:
+        classifier (nn.Module): The model to load weights into.
+        save_dir (str): Directory where the best model was saved.
+        model_name_prefix (str): Prefix used when saving the model.
+        device (str): Device to load the model on.
+    
+    Returns:
+        bool: True if model was loaded successfully, False otherwise.
+    """
+    if not save_dir or not os.path.exists(save_dir):
+        logging.warning(f'Save directory {save_dir} does not exist. Cannot load best model.')
+        return False
+    
+    best_model_path = os.path.join(save_dir, f'{model_name_prefix}_best_model.pth')
+    
+    if not os.path.exists(best_model_path):
+        logging.warning(f'Best model file {best_model_path} does not exist. Cannot load best model.')
+        return False
+    
+    try:
+        state_dict = torch.load(best_model_path, map_location=device)
+        classifier.load_state_dict(state_dict)
+        logging.info(f'Successfully loaded best model from {best_model_path}')
+        return True
+    except Exception as e:
+        logging.error(f'Failed to load best model from {best_model_path}: {e}')
+        return False
