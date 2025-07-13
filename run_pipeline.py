@@ -625,14 +625,6 @@ def parse_args():
                         choices=['bioclip', 'openai'],
                         help='text template type')
 
-    ############################## Text Encoder ##############################
-    parser.add_argument('--text', type=str, default='head',
-                        choices=['head', 'petl', 'full'],
-                        help='text encoder type, head for head only, full for full text encoder')
-    parser.add_argument('--text_template', type=str, default='openai',
-                        choices=['bioclip', 'openai'],
-                        help='text template type')
-
     ########################PETL#########################
     parser.add_argument('--ft_attn_module', default=None, choices=['adapter', 'convpass', 'repadapter'],
                         help='Module used to fine-tune attention module. (default: %(default)s)')
