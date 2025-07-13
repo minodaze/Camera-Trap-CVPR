@@ -15,3 +15,7 @@ plot.py
 # Additional patterns for SLURM job outputs
 slurm-*.out
 slurm-*.err
+*.err
+*.out
+compare_eval.py
+.vscode/launch.json
