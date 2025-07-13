@@ -304,7 +304,7 @@ def run(args):
 
         module_name = getattr(args, 'module_name', 'default_module')  # Fallback if module_name is not in args
         wandb.init(
-            project="ICICLE-Benchmark_v2",  # Replace with your project name
+            project="Camera Trap Benchmark - ALL CAMERA UB",  # Replace with your project name
             name=wandb_run_name,  # Set run name using args.c and module_name
             config=vars(args)  # Log all arguments to wandb
         )
@@ -624,10 +624,6 @@ def parse_args():
     parser.add_argument('--text_template', type=str, default='openai',
                         choices=['bioclip', 'openai'],
                         help='text template type')
-
-    ############################## TEST #################################
-    parser.add_argument('--accu_eval', action='store_true',
-                        help='whether to test all later checkpoints after training on each checkpoint')
 
     ############################## Text Encoder ##############################
     parser.add_argument('--text', type=str, default='head',

@@ -9,7 +9,7 @@
 #SBATCH --gpus-per-node=1         # One GPU per node
 #SBATCH --cpus-per-task=12
 
-USER_NAME="hou"
+USER_NAME="camera-trap-benchmark-logs"
 CONDA_ENV="icicle"
 
 # Load your env
