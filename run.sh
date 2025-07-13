@@ -1,10 +1,26 @@
 #!/bin/bash
 
-# List of all dataset paths
-# You can add up to 100 or more dataset paths here
-ALL_DATASETS=(
-  "swg/swg_loc_0182"
-)
+# Read dataset paths from train_list.txt (one dataset per line)
+# Check if train_list.txt exists
+if [ ! -f "train_list.txt" ]; then
+    echo "Error: train_list.txt not found!"
+    echo "Please create train_list.txt with one dataset path per line."
+    exit 1
+fi
+
+# Read datasets from file into array
+readarray -t ALL_DATASETS < train_list.txt
+
+# Remove empty lines and trim whitespace
+TEMP_DATASETS=()
+for dataset in "${ALL_DATASETS[@]}"; do
+    # Trim whitespace and skip empty lines
+    dataset=$(echo "$dataset" | xargs)
+    if [[ -n "$dataset" && ! "$dataset" =~ ^[[:space:]]*# ]]; then
+        TEMP_DATASETS+=("$dataset")
+    fi
+done
+ALL_DATASETS=("${TEMP_DATASETS[@]}")
 
 # Learning rates to test
 # LEARNING_RATES=(0.000001 0.0000025 0.000005 0.00001 0.000025 0.00005 0.0001 0.00025 0.0005 )
