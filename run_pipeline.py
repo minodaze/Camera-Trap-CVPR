@@ -42,6 +42,7 @@ def setup_logging(log_path, debug, params):
     deterministic_time = f"2025-07-12-20-{abs(hash(str(vars(params)))) % 10000:04d}-00"
     petl_method_name = method_name(params)
     log_path = os.path.join(log_path, params.pretrained_weights)
+
     petl_method_name = petl_method_name + f'_text_{params.text}'
     if params.interpolation_model:
         petl_method_name += f'_interpolation_model_{params.interpolation_alpha}'
@@ -52,8 +53,10 @@ def setup_logging(log_path, debug, params):
         log_path = os.path.join(log_path, 'log')
     else:
         logger.setLevel(logging.DEBUG)
+
         curr_time = f"debug-{deterministic_time}"
         log_path = os.path.join(log_path, curr_time)
+
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
     # Log to stdout
@@ -73,7 +76,9 @@ def setup_logging(log_path, debug, params):
         logger.addHandler(fh)
     return log_path
 
+
 def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None, interpolation_model=False, interpolation_head=False, interpolation_alpha=0.5, eval_per_epoch=False, save_dir=None, args=None):
+
     """Pretrain the classifier on the pretraining dataset.
         
         Args:
@@ -227,6 +232,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
     )
     
     # Get dataloader
+
     loader = DataLoader(dataset, batch_size=train_batch_size, shuffle=True, num_workers=4, worker_init_fn=worker_init_fn)
 
     # Get model saving setting from args, with fallback
@@ -241,6 +247,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
           save_best_model=save_best_model,
           save_dir=save_dir,
           model_name_prefix="pretrain")
+
     if interpolation_model or interpolation_head:
         if gpu_monitor:
             gpu_monitor.log_memory_usage("interpolation", "after_pretrain")
@@ -297,7 +304,7 @@ def run(args):
 
         module_name = getattr(args, 'module_name', 'default_module')  # Fallback if module_name is not in args
         wandb.init(
-            project="ICICLE-Benchmark-LR-FINAL-SANITY-LOSS-BEST",  # Replace with your project name
+            project="ICICLE-Benchmark_v2",  # Replace with your project name
             name=wandb_run_name,  # Set run name using args.c and module_name
             config=vars(args)  # Log all arguments to wandb
         )
@@ -353,6 +360,7 @@ def run(args):
                               eval_per_epoch=args.eval_per_epoch,
                               save_dir=args.save_dir,
                               args=args)
+
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("pretrain", "after")
             gpu_monitor.clear_cache_and_log("pretrain")
@@ -593,11 +601,29 @@ def parse_args():
     parser.add_argument('--pretrained_weights', type=str, default='bioclip2',
                         choices=['bioclip', 'bioclip2'],
                         help='pretrained weights name')
+
+    parser.add_argument('--class_type', type=str, default='common_name',
+                        choices=['common_name', 'scientific_name'],
+                        help='Class type for the model')
+                        
+    
     parser.add_argument('--drop_path_rate', default=0.,
                         type=float,
                         help='Drop Path Rate (default: %(default)s)')
     # parser.add_argument('--model', type=str, default='vit', choices=['vit', 'swin'],
     #                     help='pretrained model name')
+
+    ############################## TEST #################################
+    parser.add_argument('--accu_eval', action='store_true',
+                        help='whether to test all later checkpoints after training on each checkpoint')
+
+    ############################## Text Encoder ##############################
+    parser.add_argument('--text', type=str, default='head',
+                        choices=['head', 'full', 'lora'],
+                        help='text encoder type, head for head only, full for full text encoder')
+    parser.add_argument('--text_template', type=str, default='openai',
+                        choices=['bioclip', 'openai'],
+                        help='text template type')
 
     ############################## TEST #################################
     parser.add_argument('--accu_eval', action='store_true',
@@ -722,6 +748,9 @@ def parse_args():
     ########################full#########################
     parser.add_argument('--full', action='store_true',
                         help='whether turn on full finetune')
+    ########################loss#########################
+    # parser.add_argument('--loss', type=str, default='ce',
+    #                     choices=['ce', 'focal', 'kd', 'cb', 'supcon', 'cdt'])
 
     ########################block#########################
     parser.add_argument('--block_index', default=None, type=int, nargs='+',

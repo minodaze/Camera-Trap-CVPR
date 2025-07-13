@@ -9,7 +9,7 @@
 #SBATCH --gpus-per-node=1         # One GPU per node
 #SBATCH --cpus-per-task=12
 
-USER_NAME="sooyoung"
+USER_NAME="hou"
 CONDA_ENV="icicle"
 
 # Load your env
@@ -37,7 +37,6 @@ LEARNING_RATE="$2"
 
 echo "Processing ${#BIG_FOLDERS[@]} datasets: ${BIG_FOLDERS[*]}"
 echo "Using learning rate: ${LEARNING_RATE}"
-
 
 for DATASET in "${BIG_FOLDERS[@]}"; do
     echo "=== Processing ${DATASET} ==="

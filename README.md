@@ -46,6 +46,7 @@ srun --pty --account=PAS2099 --job-name=bash --time=24:00:00 --ntasks=1 --nodes=
 
  srun --pty --account=PAS2099 --job-name=bash --time=24:00:00 --ntasks=1 --nodes=1 --gpus-per-task=1 --cpus-per-task=12 --mem=100G python run_pipeline.py --c '<.yaml>' --lora_bottleneck 8 
 
+
 **ReAdapterv**
 
  srun --pty --account=PAS2099 --job-name=bash --time=24:00:00 --ntasks=1 --nodes=1 --gpus-per-task=1 --cpus-per-task=12 --mem=100G python run_pipeline.py --c '<.yaml>' --ft_attn_module repadapter --ft_attn_mode sequential_before --ft_mlp_module repadapter --ft_mlp_mode sequential_before --repadapter_bottleneck 8 --repadapter_scaler 10      

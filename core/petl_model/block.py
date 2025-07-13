@@ -87,7 +87,7 @@ class BlockPETL(nn.Module):
         ############# Added module end #############
 
     # Original forward method (easier to read and understand BUT NOT OPTIMIZED!!!!! MORE GPU MEMORY USAGE)
-    def forward_original(self, x: torch.Tensor, idx) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, idx) -> torch.Tensor:
         # MHSA path
         residual_attn = x
 
@@ -225,7 +225,7 @@ class BlockPETL(nn.Module):
             return self._get_difffit(dp(ls(main(self._get_norm(x, norm, order), idx))), x, difffit_gamma)
 
     # New forward method (optimized for GPU memory usage)
-    def forward(self, x: torch.Tensor, idx) -> torch.Tensor:
+    def forward_new(self, x: torch.Tensor, idx) -> torch.Tensor:
         x = self._forward_helper(x, idx, self.norm1, self.params.ft_attn_module, self.drop_path1, self.ls1, self.attn, 1)
         x = self._forward_helper(x, idx, self.norm2, self.params.ft_mlp_module, self.drop_path2, self.ls2, self.mlp, 2)
         return x
