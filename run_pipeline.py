@@ -368,13 +368,13 @@ def run(args):
             acc, balanced_acc = print_metrics(loss_arr, preds_arr, labels_arr, len(class_names))
 
         # Log training and evaluation loss to wandb
-        if wandb.run is not None:
-            wandb.log({
-                "accuracy": acc,  # Overall accuracy
-                "balanced_accuracy": balanced_acc,  # Balanced accuracy
-                # "eval_loss": np.mean(loss_arr),  # Evaluation loss
-                # "checkpoint": ckp
-            }, step=i)
+        # if wandb.run is not None:
+        #     wandb.log({
+        #         "accuracy": acc,  # Overall accuracy
+        #         "balanced_accuracy": balanced_acc,  # Balanced accuracy
+        #         # "eval_loss": np.mean(loss_arr),  # Evaluation loss
+        #         # "checkpoint": ckp
+        #     }, step=i)
 
         if args.is_save:
             logging.info(f'Saving model to {args.save_dir}. ')

@@ -144,6 +144,8 @@ def get_scheduler(optimizer, scheduler_name, scheduler_params):
     return scheduler
 
 def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False, gpu_monitor=None):
+    best_balanced_acc = 0
+    best_acc = 0
     for epoch in range(epochs):
         # Log memory at epoch start
         if gpu_monitor:
@@ -215,7 +217,13 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
 
         if eval_per_epoch:
             loss_arr, preds_arr, labels_arr = eval(classifier, eval_loader, device)
-            print_metrics(loss_arr, preds_arr, labels_arr, len(loader.dataset.class_names), log_predix=f'Epoch {epoch}, ')
+            acc, balanced_acc = print_metrics(loss_arr, preds_arr, labels_arr, len(loader.dataset.class_names), log_predix=f'Epoch {epoch}, ')
+            if balanced_acc > best_balanced_acc:
+                best_balanced_acc = balanced_acc
+            if acc > best_acc:
+                best_acc = acc
+            logging.info(f'Best so far -- acc: {best_acc:.4f}, balanced acc: {best_balanced_acc:.4f}. ')
+
 
 def eval(classifier, loader, device, chop_head=False, return_logits=False):
     dset = loader.dataset
