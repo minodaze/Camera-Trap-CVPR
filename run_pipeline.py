@@ -3,6 +3,7 @@ import logging
 import os
 import copy
 import time
+import json
 
 from datetime import datetime
 import numpy as np
@@ -572,6 +573,287 @@ def run(args):
     if args.wandb:
         wandb.finish()
 
+def run_eval_only(args):
+    """Run evaluation only on trained model checkpoints.
+    
+    Args:
+        args (argparse.Namespace): Parsed command-line arguments.
+    """
+    logging.info("Starting evaluation-only mode")
+    
+    # Initialize GPU memory monitoring if enabled
+    gpu_monitor = None
+    if args.gpu_memory_monitor:
+        enable_colors = not args.no_gpu_monitor_colors
+        gpu_monitor = get_gpu_monitor(args.device, args.wandb, enable_colors)
+        logging.info("GPU memory monitoring enabled.")
+        gpu_monitor.log_memory_usage("startup", "initial")
+    
+    # Initialize wandb if enabled
+    if args.wandb:
+        import re
+        match = re.search(r"pipeline/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)", args.save_dir)
+        wandb_run_name = "Eval Only Run"
+        if match:
+            dataset = match.group(1)
+            training_mode = match.group(2)
+            pretrained_type = match.group(3)
+            pretrained_weights = match.group(4)
+            method = match.group(5)
+            timestamp = match.group(6)
+            wandb_run_name = f"EVAL | {dataset} | {training_mode} | {pretrained_type} | {pretrained_weights} | {method} | {timestamp}"
+        
+        wandb.init(
+            project="Camera Trap Benchmark - EVAL ONLY",
+            name=wandb_run_name,
+            config=vars(args)
+        )
+        logging.info("wandb logging is enabled for evaluation.")
+    
+    # Validate required arguments for eval_only mode
+    if not args.model_dir:
+        raise ValueError("--model_dir is required for eval_only mode")
+    
+    if not os.path.exists(args.model_dir):
+        raise FileNotFoundError(f"Model directory not found: {args.model_dir}")
+    
+    # Load configuration
+    common_config = args.common_config
+    train_path = common_config['train_data_config_path']
+    test_path = common_config['eval_data_config_path']
+    
+    with open(train_path, 'r') as fin:
+        data = json.load(fin)
+    with open(test_path, 'r') as fin:
+        data_test = json.load(fin)
+        data.update(data_test)
+    
+    class_names = []
+    label_type = args.label_type
+    for key, value in data.items():
+        for v in value:
+            if v[label_type] not in class_names:
+                class_names.append(v[label_type])
+    del data, data_test
+    
+    logging.info(f'Found {len(class_names)} classes')
+    
+    # Build classifier architecture (same as training)
+    classifier = build_classifier(args, class_names, args.device)
+    
+    if args.gpu_memory_monitor:
+        gpu_monitor.log_memory_usage("model_load", "after_build")
+        monitor_model_memory(classifier, "classifier", args.device, args.wandb)
+    
+    # Prepare dataset
+    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type)
+    
+    # Get checkpoint list
+    ckp_list = eval_dset.get_ckp_list()
+    logging.info(f'Available checkpoints in dataset: {ckp_list}')
+    
+    # Determine which checkpoints to evaluate and detect training mode
+    if args.checkpoint_list:
+        # Use specific checkpoints provided by user
+        target_checkpoints = []
+        for ckp_str in args.checkpoint_list:
+            ckp_name = f"ckp_{ckp_str}"
+            if ckp_name in ckp_list:
+                target_checkpoints.append(ckp_name)
+            else:
+                logging.warning(f'Checkpoint {ckp_name} not found in dataset. Available: {ckp_list}')
+        
+        if not target_checkpoints:
+            raise ValueError("No valid checkpoints found from the provided list")
+        
+        ckp_list = target_checkpoints
+        logging.info(f'Evaluating specified checkpoints: {ckp_list}')
+    else:
+        ckp_list = eval_dset.get_ckp_list()
+        logging.info(f'Will evaluate all available checkpoints: {ckp_list}')
+    
+    # Detect training mode by checking what model files exist
+    model_file_mapping = {}
+    training_mode = None
+    
+    # Check for upper bound (full training) - single pretrain_best_model.pth
+    upperbound_model_path = os.path.join(args.model_dir, 'pretrain_best_model.pth')
+    
+    if os.path.exists(upperbound_model_path):
+        # Upper bound training - one model for all checkpoints
+        training_mode = "upper_bound"
+        for ckp in ckp_list:
+            model_file_mapping[ckp] = upperbound_model_path
+        logging.info(f'Detected UPPER BOUND training mode')
+        logging.info(f'Using single model file: {upperbound_model_path}')
+        logging.info(f'Will evaluate this model on all {len(ckp_list)} checkpoints: {ckp_list}')
+    else:
+        # Check for accumulative training files (ckp_X.pth)
+        for ckp in ckp_list:
+            acc_model_path = os.path.join(args.model_dir, f'{ckp}.pth')
+            if os.path.exists(acc_model_path):
+                model_file_mapping[ckp] = acc_model_path
+                if training_mode is None:
+                    training_mode = "accumulative"
+            else:
+                logging.warning(f'No model file found for {ckp}: {acc_model_path}')
+        
+        if training_mode == "accumulative":
+            logging.info(f'Detected ACCUMULATIVE training mode')
+            logging.info(f'Found model files for {len(model_file_mapping)} checkpoints')
+    
+    if not model_file_mapping:
+        raise ValueError(f"No model files found in {args.model_dir}. Expected either:\n"
+                        f"  - Upper bound training: pretrain_best_model.pth directly in {args.model_dir}\n"
+                        f"  - Accumulative training: ckp_X.pth files directly in {args.model_dir}")
+    
+    # Filter to only checkpoints that have model files
+    ckp_list = list(model_file_mapping.keys())
+    
+    logging.info(f'Training mode: {training_mode}')
+    logging.info(f'Will evaluate {len(ckp_list)} checkpoints: {ckp_list}')
+    
+    # Create output directory if not exists
+    if not os.path.exists(args.save_dir):
+        os.makedirs(args.save_dir, exist_ok=True)
+    
+    # Run evaluation for each checkpoint
+    eval_results = {}
+    
+    for i, ckp in enumerate(ckp_list):
+        logging.info(f'Evaluating checkpoint {ckp} ({i+1}/{len(ckp_list)})')
+        
+        # Load model weights for this checkpoint
+        model_path = model_file_mapping[ckp]
+        
+        try:
+            logging.info(f'Loading model from {model_path}')
+            state_dict = torch.load(model_path, map_location=args.device)
+            classifier.load_state_dict(state_dict)
+            classifier.to(args.device)
+            classifier.eval()
+            
+            if args.gpu_memory_monitor:
+                gpu_monitor.log_memory_usage("model_load", f"after_load_{ckp}")
+                
+        except Exception as e:
+            logging.error(f'Failed to load model for {ckp}: {e}')
+            continue
+        
+        # Get evaluation dataset for this checkpoint
+        ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp)
+        logging.info(f'Evaluation dataset size for {ckp}: {len(ckp_eval_dset)}')
+        
+        if len(ckp_eval_dset) == 0:
+            logging.warning(f'No evaluation data found for checkpoint {ckp}')
+            continue
+        
+        # Create data loader
+        eval_loader = DataLoader(
+            ckp_eval_dset, 
+            batch_size=common_config['eval_batch_size'], 
+            shuffle=False, 
+            num_workers=4
+        )
+        
+        # Run evaluation
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
+            
+        loss_arr, preds_arr, labels_arr = eval(
+            classifier, 
+            eval_loader, 
+            args.device, 
+            chop_head=common_config['chop_head']
+        )
+        
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("evaluation", f"after_{ckp}")
+        
+        # Calculate and log metrics
+        acc, balanced_acc = print_metrics(
+            loss_arr, 
+            preds_arr, 
+            labels_arr, 
+            len(class_names),
+            log_predix=f"Eval-only {ckp}: "
+        )
+        eval_loss = np.mean(loss_arr)
+        
+        # Store results (convert numpy types to Python types for JSON serialization)
+        eval_results[ckp] = {
+            'accuracy': float(acc),
+            'balanced_accuracy': float(balanced_acc),
+            'loss': float(eval_loss),
+            'num_samples': int(len(ckp_eval_dset))
+        }
+        
+        # Log to wandb if enabled
+        if args.wandb:
+            wandb.log({
+                "eval/accuracy": acc,
+                "eval/balanced_accuracy": balanced_acc,
+                "eval/loss": eval_loss,
+                "eval/checkpoint": ckp,
+                "eval/num_samples": len(ckp_eval_dset)
+            }, step=i)
+        
+        # Save predictions if requested
+        if args.save_predictions:
+            pred_path = os.path.join(args.save_dir, f'{ckp}_eval_preds.pkl')
+            with open(pred_path, 'wb') as f:
+                pickle.dump((preds_arr, labels_arr), f)
+            logging.info(f'Predictions saved to {pred_path}')
+        
+        # Clear GPU cache between checkpoints
+        if args.gpu_memory_monitor:
+            gpu_monitor.clear_cache_and_log(f"eval_checkpoint_{ckp}")
+    
+    # Save summary results
+    summary_path = os.path.join(args.save_dir, 'eval_only_summary.json')
+    with open(summary_path, 'w') as f:
+        json.dump(eval_results, f, indent=2)
+    
+    # Calculate average metrics
+    if eval_results:
+        avg_accuracy = sum(result['accuracy'] for result in eval_results.values()) / len(eval_results)
+        avg_balanced_accuracy = sum(result['balanced_accuracy'] for result in eval_results.values()) / len(eval_results)
+        avg_loss = sum(result['loss'] for result in eval_results.values()) / len(eval_results)
+        total_samples = sum(result['num_samples'] for result in eval_results.values())
+    else:
+        avg_accuracy = avg_balanced_accuracy = avg_loss = 0.0
+        total_samples = 0
+    
+    # Log summary
+    logging.info("=== EVALUATION SUMMARY ===")
+    for ckp, results in eval_results.items():
+        logging.info(f"{ckp}: acc={results['accuracy']:.4f}, balanced_acc={results['balanced_accuracy']:.4f}, "
+                    f"loss={results['loss']:.4f}, samples={results['num_samples']}")
+    
+    logging.info("=" * 50)
+    logging.info(f"AVERAGE ACROSS ALL CHECKPOINTS:")
+    logging.info(f"  Average Accuracy: {avg_accuracy:.4f}")
+    logging.info(f"  Average Balanced Accuracy: {avg_balanced_accuracy:.4f}")
+    logging.info(f"  Average Loss: {avg_loss:.4f}")
+    logging.info(f"  Total Checkpoints: {len(eval_results)}")
+    logging.info(f"  Total Samples: {total_samples}")
+    logging.info("=" * 50)
+    
+    logging.info(f"Summary saved to {summary_path}")
+    
+    # Final GPU memory summary
+    if args.gpu_memory_monitor:
+        summary = gpu_monitor.get_memory_summary()
+        logging.info(f"GPU Memory Summary: {summary}")
+        if args.wandb:
+            wandb.log({"gpu_memory/summary": summary})
+    
+    # Finalize wandb if enabled
+    if args.wandb:
+        wandb.finish()
+    
+    logging.info("Evaluation-only mode completed successfully")
+
 def parse_args():
     """Parse command-line arguments for the adaptive learning pipeline.
         
@@ -587,7 +869,10 @@ def parse_args():
     parser.add_argument('--eval_per_epoch', action='store_true', help='Evaluate per epoch')
     parser.add_argument('--save_best_model', action='store_true', default=True, help='Save best model during training')
     parser.add_argument('--is_save', action='store_true', help='Save model')
-    parser.add_argument('--eval_only', action='store_true', help='Evaluate only')
+    parser.add_argument('--eval_only', action='store_true', help='Evaluate only mode - loads trained model checkpoints and evaluates them')
+    parser.add_argument('--model_dir', type=str, help='Directory containing trained model checkpoints (.pth files) for eval_only mode')
+    parser.add_argument('--checkpoint_list', type=str, nargs='+', default=None, help='Specific checkpoint numbers to evaluate (for eval_only mode). If not provided, evaluates all available checkpoints')
+    parser.add_argument('--save_predictions', action='store_true', help='Save prediction arrays for each checkpoint (for eval_only mode)')
     parser.add_argument('--gpu_id', type=int, default=0, help='GPU ID')
     parser.add_argument('--wandb', action='store_true', help='Enable wandb logging')  # New argument
     parser.add_argument('--gpu_memory_monitor', action='store_true', help='Enable GPU memory monitoring and logging')  # New argument
@@ -810,7 +1095,10 @@ if __name__ == '__main__':
 
     # Run
     start_time = time.time()
-    run(args)
+    if args.eval_only:
+        run_eval_only(args)
+    else:
+        run(args)
     end_time = time.time()
 
     # Print elapsed time
