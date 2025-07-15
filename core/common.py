@@ -11,6 +11,19 @@ from tqdm import tqdm
 
 from .loss import CB_loss, focal_loss, standard_focal_loss, LDAM_loss, loss_fn_kd, SupConLoss, CDT_loss, balanced_softmax_loss
 
+# Import epoch logging functions
+try:
+    from utils.log_formatter import log_epoch_train, log_epoch_val, log_epoch_test, log_training_header, log_training_summary, create_epoch_table_header, log_epoch_table_row
+except ImportError:
+    # Fallback if log_formatter is not available
+    def log_epoch_train(*args, **kwargs): pass
+    def log_epoch_val(*args, **kwargs): pass
+    def log_epoch_test(*args, **kwargs): pass
+    def log_training_header(*args, **kwargs): pass
+    def log_training_summary(*args, **kwargs): pass
+    def create_epoch_table_header(*args, **kwargs): return ""
+    def log_epoch_table_row(*args, **kwargs): pass
+
 """
 
 common.py
@@ -34,6 +47,22 @@ def print_metrics(loss_arr, preds_arr, labels_arr, n_classes, log_predix=''):
     balanced_acc = acc_per_class.mean()
     logging.info(f'{log_predix}Number of samples: {len(labels_arr)}, acc: {acc:.4f}, balanced acc: {balanced_acc:.4f}, loss: {loss:.4f}. ')
     return acc, balanced_acc
+
+def compute_metrics(loss_arr, preds_arr, labels_arr, n_classes):
+    """Compute metrics without logging."""
+    # Calculate eval accuracy and loss
+    acc = (preds_arr == labels_arr).mean()
+    loss = loss_arr.mean()
+    # Calculate per-class accuracy
+    acc_per_class = []
+    for i in range(n_classes):
+        mask = labels_arr == i
+        if mask.sum() == 0:
+            continue
+        acc_per_class.append((preds_arr[mask] == labels_arr[mask]).mean())
+    acc_per_class = np.array(acc_per_class)
+    balanced_acc = acc_per_class.mean()
+    return acc, balanced_acc, loss
 
 def compute_IRD(features, temperature, device):
     features_sim = torch.div(torch.matmul(features, features.T), temperature)
@@ -168,13 +197,16 @@ def get_scheduler(optimizer, scheduler_name, scheduler_params):
         raise ValueError(f'Unknown scheduler {scheduler_name}. ')
     return scheduler
 
-def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False, gpu_monitor=None, save_best_model=True, save_dir=None, model_name_prefix="model", validation_mode="balanced_acc", early_stop_epoch=10):
+def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False, gpu_monitor=None, save_best_model=True, save_dir=None, model_name_prefix="model", validation_mode="balanced_acc", early_stop_epoch=10, test_per_epoch=False, next_test_loader=None, test_type="NEXT"):
     # Initialize best model tracking
     best_val_metric = float('-inf')  # For accuracy tracking (higher is better)
     best_val_loss = float('inf')     # For loss (lower is better)
     best_epoch = 0
     best_model_state = None
     epochs_without_improvement = 0  # For early stopping
+    
+    # Fixed early stopping warmup period (20 epochs)
+    early_stop_warmup = 20
     
     # Determine validation mode
     use_loss_for_best = (validation_mode == "loss")
@@ -186,7 +218,11 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
         logging.info(f'Using validation balanced accuracy as primary metric for best model selection (higher is better)')
     
     if eval_per_epoch and early_stop_epoch > 0:
-        logging.info(f'Early stopping enabled: will stop if no improvement for {early_stop_epoch} epochs')
+        logging.info(f'Early stopping warmup: first {early_stop_warmup} epochs will run without early stopping')
+        logging.info(f'Early stopping monitoring: after epoch {early_stop_warmup}, will stop if no improvement for {early_stop_epoch} epochs')
+    
+    # Add training header for better visualization
+    log_training_header(model_name_prefix, epochs)
     
     if save_best_model:
         if save_dir:
@@ -269,7 +305,8 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
         else:
             balanced_acc = avg_acc  # Fallback if no classes found
         
-        logging.info(f'Epoch {epoch}, loss: {avg_loss:.4f}, acc: {avg_acc:.4f}, balanced_acc: {balanced_acc:.4f}, lr: {optimizer.param_groups[0]["lr"]:.8f}. ')
+        # Use new epoch logging format
+        log_epoch_train(epoch, avg_loss, avg_acc, balanced_acc, optimizer.param_groups[0]["lr"])
 
         # Log memory at epoch end
         if gpu_monitor:
@@ -296,14 +333,16 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
 
         if eval_per_epoch:
             loss_arr, preds_arr, labels_arr = eval(classifier, eval_loader, device)
-            eval_acc, eval_balanced_acc = print_metrics(loss_arr, preds_arr, labels_arr, len(eval_loader.dataset.class_names), log_predix=f'Epoch {epoch} val, ')
+            # Compute metrics without logging to avoid duplication
+            eval_acc, eval_balanced_acc, eval_loss = compute_metrics(loss_arr, preds_arr, labels_arr, len(eval_loader.dataset.class_names))
             
             # Check if this is the best model so far
-            current_val_loss = loss_arr.mean()
+            current_val_loss = eval_loss
             current_val_balanced_acc = eval_balanced_acc
             
             is_best = False
             improved = False
+            best_indicator = ""
             
             if use_loss_for_best:
                 # Use validation loss as primary metric (lower is better)
@@ -314,6 +353,7 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                     best_val_metric = current_val_balanced_acc  # Store balanced acc for logging
                     best_epoch = epoch
                     epochs_without_improvement = 0
+                    best_indicator = f"BEST LOSS (↓) SAVED"
                 else:
                     epochs_without_improvement += 1
             else:
@@ -326,23 +366,67 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                     best_val_loss = current_val_loss  # Store loss for logging
                     best_epoch = epoch
                     epochs_without_improvement = 0
+                    best_indicator = f"BEST ACC (↑) SAVED"
                 else:
                     epochs_without_improvement += 1
             
-            # Save best model state
+            # Use new validation logging format with best model indicator
+            log_epoch_val(epoch, eval_loss, eval_acc, eval_balanced_acc, len(labels_arr), is_best, best_indicator)
+            
+            # Test evaluation per epoch if enabled
+            if test_per_epoch and next_test_loader is not None:
+                if isinstance(next_test_loader, dict):
+                    # Upper bound mode: evaluate on each test checkpoint separately and compute average
+                    test_results = []
+                    total_samples = 0
+                    
+                    for ckp_name, test_loader in next_test_loader.items():
+                        ckp_test_loss_arr, ckp_test_preds_arr, ckp_test_labels_arr = eval(classifier, test_loader, device)
+                        ckp_test_acc, ckp_test_balanced_acc, ckp_test_loss = compute_metrics(
+                            ckp_test_loss_arr, ckp_test_preds_arr, ckp_test_labels_arr, 
+                            len(test_loader.dataset.class_names)
+                        )
+                        test_results.append({
+                            'checkpoint': ckp_name,
+                            'acc': ckp_test_acc,
+                            'balanced_acc': ckp_test_balanced_acc,
+                            'loss': ckp_test_loss,
+                            'samples': len(ckp_test_labels_arr)
+                        })
+                        total_samples += len(ckp_test_labels_arr)
+                    
+                    # Compute averages across all test checkpoints
+                    if test_results:
+                        avg_test_acc = np.mean([r['acc'] for r in test_results])
+                        avg_test_balanced_acc = np.mean([r['balanced_acc'] for r in test_results])
+                        avg_test_loss = np.mean([r['loss'] for r in test_results])
+                        
+                        # Log the averaged results
+                        log_epoch_test(epoch, avg_test_loss, avg_test_acc, avg_test_balanced_acc, total_samples, "UB_AVG")
+                else:
+                    # Single test loader mode (accumulative or other modes)
+                    next_test_loss_arr, next_test_preds_arr, next_test_labels_arr = eval(classifier, next_test_loader, device)
+                    next_test_acc, next_test_balanced_acc, next_test_loss = compute_metrics(
+                        next_test_loss_arr, next_test_preds_arr, next_test_labels_arr, 
+                        len(next_test_loader.dataset.class_names)
+                    )
+                    log_epoch_test(epoch, next_test_loss, next_test_acc, next_test_balanced_acc, len(next_test_labels_arr), test_type)
+            
+            # Add separator line after each epoch's complete log set
+            if eval_per_epoch or test_per_epoch:
+                logging.info("─" * 80)
+            
+            # Save best model state (without logging - already shown in epoch log)
             if is_best and save_best_model:
                 best_model_state = copy.deepcopy(classifier.state_dict())
                 if save_dir:
                     best_model_path = os.path.join(save_dir, f'{model_name_prefix}_best_model.pth')
                     torch.save(best_model_state, best_model_path)
-                    if use_loss_for_best:
-                        logging.info(f'New best model saved at epoch {epoch}: val_loss={current_val_loss:.4f} (↓), val_balanced_acc={current_val_balanced_acc:.4f} -> {best_model_path}')
-                    else:
-                        logging.info(f'New best model saved at epoch {epoch}: val_balanced_acc={current_val_balanced_acc:.4f} (↑), val_loss={current_val_loss:.4f} -> {best_model_path}')
             
-            # Early stopping check
-            if early_stop_epoch > 0 and epochs_without_improvement >= early_stop_epoch:
-                logging.info(f'Early stopping triggered: no improvement for {early_stop_epoch} epochs')
+            # Early stopping check (only after warmup period)
+            if early_stop_epoch > 0 and epoch >= early_stop_warmup and epochs_without_improvement >= early_stop_epoch:
+                logging.info(f'Early stopping triggered: no improvement for {early_stop_epoch} epochs after warmup period')
+                logging.info(f'Warmup period completed: first {early_stop_warmup} epochs, monitoring started from epoch {early_stop_warmup}')
                 if use_loss_for_best:
                     logging.info(f'Best epoch was {best_epoch} with val_loss={best_val_loss:.4f}')
                 else:
@@ -354,7 +438,10 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                 import wandb
                 if wandb.run is not None:
                     eval_loss = loss_arr.mean()
-                    status_indicator = "(BEST)" if is_best else f"({epochs_without_improvement}/{early_stop_epoch})" if early_stop_epoch > 0 else ""
+                    if epoch < early_stop_warmup:
+                        status_indicator = "(WARMUP)" if not is_best else "(BEST-WARMUP)"
+                    else:
+                        status_indicator = "(BEST)" if is_best else f"({epochs_without_improvement}/{early_stop_epoch})" if early_stop_epoch > 0 else ""
                     logging.info(f'Epoch {epoch}: train_acc={avg_acc:.4f}, train_balanced_acc={balanced_acc:.4f}, val_acc={eval_acc:.4f}, val_balanced_acc={eval_balanced_acc:.4f}, val_loss={eval_loss:.4f}, LR={optimizer.param_groups[0]["lr"]:.8f} {status_indicator}')
                     wandb.log({
                         "val/loss": eval_loss,
@@ -363,7 +450,9 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                         "val/is_best": is_best,
                         "val/best_epoch": best_epoch,
                         "val/epochs_without_improvement": epochs_without_improvement,
-                        "val/validation_mode": validation_mode
+                        "val/validation_mode": validation_mode,
+                        "val/in_warmup": epoch < early_stop_warmup,
+                        "val/warmup_epoch": early_stop_warmup
                     })
             except (ImportError, AttributeError):
                 pass  # wandb not available or not initialized
@@ -394,6 +483,11 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                 })
         except (ImportError, AttributeError):
             pass
+    
+    # Add training completion summary
+    best_metric_name = "val_loss" if use_loss_for_best else "val_balanced_acc"
+    best_metric_value = best_val_loss if use_loss_for_best else best_val_metric
+    log_training_summary(best_epoch, best_metric_value, best_metric_name)
     
     return classifier
 

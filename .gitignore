@@ -30,3 +30,4 @@ slurm-*.err
 *.out
 compare_eval.py
 .vscode/launch.json
+run_pipeline_2.py
