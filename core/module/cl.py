@@ -49,7 +49,7 @@ class CLModule(ABC):
         self.device = device
         self.ref_model = None
 
-    def _train(self, classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor=None, ckp=None, save_best_model=True):
+    def _train(self, classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor=None, ckp=None, save_best_model=True, test_per_epoch=False, next_test_loader=None):
         if len(cl_train_dset) == 0:
             logging.info('No samples to train classifier, skipping. ')
         else:
@@ -76,6 +76,12 @@ class CLModule(ABC):
             save_best_model_enabled = getattr(self.args, 'save_best_model', save_best_model)
             save_dir = getattr(self.args, 'save_dir', None) if save_best_model_enabled else None
             
+            # Extract test parameters from args if not provided directly
+            if not test_per_epoch:
+                test_per_epoch = getattr(self.args, 'test_per_epoch', False)
+            if next_test_loader is None:
+                next_test_loader = getattr(self.args, '_next_test_loader', None)
+            
             train(classifier, 
                     optimizer, 
                     cl_train_loader, 
@@ -88,7 +94,12 @@ class CLModule(ABC):
                     gpu_monitor=gpu_monitor,
                     save_best_model=save_best_model_enabled,
                     save_dir=save_dir,
-                    model_name_prefix=model_name_prefix)
+                    model_name_prefix=model_name_prefix,
+                    validation_mode=getattr(self.args, 'validation_mode', 'balanced_acc'),
+                    early_stop_epoch=getattr(self.args, 'early_stop_epoch', 5),
+                    test_per_epoch=test_per_epoch,
+                    next_test_loader=next_test_loader,
+                    test_type="NEXT")
 
     @abstractmethod
     def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None):
@@ -205,7 +216,6 @@ class CLAccumulativeScratchLWF(CLModule):
         cl_train_dset.add_samples(self.buffer)
         # Train
         self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True)
-
         # Process buffer
         for msk, sample in zip(train_mask, train_dset.samples):
             if msk:

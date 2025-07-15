@@ -7,17 +7,19 @@
 #SBATCH --nodes=1                 # Request 4 nodes
 #SBATCH --ntasks-per-node=1       # One task per node
 #SBATCH --gpus-per-node=1         # One GPU per node
-#SBATCH --cpus-per-task=12
+#SBATCH --cpus-per-task=24
 
-USER_NAME="hou"
-CONDA_ENV="icicle"
+
+USER_NAME="mino"
+
+CONDA_ENV="ICICLE"
 
 # Load your env
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate ${CONDA_ENV}
 
 DATA_ROOT="/fs/scratch/PAS2099/camera-trap-benchmark"
-CONFIG_ROOT="/fs/scratch/PAS2099/${USER_NAME}/icicle/configs/generated_common"
+CONFIG_ROOT="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/configs/generated_common"
 # CSV_PATH="/fs/ess/PAS2099/${USER_NAME}/Documents/icicle/ICICLE-Benchmark/balanced_accuracy_common.csv"
 
 mkdir -p $CONFIG_ROOT
@@ -61,7 +63,7 @@ for DATASET in "${BIG_FOLDERS[@]}"; do
 
     cat <<EOF > $CONFIG_FILE
 module_name: upper_bound
-log_path: /fs/scratch/PAS2099/${USER_NAME}/icicle/log_auto/pipeline/${DATASET//\//_}/upper_bound/lr_${LEARNING_RATE}/${PARENT_TIMESTAMP}/
+log_path: /fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/upper_bound/lr_${LEARNING_RATE}/${PARENT_TIMESTAMP}/
 
 common_config:
   model: bioclip2
@@ -77,13 +79,13 @@ common_config:
   chop_head: false
   scheduler: CosineAnnealingLR
   scheduler_params:
-    T_max: 30
+    T_max: 60
     eta_min: $(echo "${LEARNING_RATE} / 10" | bc -l)
 
 pretrain_config:
   pretrain: true
   pretrain_data_config_path: ${ALL_JSON}
-  epochs: 30
+  epochs: 60
   loss_type: ce
 
 ood_config:
@@ -97,7 +99,7 @@ cl_config:
 EOF
 
     echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
-    python run_pipeline.py --c $CONFIG_FILE --full --wandb --eval_per_epoch --save_best_model
+    python run_pipeline.py --c $CONFIG_FILE --full --wandb --eval_per_epoch --test_per_epoch --save_best_model
 
 #     # === Robust log path discovery ===
 #     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/icicle/log_auto/pipeline/${DATASET//\//_}/zs_common/${PARENT_TIMESTAMP}/"

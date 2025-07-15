@@ -3,6 +3,9 @@ import logging
 import os
 import copy
 import time
+import json
+import re
+import random
 
 from datetime import datetime
 import numpy as np
@@ -17,6 +20,12 @@ from core import *
 from core.module import get_al_module, get_cl_module, get_ood_module
 from utils.misc import method_name
 from utils.gpu_monitor import get_gpu_monitor, log_gpu_memory, monitor_model_memory
+from utils.log_formatter import (
+    setup_colored_logging, log_section_start, log_subsection_start, log_step,
+    log_success, log_warning, log_error, log_info, log_config_item,
+    log_checkpoint, log_final_result, log_metric, create_info_box, Colors,
+    configure_colors_for_wandb
+)
 
 # Global worker init function for deterministic DataLoader behavior
 def worker_init_fn(worker_id):
@@ -38,6 +47,10 @@ def setup_logging(log_path, debug, params):
     """
     # Setup logging
     logger = logging.getLogger()
+    
+    # Clear existing handlers to prevent duplicates
+    logger.handlers.clear()
+    
     # Use deterministic timestamp based on configuration for reproducibility
     deterministic_time = f"2025-07-12-20-{abs(hash(str(vars(params)))) % 10000:04d}-00"
     petl_method_name = method_name(params)
@@ -53,10 +66,9 @@ def setup_logging(log_path, debug, params):
         log_path = os.path.join(log_path, 'log')
     else:
         logger.setLevel(logging.DEBUG)
-
         curr_time = f"debug-{deterministic_time}"
         log_path = os.path.join(log_path, curr_time)
-
+        
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
     # Log to stdout
@@ -74,11 +86,16 @@ def setup_logging(log_path, debug, params):
         fh.setLevel(logging.INFO)
         fh.setFormatter(formatter)
         logger.addHandler(fh)
+    
+    # Setup colored logging for console output
+    setup_colored_logging()
+    
     return log_path
 
 
-def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None, interpolation_model=False, interpolation_head=False, interpolation_alpha=0.5, eval_per_epoch=False, save_dir=None, args=None):
+def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None, interpolation_model=False, interpolation_head=False, interpolation_alpha=0.5, eval_per_epoch=False, save_dir=None, args=None, test_per_epoch=False, eval_dset=None):
 
+def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None, interpolation_model=False, interpolation_head=False, interpolation_alpha=0.5, eval_per_epoch=False, save_dir=None, args=None):
     """Pretrain the classifier on the pretraining dataset.
         
         Args:
@@ -186,7 +203,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
         train_samples = [full_dataset.samples[i] for i in train_indices]
         dataset.samples = train_samples
         
-        # Log class distribution in validation set
+        # Log class distribution in validation set with beautiful styling
         val_class_counts = defaultdict(int)
         train_class_counts = defaultdict(int)
         for sample in val_samples:
@@ -194,30 +211,63 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
         for sample in train_samples:
             train_class_counts[sample.label] += 1
         
-        logging.info(f'Pretraining validation split (2 samples per class):')
-        logging.info(f'{"Class":<20} {"Train":<8} {"Val":<8} {"Val%":<8}')
-        logging.info(f'{"-"*44}')
+        # Create validation split summary with our theme
+        log_subsection_start("📊 Validation Split Distribution", Colors.BRIGHT_CYAN)
+        
+        # Build detailed class distribution table
+        class_distribution = ""
         for class_idx in sorted(set(list(val_class_counts.keys()) + list(train_class_counts.keys()))):
             class_name = class_names[class_idx] if class_idx < len(class_names) else f"class_{class_idx}"
             train_count = train_class_counts[class_idx]
             val_count = val_class_counts[class_idx]
             total_count = train_count + val_count
             val_percentage = (val_count / total_count * 100) if total_count > 0 else 0
-            logging.info(f'{class_name:<20} {train_count:<8} {val_count:<8} {val_percentage:<8.1f}%')
+            class_distribution += f"{class_name:<20} {train_count:<8} {val_count:<8} {val_percentage:<8.1f}%\n"
         
         total_train = sum(train_class_counts.values())
         total_val = sum(val_class_counts.values())
         total_all = total_train + total_val
         overall_val_percentage = (total_val / total_all * 100) if total_all > 0 else 0
         
-        logging.info(f'{"-"*44}')
-        logging.info(f'{"TOTAL":<20} {total_train:<8} {total_val:<8} {overall_val_percentage:<8.1f}%')
-        logging.info(f'Validation classes: {len(val_class_counts)} out of {len(class_names)} possible classes')
+        # Create summary for info box
+        validation_summary = f"Strategy: 2 samples per class for validation\n"
+        validation_summary += f"Training samples: {total_train}\n"
+        validation_summary += f"Validation samples: {total_val}\n"
+        validation_summary += f"Validation percentage: {overall_val_percentage:.1f}%\n"
+        validation_summary += f"Classes covered: {len(val_class_counts)}/{len(class_names)}"
+        
+        logging.info(create_info_box("Pretraining Validation Split", validation_summary))
+        
+        # Log detailed class distribution with colors
+        log_info("📋 Per-class distribution:", Colors.CYAN)
+        log_info(f"{'Class':<20} {'Train':<8} {'Val':<8} {'Val%':<8}", Colors.BRIGHT_BLUE)
+        log_info("─" * 50, Colors.BRIGHT_BLUE)
+        
+        for class_idx in sorted(set(list(val_class_counts.keys()) + list(train_class_counts.keys()))):
+            class_name = class_names[class_idx] if class_idx < len(class_names) else f"class_{class_idx}"
+            train_count = train_class_counts[class_idx]
+            val_count = val_class_counts[class_idx]
+            total_count = train_count + val_count
+            val_percentage = (val_count / total_count * 100) if total_count > 0 else 0
+            
+            # Use different colors for different validation percentages
+            if val_percentage > 10:
+                color = Colors.YELLOW  # High percentage (small class)
+            elif val_percentage < 1:
+                color = Colors.GREEN   # Low percentage (large class)
+            else:
+                color = Colors.WHITE   # Normal percentage
+                
+            log_info(f'{class_name:<20} {train_count:<8} {val_count:<8} {val_percentage:<8.1f}%', color)
+        
+        log_info("─" * 50, Colors.BRIGHT_BLUE)
+        log_info(f'{"TOTAL":<20} {total_train:<8} {total_val:<8} {overall_val_percentage:<8.1f}%', Colors.BRIGHT_GREEN)
         
         eval_batch_size = common_config.get('eval_batch_size', train_batch_size)
         eval_loader = DataLoader(eval_dataset, batch_size=eval_batch_size, shuffle=False, num_workers=4, worker_init_fn=worker_init_fn)
-        logging.info(f'Pretrain eval dataset size: {len(eval_dataset)} (2 samples per class from full training data). ')
-        logging.info(f'Updated pretrain training dataset size: {len(dataset)} (excluding validation samples). ')
+        
+        log_success(f"Validation dataset prepared: {len(eval_dataset)} samples")
+        log_success(f"Training dataset updated: {len(dataset)} samples")
     
     # Get loss function
     f_loss = get_f_loss(
@@ -234,9 +284,42 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
     # Get dataloader
 
     loader = DataLoader(dataset, batch_size=train_batch_size, shuffle=True, num_workers=4, worker_init_fn=worker_init_fn)
-
     # Get model saving setting from args, with fallback
     save_best_model = getattr(args, 'save_best_model', True) if args else True
+    
+    # Prepare test loaders for upper bound test_per_epoch (test on each checkpoint separately)
+    next_test_loader = None
+    if test_per_epoch and eval_dset is not None:
+        # For upper bound: prepare individual test loaders for each checkpoint
+        # Get checkpoint list directly from the evaluation dataset
+        ckp_list = eval_dset.get_ckp_list()
+        log_info(f"Available test checkpoints in dataset: {ckp_list}", Colors.CYAN)
+        
+        # Create individual test loaders for each checkpoint
+        test_loaders = {}
+        available_ckps = []
+        for ckp in ckp_list:
+            try:
+                ckp_test_dset = eval_dset.get_subset(is_train=False, ckp_list=[ckp])
+                if len(ckp_test_dset) > 0:
+                    eval_batch_size = common_config.get('eval_batch_size', train_batch_size)
+                    test_loader = DataLoader(ckp_test_dset, batch_size=eval_batch_size, shuffle=False, num_workers=4, worker_init_fn=worker_init_fn)
+                    test_loaders[ckp] = test_loader
+                    available_ckps.append(ckp)
+                    log_info(f"✅ Checkpoint {ckp}: {len(ckp_test_dset)} test samples", Colors.GREEN)
+                else:
+                    log_info(f"⚠️  Checkpoint {ckp}: no test samples found", Colors.YELLOW)
+            except Exception as e:
+                logging.warning(f"Could not load test data for checkpoint {ckp}: {e}")
+        
+        if test_loaders:
+            # Store the dictionary of test loaders instead of a single loader
+            next_test_loader = test_loaders
+            total_samples = sum(len(loader.dataset) for loader in test_loaders.values())
+            log_info(f"Upper bound test per epoch: individual test loaders for checkpoints {available_ckps} ({total_samples} total samples)", Colors.RED)
+            log_info(f"TEST* computes average performance across {len(available_ckps)} individual test checkpoints", Colors.RED)
+        else:
+            log_info("Upper bound test per epoch: no test data available", Colors.YELLOW)
     
     # Train
     train(classifier, optimizer, loader, epochs, device, f_loss, 
@@ -246,7 +329,12 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
           eval_loader=eval_loader,
           save_best_model=save_best_model,
           save_dir=save_dir,
-          model_name_prefix="pretrain")
+          model_name_prefix="pretrain",
+          validation_mode=getattr(args, 'validation_mode', 'balanced_acc'),
+          early_stop_epoch=getattr(args, 'early_stop_epoch', 10),
+          test_per_epoch=test_per_epoch,
+          next_test_loader=next_test_loader,
+          test_type="UB_AVG" if test_per_epoch else "NEXT")
 
     if interpolation_model or interpolation_head:
         if gpu_monitor:
@@ -276,17 +364,20 @@ def run(args):
             None
     
     """
+    log_section_start("🚀 ICICLE BENCHMARK PIPELINE INITIALIZATION", Colors.BRIGHT_CYAN)
+    
     # Initialize GPU memory monitoring if enabled
     gpu_monitor = None
     if args.gpu_memory_monitor:
+        log_step(1, "Setting up GPU memory monitoring")
         enable_colors = not args.no_gpu_monitor_colors  # Colors enabled by default, disabled with --no_gpu_monitor_colors
         gpu_monitor = get_gpu_monitor(args.device, args.wandb, enable_colors)
-        logging.info("GPU memory monitoring enabled.")
+        log_success("GPU memory monitoring enabled")
         gpu_monitor.log_memory_usage("startup", "initial")
     
     # Initialize wandb if enabled
     if args.wandb:
-        import re
+        log_step(2, "Initializing Weights & Biases logging")
         
         # Extract components from the original save_dir
         match = re.search(r"pipeline/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)", args.save_dir)
@@ -304,14 +395,36 @@ def run(args):
 
         module_name = getattr(args, 'module_name', 'default_module')  # Fallback if module_name is not in args
         wandb.init(
-            project="ICICLE-Benchmark_v2",  # Replace with your project name
+            project="Camera Trap UB July 15",  # Replace with your project name
             name=wandb_run_name,  # Set run name using args.c and module_name
             config=vars(args)  # Log all arguments to wandb
         )
-        logging.info("wandb logging is enabled.")
+        log_success("Weights & Biases logging initialized")
+        
+        # Configure colors for wandb compatibility (darker colors for light background)
+        configure_colors_for_wandb(wandb_enabled=True)
+        log_info("Color scheme adjusted for wandb compatibility (darker colors)", Colors.CYAN)
+    else:
+        # Configure colors for terminal use (bright colors for dark background)
+        configure_colors_for_wandb(wandb_enabled=False)
 
-    # Print args
-    logging.info(pprint.pformat(vars(args)))
+    log_subsection_start("📋 CONFIGURATION OVERVIEW")
+    # Print args in a structured way
+    config_summary = f"Device: {args.device}\n"
+    config_summary += f"Seed: {args.seed}\n"
+    config_summary += f"Validation Mode: {getattr(args, 'validation_mode', 'balanced_acc')}\n"
+    config_summary += f"Early Stop Epochs: {getattr(args, 'early_stop_epoch', 5)}\n"
+    logging.info(create_info_box("Pipeline Configuration", config_summary))
+    
+    # Display save directory separately for easy copying
+    logging.info(f"{Colors.BRIGHT_BLUE}📁 Save Directory:{Colors.RESET} {args.save_dir}")
+    
+    # Log detailed configuration if debug
+    if hasattr(args, 'debug') and args.debug:
+        logging.info(f"\n{Colors.YELLOW}📋 Full Configuration:{Colors.RESET}")
+        logging.info(pprint.pformat(vars(args)))
+    
+    log_step(3, "Loading data configuration")
     common_config = args.common_config
     pretrain_config = args.pretrain_config
     ood_config = args.ood_config
@@ -334,8 +447,12 @@ def run(args):
     del data, data_test  # Clear data to free memory
     is_crop = True if cl_config['method'] == 'co2l' else False
     
+    log_success(f"Loaded {len(class_names)} classes using '{label_type}' labels")
+    
+    log_step(4, "Building classifier model")
     # Load model
     classifier = build_classifier(args, class_names, args.device)
+    log_success(f"Classifier built successfully")
     
     # Monitor model memory usage if enabled
     if args.gpu_memory_monitor:
@@ -343,29 +460,7 @@ def run(args):
         monitor_model_memory(classifier, "classifier", args.device, args.wandb)
         gpu_monitor.clear_cache_and_log("model_load")
     
-    # Pretrain
-    if pretrain_config['pretrain']:
-        logging.info('Pretraining classifier... ')
-        if args.gpu_memory_monitor:
-            gpu_monitor.log_memory_usage("pretrain", "before")
-        classifier = pretrain(classifier, 
-                              class_names, 
-                              pretrain_config, 
-                              common_config, 
-                              args.device,
-                              gpu_monitor,
-                              interpolation_model=args.interpolation_model,
-                              interpolation_head=args.interpolation_head,
-                              interpolation_alpha=args.interpolation_alpha,
-                              eval_per_epoch=args.eval_per_epoch,
-                              save_dir=args.save_dir,
-                              args=args)
-
-        if args.gpu_memory_monitor:
-            gpu_monitor.log_memory_usage("pretrain", "after")
-            gpu_monitor.clear_cache_and_log("pretrain")
-    else:
-        logging.info('Skipping pretraining... ')
+    log_section_start("📊 DATASET PREPARATION", Colors.BRIGHT_YELLOW)
     
     # Prepare dataset
     train_dset = CkpDataset(common_config["train_data_config_path"], class_names, is_crop=is_crop, label_type=label_type)
@@ -380,21 +475,62 @@ def run(args):
     
     # Print ckp dict
     ckp_list = train_dset.get_ckp_list()
-    logging.info(f'Checkpoint list, length: {len(ckp_list)}: ')
-    for ckp in ckp_list:
-        logging.info(f'\t{ckp} ')
     
+    dataset_summary = f"Training dataset size: {len(train_dset)}\n"
+    dataset_summary += f"Evaluation dataset size: {len(eval_dset)}\n"
+    dataset_summary += f"Number of checkpoints: {len(ckp_list)}\n"
+    dataset_summary += f"Checkpoints: {', '.join(ckp_list)}"
+    logging.info(create_info_box("Dataset Information", dataset_summary))
+    
+    log_section_start("🎯 PRETRAINING PHASE", Colors.BRIGHT_GREEN)
+    
+    # Pretrain
+    if pretrain_config['pretrain']:
+        log_info(f"Pretraining enabled with {pretrain_config['epochs']} epochs")
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("pretrain", "before")
+        classifier = pretrain(classifier, 
+                              class_names, 
+                              pretrain_config, 
+                              common_config, 
+                              args.device,
+                              gpu_monitor,
+                              interpolation_model=args.interpolation_model,
+                              interpolation_head=args.interpolation_head,
+                              interpolation_alpha=args.interpolation_alpha,
+                              eval_per_epoch=args.eval_per_epoch,
+                              save_dir=args.save_dir,
+                              args=args,
+                              test_per_epoch=args.test_per_epoch,
+                              eval_dset=eval_dset)
+
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("pretrain", "after")
+            gpu_monitor.clear_cache_and_log("pretrain")
+        log_success("Pretraining completed successfully")
+    else:
+        log_warning("Pretraining skipped (disabled in configuration)")
+    
+    log_step(5, "Initializing pipeline modules")
     # Initialize modules
     ood_module = get_ood_module(ood_config, common_config, class_names, args, args.device)
     al_module = get_al_module(al_config, common_config, class_names, args, args.device)
     cl_module = get_cl_module(classifier, cl_config, common_config, class_names, args, args.device)
+    
+    module_summary = f"OOD Method: {ood_config.get('method', 'none')}\n"
+    module_summary += f"Active Learning Method: {al_config.get('method', 'none')}\n"
+    module_summary += f"Continual Learning Method: {cl_config.get('method', 'none')}"
+    logging.info(create_info_box("Module Configuration", module_summary))
+    
+    log_section_start("🔄 CONTINUAL LEARNING LOOP", Colors.BRIGHT_MAGENTA)
     
     # Main loop
     for i in range(len(ckp_list)):
         # Get checkpoint
         ckp_prev = ckp_list[i - 1] if i > 0 else None
         ckp = ckp_list[i]
-        logging.info(f'Training on checkpoint {ckp}. ')
+        
+        log_subsection_start(f"📝 Processing Checkpoint {ckp} ({i+1}/{len(ckp_list)})", Colors.CYAN)
         
         # Monitor memory at checkpoint start
         if args.gpu_memory_monitor:
@@ -403,8 +539,16 @@ def run(args):
         # Get training and evaluation dataset
         ckp_train_dset = train_dset.get_subset(is_train=True, ckp_list=ckp_prev)
         ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp)
-        logging.info(f'Training dataset size: {len(ckp_train_dset)}. ')
-        logging.info(f'Evaluation dataset size: {len(ckp_eval_dset)}. ')
+        
+        checkpoint_summary = f"Training samples: {len(ckp_train_dset)}\n"
+        checkpoint_summary += f"Evaluation samples: {len(ckp_eval_dset)}\n"
+        if ckp_prev:
+            checkpoint_summary += f"Training on: {ckp_prev}\n"
+            checkpoint_summary += f"Final evaluation on: {ckp}\n"
+        else:
+            checkpoint_summary += f"Training on: {ckp}\n"
+            checkpoint_summary += f"Evaluating on: {ckp}"
+        logging.info(create_info_box(f"Checkpoint {ckp} Data", checkpoint_summary))
         
         # Monitor memory after data subset
         if args.gpu_memory_monitor:
@@ -419,14 +563,16 @@ def run(args):
         train_dset_mask = np.ones(len(ckp_train_dset), dtype=bool)
         
         # Run OOD detection
+        log_step(1, f"Out-of-Distribution Detection ({ood_config.get('method', 'none')})", Colors.YELLOW)
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("ood", f"before_{ckp}")
         classifier, ood_mask = ood_module.process(classifier, ckp_train_dset, ckp_eval_dset, train_dset_mask)
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("ood", f"after_{ckp}")
-        logging.info(f'OOD mask: {ood_mask.sum()} / {len(ood_mask)}. ')
+        log_info(f"OOD samples identified: {ood_mask.sum()} / {len(ood_mask)}", Colors.YELLOW)
         
         # Run active learning
+        log_step(2, f"Active Learning ({al_config.get('method', 'none')})", Colors.BLUE)
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("active_learning", f"before_{ckp}")
         classifier, al_mask = al_module.process(
@@ -438,26 +584,58 @@ def run(args):
         )
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("active_learning", f"after_{ckp}")
-        logging.info(f'AL mask: {al_mask.sum()} / {len(al_mask)}. ')
+        log_info(f"Active learning samples selected: {al_mask.sum()} / {len(al_mask)}", Colors.BLUE)
 
         # Prepare evaluation dataloader
         cl_eval_loader = DataLoader(ckp_eval_dset, batch_size=common_config['eval_batch_size'], shuffle=False, worker_init_fn=worker_init_fn)
 
         # Prepare validation loader for continual learning
         cl_validation_loader = None
+        cl_next_test_loader = None
+        
         if args.eval_per_epoch:
             # Check if we're using accumulative training (which trains incrementally)
             cl_method = cl_config.get('method', 'none')
-            if 'accumulative' in cl_method:
-                # For accumulative training: use current checkpoint's test data as validation
-                cl_validation_loader = cl_eval_loader
-                logging.info(f'Using current checkpoint {ckp} test data as validation for accumulative training')
+            if 'accumulative' in cl_method and ckp_prev:
+                # For accumulative training: use previous checkpoint's test data as validation
+                # (we train on ckp_prev, so we validate on ckp_prev test data)
+                ckp_validation_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp_prev)
+                cl_validation_loader = DataLoader(ckp_validation_dset, batch_size=common_config['eval_batch_size'], shuffle=False, num_workers=4)
+                log_info(f"Using previous checkpoint {ckp_prev} test data as validation for accumulative training", Colors.CYAN)
             else:
-                # For other methods: keep using the regular evaluation loader
+                # For other methods or first checkpoint: use current checkpoint's test data as validation
                 cl_validation_loader = cl_eval_loader
-                logging.info(f'Using regular evaluation data as validation for {cl_method}')
+                if 'accumulative' in cl_method:
+                    log_info(f"Using current checkpoint {ckp} test data as validation (first checkpoint)", Colors.CYAN)
+                else:
+                    log_info(f"Using regular evaluation data as validation for {cl_method}", Colors.CYAN)
+        
+        # Prepare test loader for test_per_epoch evaluation (next checkpoint only)
+        if args.test_per_epoch and args.eval_per_epoch:
+            cl_method = cl_config.get('method', 'none')
+            if 'accumulative' in cl_method:
+                # For accumulative: use current checkpoint test data as next test data
+                cl_next_test_loader = cl_eval_loader  # This is current ckp test data
+                log_info(f"Test per epoch: next test data from {ckp} (forward evaluation)", Colors.RED)
+            else:
+                # For non-accumulative: check if there's a next checkpoint
+                if i + 1 < len(ckp_list):
+                    next_ckp = ckp_list[i + 1]
+                    next_ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=next_ckp)
+                    cl_next_test_loader = DataLoader(next_ckp_eval_dset, batch_size=common_config['eval_batch_size'], shuffle=False, worker_init_fn=worker_init_fn)
+                    log_info(f"Test per epoch: next test data from {next_ckp}", Colors.RED)
+                else:
+                    cl_next_test_loader = None
+                    log_info("Test per epoch: no next checkpoint available", Colors.YELLOW)
+            
+            # Set test loader in args for the continual learning module to access
+            args._next_test_loader = cl_next_test_loader
+        else:
+            # Clear test loader if not using test_per_epoch
+            args._next_test_loader = None
 
         # Run continual learning
+        log_step(3, f"Continual Learning ({cl_config.get('method', 'none')})", Colors.GREEN)
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("continual_learning", f"before_{ckp}")
         classifier = cl_module.process(
@@ -478,18 +656,22 @@ def run(args):
                 gpu_monitor.log_memory_usage("interpolation", f"before_{ckp}")
             # Interpolate model if enabled
             if args.interpolation_model:
-                logging.info(f'Interpolating model at checkpoint {ckp} with alpha {args.interpolation_alpha}. ')
+                log_info(f"Interpolating model at checkpoint {ckp} with alpha {args.interpolation_alpha}", Colors.MAGENTA)
                 classifier.interpolate_model(cl_module._classifier, alpha=args.interpolation_alpha)
             if args.interpolation_head:
-                logging.info(f'Interpolating head at checkpoint {ckp} with alpha {args.interpolation_alpha}. ')
+                log_info(f"Interpolating head at checkpoint {ckp} with alpha {args.interpolation_alpha}", Colors.MAGENTA)
                 classifier.interpolate_head(cl_module._classifier, alpha=args.interpolation_alpha)
 
+        log_checkpoint(f"Training completed for checkpoint {ckp}")
+        
         # Save model and predictions
         acc, balanced_acc = 0.0, 0.0  # Initialize metrics
         eval_loss = 0.0  # Initialize eval_loss
         
+        log_step(4, "Model Evaluation", Colors.BRIGHT_GREEN)
+        
         if args.accu_eval:
-            logging.info(f'Accu-eval start on {ckp_list[i]}')
+            log_info(f"Running accumulative evaluation starting from checkpoint {ckp_list[i]}")
             start = i
             if i != 0:
                 start = i - 1
@@ -502,7 +684,7 @@ def run(args):
                 loss_arr, preds_arr, labels_arr = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'])
                 if args.gpu_memory_monitor:
                     gpu_monitor.log_memory_usage("evaluation", f"after_{eval_ckp}")
-                a, b = print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"Accu-eval start on {ckp_list[i]} at {eval_ckp}: ")
+                a, b = print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"📊 Accu-eval {ckp_list[i]} → {eval_ckp}: ")
                 
                 # Log all accu-eval results to wandb, not just the first one
                 if wandb.run is not None:
@@ -521,23 +703,29 @@ def run(args):
                     eval_loss = eval_loss_curr
         else:
             if ckp_prev is not None:
-                logging.info(f'Evaluating on current checkpoint {ckp_prev}. ')
+                log_info(f"Evaluating on current training checkpoint {ckp_prev}")
                 current_ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp_prev)
                 current_cl_eval_loader = DataLoader(current_ckp_eval_dset, batch_size=common_config['eval_batch_size'], shuffle=False)
                 loss_arr, preds_arr, labels_arr = eval(classifier, current_cl_eval_loader, args.device, chop_head=common_config['chop_head'])
-                print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"Eval on current training checkpoint {ckp_prev}: ")
-            logging.info(f'Evaluating on next checkpoint {ckp}. ')
+                print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"📊 Current ckp {ckp_prev}: ")
+            
+            log_info(f"Evaluating on target checkpoint {ckp}")
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
             loss_arr, preds_arr, labels_arr = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'])
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("evaluation", f"after_{ckp}")
-            acc, balanced_acc = print_metrics(loss_arr, preds_arr, labels_arr, len(class_names))
+            acc, balanced_acc = print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"📊 Target ckp {ckp}: ")
             eval_loss = np.mean(loss_arr)
+
+        # Log metrics with colors
+        log_metric("Accuracy", acc, ".4f", Colors.BRIGHT_GREEN)
+        log_metric("Balanced Accuracy", balanced_acc, ".4f", Colors.BRIGHT_GREEN)
+        log_metric("Evaluation Loss", eval_loss, ".4f", Colors.BRIGHT_BLUE)
 
         # Log training and evaluation loss to wandb
         if args.wandb:
-            logging.info(f"Logging main metrics to wandb: ckp={ckp}, acc={acc:.4f}, balanced_acc={balanced_acc:.4f}, eval_loss={eval_loss:.4f}")
+            logging.info(f"📈 Logging metrics to W&B: ckp={ckp}, acc={acc:.4f}, balanced_acc={balanced_acc:.4f}, eval_loss={eval_loss:.4f}")
             wandb.log({
                 "test/accuracy": acc,  # Overall accuracy
                 "test/balanced_accuracy": balanced_acc,  # Balanced accuracy
@@ -545,32 +733,339 @@ def run(args):
                 "checkpoint": ckp
             }, step=i)
 
+        log_step(5, "Saving Results", Colors.MAGENTA)
         if args.is_save:
-            logging.info(f'Saving model to {args.save_dir}. ')
             save_path = os.path.join(args.save_dir, f'{ckp}.pth')
             torch.save(classifier.state_dict(), save_path)
-        logging.info(f"Saving predictions to {args.save_dir}. ")
+            log_success(f"Model saved to {save_path}")
+        
         pred_path = os.path.join(args.save_dir, f'{ckp}_preds.pkl')
         with open(pred_path, 'wb') as f:
             pickle.dump((preds_arr, labels_arr), f)
+        log_success(f"Predictions saved to {pred_path}")
+        
         mask_path = os.path.join(args.save_dir, f'{ckp}_mask.pkl')
         with open(mask_path, 'wb') as f:
             pickle.dump((ood_mask, al_mask), f)
+        log_success(f"Masks saved to {mask_path}")
         
         # Clear GPU cache between checkpoints
         if args.gpu_memory_monitor:
             gpu_monitor.clear_cache_and_log(f"checkpoint_end_{ckp}")
+        
+        log_subsection_start(f"✅ Checkpoint {ckp} Complete", Colors.BRIGHT_GREEN)
 
+    # Final completion logs
+    print(Colors.BOLD + "=" * 80 + Colors.RESET)
+    log_final_result("🎉 PIPELINE EXECUTION COMPLETED SUCCESSFULLY!")
+    print(Colors.BOLD + "=" * 80 + Colors.RESET)
+    
+    # Final summary with colors
+    log_info(f"📊 Total checkpoints processed: {len(ckp_list)}")
+    log_info(f"💾 Results saved to: {args.save_dir}")
+
+    # Final GPU memory summary
+    if args.gpu_memory_monitor:
+        summary = gpu_monitor.get_memory_summary()
+        log_info(f"🔧 GPU Memory Summary: {summary}")
+        if args.wandb:
+            wandb.log({"gpu_memory/summary": summary})
+
+    # Finalize wandb if enabled
+    if args.wandb:
+        log_info(f"📈 Metrics logged to W&B project: {wandb.run.project if wandb.run else 'Unknown'}")
+        wandb.finish()
+        log_success("✅ W&B run finished")
+    
+    print(Colors.BOLD + "=" * 80 + Colors.RESET)
+    print()
+
+def run_eval_only(args):
+    """Run evaluation only on trained model checkpoints.
+    
+    Args:
+        args (argparse.Namespace): Parsed command-line arguments.
+    """
+    logging.info("Starting evaluation-only mode")
+    
+    # Initialize GPU memory monitoring if enabled
+    gpu_monitor = None
+    if args.gpu_memory_monitor:
+        enable_colors = not args.no_gpu_monitor_colors
+        gpu_monitor = get_gpu_monitor(args.device, args.wandb, enable_colors)
+        logging.info("GPU memory monitoring enabled.")
+        gpu_monitor.log_memory_usage("startup", "initial")
+    
+    # Initialize wandb if enabled
+    if args.wandb:
+        import re
+        match = re.search(r"pipeline/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)", args.save_dir)
+        wandb_run_name = "Eval Only Run"
+        if match:
+            dataset = match.group(1)
+            training_mode = match.group(2)
+            pretrained_type = match.group(3)
+            pretrained_weights = match.group(4)
+            method = match.group(5)
+            timestamp = match.group(6)
+            wandb_run_name = f"EVAL | {dataset} | {training_mode} | {pretrained_type} | {pretrained_weights} | {method} | {timestamp}"
+        
+        wandb.init(
+            project="Camera Trap Benchmark - EVAL ONLY",
+            name=wandb_run_name,
+            config=vars(args)
+        )
+        logging.info("wandb logging is enabled for evaluation.")
+        
+        # Configure colors for wandb compatibility (darker colors for light background)
+        configure_colors_for_wandb(wandb_enabled=True)
+    else:
+        # Configure colors for terminal use (bright colors for dark background)
+        configure_colors_for_wandb(wandb_enabled=False)
+    
+    # Validate required arguments for eval_only mode
+    if not args.model_dir:
+        raise ValueError("--model_dir is required for eval_only mode")
+    
+    if not os.path.exists(args.model_dir):
+        raise FileNotFoundError(f"Model directory not found: {args.model_dir}")
+    
+    # Load configuration
+    common_config = args.common_config
+    train_path = common_config['train_data_config_path']
+    test_path = common_config['eval_data_config_path']
+    
+    with open(train_path, 'r') as fin:
+        data = json.load(fin)
+    with open(test_path, 'r') as fin:
+        data_test = json.load(fin)
+        data.update(data_test)
+    
+    class_names = []
+    label_type = args.label_type
+    for key, value in data.items():
+        for v in value:
+            if v[label_type] not in class_names:
+                class_names.append(v[label_type])
+    del data, data_test
+    
+    logging.info(f'Found {len(class_names)} classes')
+    
+    # Build classifier architecture (same as training)
+    classifier = build_classifier(args, class_names, args.device)
+    
+    if args.gpu_memory_monitor:
+        gpu_monitor.log_memory_usage("model_load", "after_build")
+        monitor_model_memory(classifier, "classifier", args.device, args.wandb)
+    
+    # Prepare dataset
+    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type)
+    
+    # Get checkpoint list
+    ckp_list = eval_dset.get_ckp_list()
+    logging.info(f'Available checkpoints in dataset: {ckp_list}')
+    
+    # Determine which checkpoints to evaluate and detect training mode
+    if args.checkpoint_list:
+        # Use specific checkpoints provided by user
+        target_checkpoints = []
+        for ckp_str in args.checkpoint_list:
+            ckp_name = f"ckp_{ckp_str}"
+            if ckp_name in ckp_list:
+                target_checkpoints.append(ckp_name)
+            else:
+                logging.warning(f'Checkpoint {ckp_name} not found in dataset. Available: {ckp_list}')
+        
+        if not target_checkpoints:
+            raise ValueError("No valid checkpoints found from the provided list")
+        
+        ckp_list = target_checkpoints
+        logging.info(f'Evaluating specified checkpoints: {ckp_list}')
+    else:
+        ckp_list = eval_dset.get_ckp_list()
+        logging.info(f'Will evaluate all available checkpoints: {ckp_list}')
+    
+    # Detect training mode by checking what model files exist
+    model_file_mapping = {}
+    training_mode = None
+    
+    # Check for upper bound (full training) - single pretrain_best_model.pth
+    upperbound_model_path = os.path.join(args.model_dir, 'pretrain_best_model.pth')
+    
+    if os.path.exists(upperbound_model_path):
+        # Upper bound training - one model for all checkpoints
+        training_mode = "upper_bound"
+        for ckp in ckp_list:
+            model_file_mapping[ckp] = upperbound_model_path
+        logging.info(f'Detected UPPER BOUND training mode')
+        logging.info(f'Using single model file: {upperbound_model_path}')
+        logging.info(f'Will evaluate this model on all {len(ckp_list)} checkpoints: {ckp_list}')
+    else:
+        # Check for accumulative training files (ckp_X.pth)
+        for ckp in ckp_list:
+            acc_model_path = os.path.join(args.model_dir, f'{ckp}.pth')
+            if os.path.exists(acc_model_path):
+                model_file_mapping[ckp] = acc_model_path
+                if training_mode is None:
+                    training_mode = "accumulative"
+            else:
+                logging.warning(f'No model file found for {ckp}: {acc_model_path}')
+        
+        if training_mode == "accumulative":
+            logging.info(f'Detected ACCUMULATIVE training mode')
+            logging.info(f'Found model files for {len(model_file_mapping)} checkpoints')
+    
+    if not model_file_mapping:
+        raise ValueError(f"No model files found in {args.model_dir}. Expected either:\n"
+                        f"  - Upper bound training: pretrain_best_model.pth directly in {args.model_dir}\n"
+                        f"  - Accumulative training: ckp_X.pth files directly in {args.model_dir}")
+    
+    # Filter to only checkpoints that have model files
+    ckp_list = list(model_file_mapping.keys())
+    
+    logging.info(f'Training mode: {training_mode}')
+    logging.info(f'Will evaluate {len(ckp_list)} checkpoints: {ckp_list}')
+    
+    # Create output directory if not exists
+    if not os.path.exists(args.save_dir):
+        os.makedirs(args.save_dir, exist_ok=True)
+    
+    # Run evaluation for each checkpoint
+    eval_results = {}
+    
+    for i, ckp in enumerate(ckp_list):
+        logging.info(f'Evaluating checkpoint {ckp} ({i+1}/{len(ckp_list)})')
+        
+        # Load model weights for this checkpoint
+        model_path = model_file_mapping[ckp]
+        
+        try:
+            logging.info(f'Loading model from {model_path}')
+            state_dict = torch.load(model_path, map_location=args.device)
+            classifier.load_state_dict(state_dict)
+            classifier.to(args.device)
+            classifier.eval()
+            
+            if args.gpu_memory_monitor:
+                gpu_monitor.log_memory_usage("model_load", f"after_load_{ckp}")
+                
+        except Exception as e:
+            logging.error(f'Failed to load model for {ckp}: {e}')
+            continue
+        
+        # Get evaluation dataset for this checkpoint
+        ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp)
+        logging.info(f'Evaluation dataset size for {ckp}: {len(ckp_eval_dset)}')
+        
+        if len(ckp_eval_dset) == 0:
+            logging.warning(f'No evaluation data found for checkpoint {ckp}')
+            continue
+        
+        # Create data loader
+        eval_loader = DataLoader(
+            ckp_eval_dset, 
+            batch_size=common_config['eval_batch_size'], 
+            shuffle=False, 
+            num_workers=4
+        )
+        
+        # Run evaluation
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
+            
+        loss_arr, preds_arr, labels_arr = eval(
+            classifier, 
+            eval_loader, 
+            args.device, 
+            chop_head=common_config['chop_head']
+        )
+        
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("evaluation", f"after_{ckp}")
+        
+        # Calculate and log metrics
+        acc, balanced_acc = print_metrics(
+            loss_arr, 
+            preds_arr, 
+            labels_arr, 
+            len(class_names),
+            log_predix=f"Eval-only {ckp}: "
+        )
+        eval_loss = np.mean(loss_arr)
+        
+        # Store results (convert numpy types to Python types for JSON serialization)
+        eval_results[ckp] = {
+            'accuracy': float(acc),
+            'balanced_accuracy': float(balanced_acc),
+            'loss': float(eval_loss),
+            'num_samples': int(len(ckp_eval_dset))
+        }
+        
+        # Log to wandb if enabled
+        if args.wandb:
+            wandb.log({
+                "eval/accuracy": acc,
+                "eval/balanced_accuracy": balanced_acc,
+                "eval/loss": eval_loss,
+                "eval/checkpoint": ckp,
+                "eval/num_samples": len(ckp_eval_dset)
+            }, step=i)
+        
+        # Save predictions if requested
+        if args.save_predictions:
+            pred_path = os.path.join(args.save_dir, f'{ckp}_eval_preds.pkl')
+            with open(pred_path, 'wb') as f:
+                pickle.dump((preds_arr, labels_arr), f)
+            logging.info(f'Predictions saved to {pred_path}')
+        
+        # Clear GPU cache between checkpoints
+        if args.gpu_memory_monitor:
+            gpu_monitor.clear_cache_and_log(f"eval_checkpoint_{ckp}")
+    
+    # Save summary results
+    summary_path = os.path.join(args.save_dir, 'eval_only_summary.json')
+    with open(summary_path, 'w') as f:
+        json.dump(eval_results, f, indent=2)
+    
+    # Calculate average metrics
+    if eval_results:
+        avg_accuracy = sum(result['accuracy'] for result in eval_results.values()) / len(eval_results)
+        avg_balanced_accuracy = sum(result['balanced_accuracy'] for result in eval_results.values()) / len(eval_results)
+        avg_loss = sum(result['loss'] for result in eval_results.values()) / len(eval_results)
+        total_samples = sum(result['num_samples'] for result in eval_results.values())
+    else:
+        avg_accuracy = avg_balanced_accuracy = avg_loss = 0.0
+        total_samples = 0
+    
+    # Log summary
+    logging.info("=== EVALUATION SUMMARY ===")
+    for ckp, results in eval_results.items():
+        logging.info(f"{ckp}: acc={results['accuracy']:.4f}, balanced_acc={results['balanced_accuracy']:.4f}, "
+                    f"loss={results['loss']:.4f}, samples={results['num_samples']}")
+    
+    logging.info("=" * 50)
+    logging.info(f"AVERAGE ACROSS ALL CHECKPOINTS:")
+    logging.info(f"  Average Accuracy: {avg_accuracy:.4f}")
+    logging.info(f"  Average Balanced Accuracy: {avg_balanced_accuracy:.4f}")
+    logging.info(f"  Average Loss: {avg_loss:.4f}")
+    logging.info(f"  Total Checkpoints: {len(eval_results)}")
+    logging.info(f"  Total Samples: {total_samples}")
+    logging.info("=" * 50)
+    
+    logging.info(f"Summary saved to {summary_path}")
+    
     # Final GPU memory summary
     if args.gpu_memory_monitor:
         summary = gpu_monitor.get_memory_summary()
         logging.info(f"GPU Memory Summary: {summary}")
         if args.wandb:
             wandb.log({"gpu_memory/summary": summary})
-
+    
     # Finalize wandb if enabled
     if args.wandb:
         wandb.finish()
+    
+    logging.info("Evaluation-only mode completed successfully")
 
 def parse_args():
     """Parse command-line arguments for the adaptive learning pipeline.
@@ -585,9 +1080,15 @@ def parse_args():
     parser.add_argument('--debug', action='store_true', help='Debug mode')
     parser.add_argument('--seed', type=int, default=9527, help='Random seed')
     parser.add_argument('--eval_per_epoch', action='store_true', help='Evaluate per epoch')
+    parser.add_argument('--test_per_epoch', action='store_true', help='Test with current and next checkpoint test data after each epoch (requires eval_per_epoch)')
     parser.add_argument('--save_best_model', action='store_true', default=True, help='Save best model during training')
+    parser.add_argument('--validation_mode', type=str, default='balanced_acc', choices=['balanced_acc', 'loss'], help='Metric to use for best model selection: balanced_acc (higher is better) or loss (lower is better)')
+    parser.add_argument('--early_stop_epoch', type=int, default=10, help='Number of epochs without improvement to trigger early stopping after warmup period (default: 10)')
     parser.add_argument('--is_save', action='store_true', help='Save model')
-    parser.add_argument('--eval_only', action='store_true', help='Evaluate only')
+    parser.add_argument('--eval_only', action='store_true', help='Evaluate only mode - loads trained model checkpoints and evaluates them')
+    parser.add_argument('--model_dir', type=str, help='Directory containing trained model checkpoints (.pth files) for eval_only mode')
+    parser.add_argument('--checkpoint_list', type=str, nargs='+', default=None, help='Specific checkpoint numbers to evaluate (for eval_only mode). If not provided, evaluates all available checkpoints')
+    parser.add_argument('--save_predictions', action='store_true', help='Save prediction arrays for each checkpoint (for eval_only mode)')
     parser.add_argument('--gpu_id', type=int, default=0, help='GPU ID')
     parser.add_argument('--wandb', action='store_true', help='Enable wandb logging')  # New argument
     parser.add_argument('--gpu_memory_monitor', action='store_true', help='Enable GPU memory monitoring and logging')  # New argument
@@ -620,18 +1121,6 @@ def parse_args():
     ############################## Text Encoder ##############################
     parser.add_argument('--text', type=str, default='head',
                         choices=['head', 'full', 'lora'],
-                        help='text encoder type, head for head only, full for full text encoder')
-    parser.add_argument('--text_template', type=str, default='openai',
-                        choices=['bioclip', 'openai'],
-                        help='text template type')
-
-    ############################## TEST #################################
-    parser.add_argument('--accu_eval', action='store_true',
-                        help='whether to test all later checkpoints after training on each checkpoint')
-
-    ############################## Text Encoder ##############################
-    parser.add_argument('--text', type=str, default='head',
-                        choices=['head', 'petl', 'full'],
                         help='text encoder type, head for head only, full for full text encoder')
     parser.add_argument('--text_template', type=str, default='openai',
                         choices=['bioclip', 'openai'],
@@ -822,9 +1311,25 @@ if __name__ == '__main__':
 
     # Run
     start_time = time.time()
-    run(args)
+    if args.eval_only:
+        run_eval_only(args)
+    else:
+        run(args)
     end_time = time.time()
 
-    # Print elapsed time
-    logging.info(f'Elapsed time: {end_time - start_time:.2f} seconds. ')
+    # Print elapsed time with colors
+    elapsed_time = end_time - start_time
+    hours = int(elapsed_time // 3600)
+    minutes = int((elapsed_time % 3600) // 60)
+    seconds = elapsed_time % 60
+    
+    if hours > 0:
+        time_str = f"{hours}h {minutes}m {seconds:.1f}s"
+    elif minutes > 0:
+        time_str = f"{minutes}m {seconds:.1f}s"
+    else:
+        time_str = f"{seconds:.1f}s"
+    
+    print(f"\n{Colors.BRIGHT_GREEN}⏱️  Total Execution Time: {Colors.BOLD}{time_str}{Colors.RESET}")
+    print(f"{Colors.BRIGHT_CYAN}🏁 All tasks completed successfully!{Colors.RESET}\n")
 
