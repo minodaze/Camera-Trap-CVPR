@@ -26,7 +26,6 @@ ALL_DATASETS=("${TEMP_DATASETS[@]}")
 # LEARNING_RATES=(0.000001 0.0000025 0.000005 0.00001 0.000025 0.00005 0.0001 0.00025 0.0005 )
 LEARNING_RATES=(0.000025)
 # Number of datasets to process per sbatch job
-
 DATASETS_PER_JOB=4
 
 # Calculate total number of jobs needed
@@ -73,12 +72,15 @@ for lr in "${LEARNING_RATES[@]}"; do
         echo "  Datasets: ${datasets_string}"
         
         # Submit the sbatch job with the datasets and learning rate as arguments
-        sbatch sbatch_run_1.sh "${datasets_string}" "$lr"
+        sbatch sbatch_run_accu_lora_bsm.sh "${datasets_string}" "$lr"
+        sleep 1
+        sbatch sbatch_run_accu_lora_cdt.sh "${datasets_string}" "$lr"
+        sleep 1
+        sbatch sbatch_run_accu_lora.sh "${datasets_string}" "$lr"    
         
         # Optional: Add a small delay between submissions to avoid overwhelming the scheduler
-        sleep 1
+        
     done
 done
-
 
 echo "All $TOTAL_SUBMISSIONS jobs submitted!"
