@@ -94,8 +94,6 @@ def setup_logging(log_path, debug, params):
 
 
 def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None, interpolation_model=False, interpolation_head=False, interpolation_alpha=0.5, eval_per_epoch=False, save_dir=None, args=None, test_per_epoch=False, eval_dset=None):
-
-def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None, interpolation_model=False, interpolation_head=False, interpolation_alpha=0.5, eval_per_epoch=False, save_dir=None, args=None):
     """Pretrain the classifier on the pretraining dataset.
         
         Args:
