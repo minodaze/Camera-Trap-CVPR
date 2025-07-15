@@ -80,7 +80,7 @@ common_config:
   scheduler: CosineAnnealingLR
   scheduler_params:
     T_max: 60
-    eta_min: $(echo "${LEARNING_RATE} / 60" | bc -l)
+    eta_min: $(echo "${LEARNING_RATE} / 10" | bc -l)
 
 pretrain_config:
   pretrain: true
