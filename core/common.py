@@ -168,18 +168,26 @@ def get_scheduler(optimizer, scheduler_name, scheduler_params):
         raise ValueError(f'Unknown scheduler {scheduler_name}. ')
     return scheduler
 
-def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False, gpu_monitor=None, save_best_model=True, save_dir=None, model_name_prefix="model"):
+def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False, gpu_monitor=None, save_best_model=True, save_dir=None, model_name_prefix="model", validation_mode="balanced_acc", early_stop_epoch=10):
     # Initialize best model tracking
     best_val_metric = float('-inf')  # For accuracy tracking (higher is better)
-    best_val_loss = float('inf')     # For loss - PRIMARY METRIC (lower is better)
+    best_val_loss = float('inf')     # For loss (lower is better)
     best_epoch = 0
     best_model_state = None
+    epochs_without_improvement = 0  # For early stopping
     
-    # Use validation loss as primary metric for best model selection
-    use_loss_for_best = True
+    # Determine validation mode
+    use_loss_for_best = (validation_mode == "loss")
     
-    logging.info(f'Training for all {epochs} epochs')
-    logging.info(f'Using validation loss as primary metric for best model selection')
+    logging.info(f'Training for up to {epochs} epochs')
+    if use_loss_for_best:
+        logging.info(f'Using validation loss as primary metric for best model selection (lower is better)')
+    else:
+        logging.info(f'Using validation balanced accuracy as primary metric for best model selection (higher is better)')
+    
+    if eval_per_epoch and early_stop_epoch > 0:
+        logging.info(f'Early stopping enabled: will stop if no improvement for {early_stop_epoch} epochs')
+    
     if save_best_model:
         if save_dir:
             os.makedirs(save_dir, exist_ok=True)
@@ -292,36 +300,70 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             
             # Check if this is the best model so far
             current_val_loss = loss_arr.mean()
-            current_val_metric = eval_balanced_acc  # Still track for logging
+            current_val_balanced_acc = eval_balanced_acc
             
             is_best = False
-            # Use validation loss as primary metric (lower is better)
-            if current_val_loss < best_val_loss:
-                is_best = True
-                best_val_loss = current_val_loss
-                best_val_metric = current_val_metric
-                best_epoch = epoch
-                
-                # Save best model state
-                if save_best_model:
-                    best_model_state = copy.deepcopy(classifier.state_dict())
-                    if save_dir:
-                        best_model_path = os.path.join(save_dir, f'{model_name_prefix}_best_model.pth')
-                        torch.save(best_model_state, best_model_path)
-                        logging.info(f'New best model saved at epoch {epoch}: val_loss={current_val_loss:.4f}, val_balanced_acc={current_val_metric:.4f} -> {best_model_path}')
+            improved = False
+            
+            if use_loss_for_best:
+                # Use validation loss as primary metric (lower is better)
+                if current_val_loss < best_val_loss:
+                    is_best = True
+                    improved = True
+                    best_val_loss = current_val_loss
+                    best_val_metric = current_val_balanced_acc  # Store balanced acc for logging
+                    best_epoch = epoch
+                    epochs_without_improvement = 0
+                else:
+                    epochs_without_improvement += 1
+            else:
+                # Use validation balanced accuracy as primary metric (higher is better)
+                # For same balanced accuracy, use the earliest one (strict >)
+                if current_val_balanced_acc > best_val_metric:
+                    is_best = True
+                    improved = True
+                    best_val_metric = current_val_balanced_acc
+                    best_val_loss = current_val_loss  # Store loss for logging
+                    best_epoch = epoch
+                    epochs_without_improvement = 0
+                else:
+                    epochs_without_improvement += 1
+            
+            # Save best model state
+            if is_best and save_best_model:
+                best_model_state = copy.deepcopy(classifier.state_dict())
+                if save_dir:
+                    best_model_path = os.path.join(save_dir, f'{model_name_prefix}_best_model.pth')
+                    torch.save(best_model_state, best_model_path)
+                    if use_loss_for_best:
+                        logging.info(f'New best model saved at epoch {epoch}: val_loss={current_val_loss:.4f} (↓), val_balanced_acc={current_val_balanced_acc:.4f} -> {best_model_path}')
+                    else:
+                        logging.info(f'New best model saved at epoch {epoch}: val_balanced_acc={current_val_balanced_acc:.4f} (↑), val_loss={current_val_loss:.4f} -> {best_model_path}')
+            
+            # Early stopping check
+            if early_stop_epoch > 0 and epochs_without_improvement >= early_stop_epoch:
+                logging.info(f'Early stopping triggered: no improvement for {early_stop_epoch} epochs')
+                if use_loss_for_best:
+                    logging.info(f'Best epoch was {best_epoch} with val_loss={best_val_loss:.4f}')
+                else:
+                    logging.info(f'Best epoch was {best_epoch} with val_balanced_acc={best_val_metric:.4f}')
+                break
             
             # Log evaluation metrics to wandb if initialized
             try:
                 import wandb
                 if wandb.run is not None:
                     eval_loss = loss_arr.mean()
-                    logging.info(f'Epoch {epoch}: train_acc={avg_acc:.4f}, train_balanced_acc={balanced_acc:.4f}, val_acc={eval_acc:.4f}, val_balanced_acc={eval_balanced_acc:.4f}, val_loss={eval_loss:.4f}, LR={optimizer.param_groups[0]["lr"]:.8f} {"(BEST)" if is_best else ""}')
+                    status_indicator = "(BEST)" if is_best else f"({epochs_without_improvement}/{early_stop_epoch})" if early_stop_epoch > 0 else ""
+                    logging.info(f'Epoch {epoch}: train_acc={avg_acc:.4f}, train_balanced_acc={balanced_acc:.4f}, val_acc={eval_acc:.4f}, val_balanced_acc={eval_balanced_acc:.4f}, val_loss={eval_loss:.4f}, LR={optimizer.param_groups[0]["lr"]:.8f} {status_indicator}')
                     wandb.log({
                         "val/loss": eval_loss,
                         "val/acc": eval_acc,
                         "val/balanced_acc": eval_balanced_acc,
                         "val/is_best": is_best,
-                        "val/best_epoch": best_epoch
+                        "val/best_epoch": best_epoch,
+                        "val/epochs_without_improvement": epochs_without_improvement,
+                        "val/validation_mode": validation_mode
                     })
             except (ImportError, AttributeError):
                 pass  # wandb not available or not initialized
@@ -332,7 +374,10 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
     # Load best model if we saved one
     if save_best_model and best_model_state is not None:
         classifier.load_state_dict(best_model_state)
-        logging.info(f'Loaded best model from epoch {best_epoch} (val_loss={best_val_loss:.4f}, val_balanced_acc={best_val_metric:.4f})')
+        if use_loss_for_best:
+            logging.info(f'Loaded best model from epoch {best_epoch} (val_loss={best_val_loss:.4f}, val_balanced_acc={best_val_metric:.4f})')
+        else:
+            logging.info(f'Loaded best model from epoch {best_epoch} (val_balanced_acc={best_val_metric:.4f}, val_loss={best_val_loss:.4f})')
         
         # Log final best model info to wandb
         try:
@@ -343,7 +388,9 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                     "final/final_best_val_loss": best_val_loss,
                     "final/final_best_val_balanced_acc": best_val_metric,
                     "final/total_epochs_trained": epoch + 1,
-                    "final/training_completed": True
+                    "final/training_completed": True,
+                    "final/validation_mode": validation_mode,
+                    "final/early_stopped": epochs_without_improvement >= early_stop_epoch if early_stop_epoch > 0 else False
                 })
         except (ImportError, AttributeError):
             pass

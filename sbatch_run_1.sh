@@ -77,13 +77,13 @@ common_config:
   chop_head: false
   scheduler: CosineAnnealingLR
   scheduler_params:
-    T_max: 30
-    eta_min: $(echo "${LEARNING_RATE} / 10" | bc -l)
+    T_max: 60
+    eta_min: $(echo "${LEARNING_RATE} / 60" | bc -l)
 
 pretrain_config:
   pretrain: true
   pretrain_data_config_path: ${ALL_JSON}
-  epochs: 30
+  epochs: 60
   loss_type: ce
 
 ood_config:
