@@ -9,7 +9,7 @@ import torch
 from torch.nn import functional as F
 from tqdm import tqdm
 
-from .loss import CB_loss, focal_loss, standard_focal_loss, LDAM_loss, loss_fn_kd, SupConLoss, CDT_loss, balanced_softmax_loss
+from .loss import CB_loss, focal_loss, standard_focal_loss, LDAM_loss, loss_fn_kd, SupConLoss, cdt_loss, balanced_softmax_loss
 
 """
 
@@ -128,7 +128,7 @@ def get_f_loss(loss_type, samples, n_classes, device, alpha=None, beta=None, gam
     elif loss_type == 'cdt':
         def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
             cdt_gamma = gamma if gamma is not None else 0.3
-            loss = CDT_loss(logits, labels, samples_per_cls, n_classes, cdt_gamma, device)
+            loss = cdt_loss(logits, labels, samples_per_cls, cdt_gamma, device)
             return loss
     elif loss_type == 'ldam':
         def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
