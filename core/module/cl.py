@@ -88,7 +88,9 @@ class CLModule(ABC):
                     gpu_monitor=gpu_monitor,
                     save_best_model=save_best_model_enabled,
                     save_dir=save_dir,
-                    model_name_prefix=model_name_prefix)
+                    model_name_prefix=model_name_prefix,
+                    validation_mode=getattr(self.args, 'validation_mode', 'balanced_acc'),
+                    early_stop_epoch=getattr(self.args, 'early_stop_epoch', 10))
 
     @abstractmethod
     def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None):

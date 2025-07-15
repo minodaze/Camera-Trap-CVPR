@@ -245,7 +245,10 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
           eval_loader=eval_loader,
           save_best_model=save_best_model,
           save_dir=save_dir,
-          model_name_prefix="pretrain")
+          model_name_prefix="pretrain",
+          validation_mode=getattr(args, 'validation_mode', 'balanced_acc'),
+          early_stop_epoch=getattr(args, 'early_stop_epoch', 10))
+
     if interpolation_model or interpolation_head:
         if gpu_monitor:
             gpu_monitor.log_memory_usage("interpolation", "after_pretrain")
@@ -865,6 +868,8 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=9527, help='Random seed')
     parser.add_argument('--eval_per_epoch', action='store_true', help='Evaluate per epoch')
     parser.add_argument('--save_best_model', action='store_true', default=True, help='Save best model during training')
+    parser.add_argument('--validation_mode', type=str, default='balanced_acc', choices=['balanced_acc', 'loss'], help='Metric to use for best model selection: balanced_acc (higher is better) or loss (lower is better)')
+    parser.add_argument('--early_stop_epoch', type=int, default=10, help='Number of epochs without improvement to trigger early stopping (default: 10)')
     parser.add_argument('--is_save', action='store_true', help='Save model')
     parser.add_argument('--eval_only', action='store_true', help='Evaluate only mode - loads trained model checkpoints and evaluates them')
     parser.add_argument('--model_dir', type=str, help='Directory containing trained model checkpoints (.pth files) for eval_only mode')
