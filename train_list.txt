@@ -1,1 +1,4 @@
-wellington/wellington_011a
+nz/nz_EFD_DCAMB02
+nz/nz_EFH_HCAMC07
+ENO/ENO_C05
+KGA/KGA_KHOGB06
