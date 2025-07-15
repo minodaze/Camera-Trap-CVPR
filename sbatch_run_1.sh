@@ -7,7 +7,7 @@
 #SBATCH --nodes=1                 # Request 4 nodes
 #SBATCH --ntasks-per-node=1       # One task per node
 #SBATCH --gpus-per-node=1         # One GPU per node
-#SBATCH --cpus-per-task=12
+#SBATCH --cpus-per-task=24
 
 
 USER_NAME="mino"
@@ -80,7 +80,7 @@ common_config:
   scheduler: CosineAnnealingLR
   scheduler_params:
     T_max: 60
-    eta_min: $(echo "${LEARNING_RATE} / 60" | bc -l)
+    eta_min: $(echo "${LEARNING_RATE} / 10" | bc -l)
 
 pretrain_config:
   pretrain: true
@@ -99,7 +99,7 @@ cl_config:
 EOF
 
     echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
-    python run_pipeline.py --c $CONFIG_FILE --full --wandb --eval_per_epoch --save_best_model
+    python run_pipeline.py --c $CONFIG_FILE --full --wandb --eval_per_epoch --test_per_epoch --save_best_model
 
 #     # === Robust log path discovery ===
 #     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/icicle/log_auto/pipeline/${DATASET//\//_}/zs_common/${PARENT_TIMESTAMP}/"
