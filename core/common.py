@@ -9,7 +9,7 @@ import torch
 from torch.nn import functional as F
 from tqdm import tqdm
 
-from .loss import CB_loss, focal_loss, loss_fn_kd, SupConLoss, CDT_loss
+from .loss import CB_loss, focal_loss, standard_focal_loss, LDAM_loss, loss_fn_kd, SupConLoss, CDT_loss, balanced_softmax_loss
 
 """
 
@@ -62,14 +62,28 @@ def get_f_loss(loss_type, samples, n_classes, device, alpha=None, beta=None, gam
     if loss_type == 'ce':
         def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
             return F.cross_entropy(logits, labels)
+        
+    elif loss_type == 'focal':
+        def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
+            # Standard focal loss with default parameters
+            focal_alpha = alpha if alpha is not None else 1.0  # No class weighting by default
+            focal_gamma = gamma if gamma is not None else 2.0  # Standard focusing parameter
+            loss = standard_focal_loss(logits, labels, focal_alpha, focal_gamma)
+            return loss
     elif loss_type == 'cb-ce':
         def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
-            # CB_loss(logits, labels, samples_per_cls, no_of_classes, loss_type, beta, gamma, device)
-            loss = CB_loss(logits, labels, samples_per_cls, n_classes, 'softmax', beta, gamma, device)
+            cb_beta = beta if beta is not None else 0.9999  # Default beta value
+            use_per_class = alpha if alpha is not None else False  # Use alpha to control per-class beta
+            # For CB-CE, gamma is not needed, set to 0 or None based on CB_loss implementation
+            loss = CB_loss(logits, labels, samples_per_cls, n_classes, 'softmax', cb_beta, 0.0, device, use_per_class_beta=use_per_class)
             return loss
     elif loss_type == 'cb-focal':
         def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
-            loss = CB_loss(logits, labels, samples_per_cls, n_classes, 'focal', beta, gamma, device)
+            # CB-focal loss with configurable beta strategy
+            cb_beta = beta if beta is not None else 0.9999  # Default beta value for global strategy
+            cb_gamma = gamma if gamma is not None else 2.0   # Standard focusing parameter
+            use_per_class = alpha if alpha is not None else False  # Use alpha to control per-class beta
+            loss = CB_loss(logits, labels, samples_per_cls, n_classes, 'focal', cb_beta, cb_gamma, device, use_per_class_beta=use_per_class)
             return loss
     elif loss_type == 'kd':
         def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
@@ -115,6 +129,16 @@ def get_f_loss(loss_type, samples, n_classes, device, alpha=None, beta=None, gam
         def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
             cdt_gamma = gamma if gamma is not None else 0.3
             loss = CDT_loss(logits, labels, samples_per_cls, n_classes, cdt_gamma, device)
+            return loss
+    elif loss_type == 'ldam':
+        def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
+            ldam_C = alpha if alpha is not None else 0.5  # Use alpha parameter for C
+            loss = LDAM_loss(logits, labels, samples_per_cls, n_classes, ldam_C, device)
+            return loss
+    
+    elif loss_type == 'bsm':
+        def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
+            loss = balanced_softmax_loss(logits, labels, samples_per_cls, n_classes, device)
             return loss
     else:
         raise ValueError(f'Unknown loss type {loss_type}. ')

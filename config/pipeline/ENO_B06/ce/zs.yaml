@@ -14,13 +14,13 @@ class_names:
   - wildebeestblue
 common_config:
   model: bioclip
-  train_data_config_path: config/data/ENO_B06/train.json
-  eval_data_config_path: config/data/ENO_B06/test.json
-  train_batch_size: 128
+  train_data_config_path: config/data/ENO/ENO_B06/train.json
+  eval_data_config_path: config/data/ENO/ENO_B06/test.json
+  train_batch_size: 32
   eval_batch_size: 512
   optimizer_name: AdamW
   optimizer_params:
-    lr: 0.0001
+    lr: 0.000025
     weight_decay: 0.0001
   chop_head: false
 pretrain_config:

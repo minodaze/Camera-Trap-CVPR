@@ -9,9 +9,20 @@ data
 _scripts/
 figures/
 pretrained_weights/
-wandb/
-plot.py
+.vscode/launch.json
+*.json
+*.txt
+*.csv
+*.output
+*.out
+*.yaml
 *.sh
+*.png
+*.log
+*.wandb
+latest-run
+config/
+*.err
 # Additional patterns for SLURM job outputs
 slurm-*.out
 slurm-*.err

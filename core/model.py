@@ -159,6 +159,17 @@ class CLIPClassifier(nn.Module):
             x = self.head(feats)
         else:
             raise RuntimeError("Forward pass requires either text model or initialized head.")
+
+        x = self.visual_model(images)
+        feats = F.normalize(x, dim=-1)  # Normalize the features
+        if self.init_text:
+            class_embedding = self.get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx, self.text_template).to(self.device)
+            x = F.linear(feats, class_embedding, bias=None)  # Use the class embedding to compute logits
+            del class_embedding  # Free memory
+        elif self.initialized:
+            x = self.head(feats)
+        else:
+            raise RuntimeError("Forward pass requires either text model or initialized head.")
         if return_feats:
             return x, feats
         else:
@@ -180,6 +191,84 @@ class CLIPClassifier(nn.Module):
     def load(self, path):
         logging.info(f'Loading classifier from {path}... ')
         self.load_state_dict(torch.load(path))
+    
+    def interpolate_head(self, model, alpha=0.5):
+        """Interpolate the class embedding with the current head weights."""
+        if not self.initialized:
+            raise RuntimeError("Head is not initialized. Cannot interpolate.")
+        if model.head.weight.size(1) != self.head.weight.size(1):
+            raise ValueError("Class embedding dimension must match head weight dimension.")
+        if model.head.weight.size(0) != self.head.weight.size(0):
+            raise ValueError("Class embedding size must match head weight size.")
+        
+        # Interpolate the weights
+        new_weight = (1 - alpha) * self.head.weight.data + alpha * model.head.weight.data
+        self.head.weight.data = new_weight
+        self.initialized = True
+    
+    def interpolate_model(self, classifier, alpha):
+        """
+        Interpolate the current model's parameters with another CLIPClassifier.
+            
+        Args:
+            classifier: Another CLIPClassifier instance to interpolate with
+            alpha: Interpolation factor (0.0 = keep current model, 1.0 = use other model)
+        """
+        if not isinstance(classifier, CLIPClassifier):
+            raise ValueError("classifier must be an instance of CLIPClassifier.")
+            
+        # Interpolate visual model parameters
+        for (name1, param1), (name2, param2) in zip(self.visual_model.named_parameters(), classifier.visual_model.named_parameters()):
+            if name1 != name2:
+                raise ValueError(f"Parameter names don't match: {name1} vs {name2}")
+            param1.data = (1 - alpha) * param1.data + alpha * param2.data
+            
+        # Interpolate head parameters if both are initialized
+        if self.initialized and classifier.initialized:
+            self.head.weight.data = (1 - alpha) * self.head.weight.data + alpha * classifier.head.weight.data
+            self.head.bias.data = (1 - alpha) * self.head.bias.data + alpha * classifier.head.bias.data
+            
+        # Interpolate text model parameters if both have text models
+        if hasattr(self, 'text_model') and hasattr(classifier, 'text_model'):
+            for (name1, param1), (name2, param2) in zip(self.text_model.named_parameters(), classifier.text_model.named_parameters()):
+                if name1 != name2:
+                    raise ValueError(f"Text model parameter names don't match: {name1} vs {name2}")
+                param1.data = (1 - alpha) * param1.data + alpha * param2.data
+            
+        # Interpolate projection head if both have it
+        if hasattr(self, 'proj_head') and hasattr(classifier, 'proj_head'):
+            for (name1, param1), (name2, param2) in zip(self.proj_head.named_parameters(), classifier.proj_head.named_parameters()):
+                if name1 != name2:
+                    raise ValueError(f"Projection head parameter names don't match: {name1} vs {name2}")
+                param1.data = (1 - alpha) * param1.data + alpha * param2.data        
+
+    def get_class_embedding(self, model, tokenizer, embed_dim, class_name_idx, text_template='openai'): 
+        device = next(model.parameters()).device
+        context_length = model.context_length
+        class_embedding = torch.empty(len(class_name_idx), embed_dim)
+        for class_name, class_idx in class_name_idx.items():
+            # logging.info(f'Getting class embedding for {class_name}... ')
+            texts = self.get_texts(class_name, text_template)
+            # logging.info('Texts: ')
+            # for t in texts:
+            #     logging.info(f'\t{t}')
+            texts = tokenizer(
+                    texts, 
+                    padding='max_length', 
+                    truncation=True, 
+                    max_length=context_length, 
+                    return_tensors='pt'
+                )
+            input_ids = texts['input_ids'].to(device)
+            _class_embedding = model.encode_text(input_ids)
+            _class_embedding = F.normalize(_class_embedding, dim=-1).mean(dim=0)
+            _class_embedding = F.normalize(_class_embedding, dim=-1)
+            class_embedding[class_idx] = _class_embedding
+        return class_embedding
+
+    def get_texts(self, c, text_template='openai'):
+        texts = [template.format(CLZ_NAME=c) for template in OPENAI_IMAGENET_TEMPLATE]
+        return texts
     
     def interpolate_head(self, model, alpha=0.5):
         """Interpolate the class embedding with the current head weights."""
@@ -331,10 +420,12 @@ def build_classifier(params, class_name_idx, device):
 
     ###################################################################
     classifier = CLIPClassifier(bioclip_model.visual, bioclip_model.embed_dim, device)
+
     text_embed_dim = bioclip_model.embed_dim
     if params.text == 'head':
         class_embedding = get_class_embedding(bioclip_model, tokenizer, text_embed_dim, class_name_idx, text_template=params.text_template)
         classifier.init_head(class_embedding)
+
     else:
         classifier.set_text(bioclip_model, tokenizer, text_embed_dim, class_name_idx, params.text_template)
         
@@ -350,10 +441,10 @@ def build_classifier(params, class_name_idx, device):
                     logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
             else:
                 parameter.requires_grad = False
+
     # Log memory after class embedding
     if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
         log_gpu_memory("model_build", "after_class_embedding", device=device, enable_wandb=getattr(params, 'wandb', False))
-    
     classifier = classifier.to(device)
 
     # if params.model_path != 'None':
