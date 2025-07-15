@@ -243,6 +243,10 @@ def log_epoch_test(epoch: int, loss: float, acc: float, balanced_acc: float, num
     # Format test label to match other labels (5 chars + brackets = 7 total)
     if test_type == "NEXT":
         test_label = "TEST+"  # TEST+ for next checkpoint
+    elif test_type == "UB_ALL":
+        test_label = "TEST*"  # TEST* for upper bound (all checkpoints combined)
+    elif test_type == "UB_AVG":
+        test_label = "TEST*"  # TEST* for upper bound (average across checkpoints)
     elif test_type == " CUR":
         test_label = "TEST "  # TEST  for current checkpoint  
     else:

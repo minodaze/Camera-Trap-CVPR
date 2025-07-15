@@ -98,7 +98,8 @@ class CLModule(ABC):
                     validation_mode=getattr(self.args, 'validation_mode', 'balanced_acc'),
                     early_stop_epoch=getattr(self.args, 'early_stop_epoch', 10),
                     test_per_epoch=test_per_epoch,
-                    next_test_loader=next_test_loader)
+                    next_test_loader=next_test_loader,
+                    test_type="NEXT")
 
     @abstractmethod
     def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None):

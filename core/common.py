@@ -197,7 +197,7 @@ def get_scheduler(optimizer, scheduler_name, scheduler_params):
         raise ValueError(f'Unknown scheduler {scheduler_name}. ')
     return scheduler
 
-def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False, gpu_monitor=None, save_best_model=True, save_dir=None, model_name_prefix="model", validation_mode="balanced_acc", early_stop_epoch=10, test_per_epoch=False, next_test_loader=None):
+def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False, gpu_monitor=None, save_best_model=True, save_dir=None, model_name_prefix="model", validation_mode="balanced_acc", early_stop_epoch=10, test_per_epoch=False, next_test_loader=None, test_type="NEXT"):
     # Initialize best model tracking
     best_val_metric = float('-inf')  # For accuracy tracking (higher is better)
     best_val_loss = float('inf')     # For loss (lower is better)
@@ -369,11 +369,44 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             # Use new validation logging format with best model indicator
             log_epoch_val(epoch, eval_loss, eval_acc, eval_balanced_acc, len(labels_arr), is_best, best_indicator)
             
-            # Test evaluation per epoch if enabled (test with next checkpoint only)
+            # Test evaluation per epoch if enabled
             if test_per_epoch and next_test_loader is not None:
-                next_test_loss_arr, next_test_preds_arr, next_test_labels_arr = eval(classifier, next_test_loader, device)
-                next_test_acc, next_test_balanced_acc, next_test_loss = compute_metrics(next_test_loss_arr, next_test_preds_arr, next_test_labels_arr, len(next_test_loader.dataset.class_names))
-                log_epoch_test(epoch, next_test_loss, next_test_acc, next_test_balanced_acc, len(next_test_labels_arr), "NEXT")
+                if isinstance(next_test_loader, dict):
+                    # Upper bound mode: evaluate on each test checkpoint separately and compute average
+                    test_results = []
+                    total_samples = 0
+                    
+                    for ckp_name, test_loader in next_test_loader.items():
+                        ckp_test_loss_arr, ckp_test_preds_arr, ckp_test_labels_arr = eval(classifier, test_loader, device)
+                        ckp_test_acc, ckp_test_balanced_acc, ckp_test_loss = compute_metrics(
+                            ckp_test_loss_arr, ckp_test_preds_arr, ckp_test_labels_arr, 
+                            len(test_loader.dataset.class_names)
+                        )
+                        test_results.append({
+                            'checkpoint': ckp_name,
+                            'acc': ckp_test_acc,
+                            'balanced_acc': ckp_test_balanced_acc,
+                            'loss': ckp_test_loss,
+                            'samples': len(ckp_test_labels_arr)
+                        })
+                        total_samples += len(ckp_test_labels_arr)
+                    
+                    # Compute averages across all test checkpoints
+                    if test_results:
+                        avg_test_acc = np.mean([r['acc'] for r in test_results])
+                        avg_test_balanced_acc = np.mean([r['balanced_acc'] for r in test_results])
+                        avg_test_loss = np.mean([r['loss'] for r in test_results])
+                        
+                        # Log the averaged results
+                        log_epoch_test(epoch, avg_test_loss, avg_test_acc, avg_test_balanced_acc, total_samples, "UB_AVG")
+                else:
+                    # Single test loader mode (accumulative or other modes)
+                    next_test_loss_arr, next_test_preds_arr, next_test_labels_arr = eval(classifier, next_test_loader, device)
+                    next_test_acc, next_test_balanced_acc, next_test_loss = compute_metrics(
+                        next_test_loss_arr, next_test_preds_arr, next_test_labels_arr, 
+                        len(next_test_loader.dataset.class_names)
+                    )
+                    log_epoch_test(epoch, next_test_loss, next_test_acc, next_test_balanced_acc, len(next_test_labels_arr), test_type)
             
             # Add separator line after each epoch's complete log set
             if eval_per_epoch or test_per_epoch:

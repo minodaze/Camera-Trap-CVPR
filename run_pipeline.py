@@ -90,6 +90,7 @@ def setup_logging(log_path, debug, params):
     return log_path
 
 
+def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None, interpolation_model=False, interpolation_head=False, interpolation_alpha=0.5, eval_per_epoch=False, save_dir=None, args=None, test_per_epoch=False, eval_dset=None):
 
 def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None, interpolation_model=False, interpolation_head=False, interpolation_alpha=0.5, eval_per_epoch=False, save_dir=None, args=None):
     """Pretrain the classifier on the pretraining dataset.
@@ -199,7 +200,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
         train_samples = [full_dataset.samples[i] for i in train_indices]
         dataset.samples = train_samples
         
-        # Log class distribution in validation set
+        # Log class distribution in validation set with beautiful styling
         val_class_counts = defaultdict(int)
         train_class_counts = defaultdict(int)
         for sample in val_samples:
@@ -207,30 +208,63 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
         for sample in train_samples:
             train_class_counts[sample.label] += 1
         
-        logging.info(f'Pretraining validation split (2 samples per class):')
-        logging.info(f'{"Class":<20} {"Train":<8} {"Val":<8} {"Val%":<8}')
-        logging.info(f'{"-"*44}')
+        # Create validation split summary with our theme
+        log_subsection_start("📊 Validation Split Distribution", Colors.BRIGHT_CYAN)
+        
+        # Build detailed class distribution table
+        class_distribution = ""
         for class_idx in sorted(set(list(val_class_counts.keys()) + list(train_class_counts.keys()))):
             class_name = class_names[class_idx] if class_idx < len(class_names) else f"class_{class_idx}"
             train_count = train_class_counts[class_idx]
             val_count = val_class_counts[class_idx]
             total_count = train_count + val_count
             val_percentage = (val_count / total_count * 100) if total_count > 0 else 0
-            logging.info(f'{class_name:<20} {train_count:<8} {val_count:<8} {val_percentage:<8.1f}%')
+            class_distribution += f"{class_name:<20} {train_count:<8} {val_count:<8} {val_percentage:<8.1f}%\n"
         
         total_train = sum(train_class_counts.values())
         total_val = sum(val_class_counts.values())
         total_all = total_train + total_val
         overall_val_percentage = (total_val / total_all * 100) if total_all > 0 else 0
         
-        logging.info(f'{"-"*44}')
-        logging.info(f'{"TOTAL":<20} {total_train:<8} {total_val:<8} {overall_val_percentage:<8.1f}%')
-        logging.info(f'Validation classes: {len(val_class_counts)} out of {len(class_names)} possible classes')
+        # Create summary for info box
+        validation_summary = f"Strategy: 2 samples per class for validation\n"
+        validation_summary += f"Training samples: {total_train}\n"
+        validation_summary += f"Validation samples: {total_val}\n"
+        validation_summary += f"Validation percentage: {overall_val_percentage:.1f}%\n"
+        validation_summary += f"Classes covered: {len(val_class_counts)}/{len(class_names)}"
+        
+        logging.info(create_info_box("Pretraining Validation Split", validation_summary))
+        
+        # Log detailed class distribution with colors
+        log_info("📋 Per-class distribution:", Colors.CYAN)
+        log_info(f"{'Class':<20} {'Train':<8} {'Val':<8} {'Val%':<8}", Colors.BRIGHT_BLUE)
+        log_info("─" * 50, Colors.BRIGHT_BLUE)
+        
+        for class_idx in sorted(set(list(val_class_counts.keys()) + list(train_class_counts.keys()))):
+            class_name = class_names[class_idx] if class_idx < len(class_names) else f"class_{class_idx}"
+            train_count = train_class_counts[class_idx]
+            val_count = val_class_counts[class_idx]
+            total_count = train_count + val_count
+            val_percentage = (val_count / total_count * 100) if total_count > 0 else 0
+            
+            # Use different colors for different validation percentages
+            if val_percentage > 10:
+                color = Colors.YELLOW  # High percentage (small class)
+            elif val_percentage < 1:
+                color = Colors.GREEN   # Low percentage (large class)
+            else:
+                color = Colors.WHITE   # Normal percentage
+                
+            log_info(f'{class_name:<20} {train_count:<8} {val_count:<8} {val_percentage:<8.1f}%', color)
+        
+        log_info("─" * 50, Colors.BRIGHT_BLUE)
+        log_info(f'{"TOTAL":<20} {total_train:<8} {total_val:<8} {overall_val_percentage:<8.1f}%', Colors.BRIGHT_GREEN)
         
         eval_batch_size = common_config.get('eval_batch_size', train_batch_size)
         eval_loader = DataLoader(eval_dataset, batch_size=eval_batch_size, shuffle=False, num_workers=4, worker_init_fn=worker_init_fn)
-        logging.info(f'Pretrain eval dataset size: {len(eval_dataset)} (2 samples per class from full training data). ')
-        logging.info(f'Updated pretrain training dataset size: {len(dataset)} (excluding validation samples). ')
+        
+        log_success(f"Validation dataset prepared: {len(eval_dataset)} samples")
+        log_success(f"Training dataset updated: {len(dataset)} samples")
     
     # Get loss function
     f_loss = get_f_loss(
@@ -250,6 +284,40 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
     # Get model saving setting from args, with fallback
     save_best_model = getattr(args, 'save_best_model', True) if args else True
     
+    # Prepare test loaders for upper bound test_per_epoch (test on each checkpoint separately)
+    next_test_loader = None
+    if test_per_epoch and eval_dset is not None:
+        # For upper bound: prepare individual test loaders for each checkpoint
+        # Get checkpoint list directly from the evaluation dataset
+        ckp_list = eval_dset.get_ckp_list()
+        log_info(f"Available test checkpoints in dataset: {ckp_list}", Colors.CYAN)
+        
+        # Create individual test loaders for each checkpoint
+        test_loaders = {}
+        available_ckps = []
+        for ckp in ckp_list:
+            try:
+                ckp_test_dset = eval_dset.get_subset(is_train=False, ckp_list=[ckp])
+                if len(ckp_test_dset) > 0:
+                    eval_batch_size = common_config.get('eval_batch_size', train_batch_size)
+                    test_loader = DataLoader(ckp_test_dset, batch_size=eval_batch_size, shuffle=False, num_workers=4, worker_init_fn=worker_init_fn)
+                    test_loaders[ckp] = test_loader
+                    available_ckps.append(ckp)
+                    log_info(f"✅ Checkpoint {ckp}: {len(ckp_test_dset)} test samples", Colors.GREEN)
+                else:
+                    log_info(f"⚠️  Checkpoint {ckp}: no test samples found", Colors.YELLOW)
+            except Exception as e:
+                logging.warning(f"Could not load test data for checkpoint {ckp}: {e}")
+        
+        if test_loaders:
+            # Store the dictionary of test loaders instead of a single loader
+            next_test_loader = test_loaders
+            total_samples = sum(len(loader.dataset) for loader in test_loaders.values())
+            log_info(f"Upper bound test per epoch: individual test loaders for checkpoints {available_ckps} ({total_samples} total samples)", Colors.RED)
+            log_info(f"TEST* computes average performance across {len(available_ckps)} individual test checkpoints", Colors.RED)
+        else:
+            log_info("Upper bound test per epoch: no test data available", Colors.YELLOW)
+    
     # Train
     train(classifier, optimizer, loader, epochs, device, f_loss, 
           scheduler=scheduler, 
@@ -260,7 +328,10 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
           save_dir=save_dir,
           model_name_prefix="pretrain",
           validation_mode=getattr(args, 'validation_mode', 'balanced_acc'),
-          early_stop_epoch=getattr(args, 'early_stop_epoch', 10))
+          early_stop_epoch=getattr(args, 'early_stop_epoch', 10),
+          test_per_epoch=test_per_epoch,
+          next_test_loader=next_test_loader,
+          test_type="UB_AVG" if test_per_epoch else "NEXT")
 
     if interpolation_model or interpolation_head:
         if gpu_monitor:
@@ -322,7 +393,7 @@ def run(args):
 
         module_name = getattr(args, 'module_name', 'default_module')  # Fallback if module_name is not in args
         wandb.init(
-            project="ICICLE-Benchmark-LR-FINAL-SANITY-LOSS-BEST",  # Replace with your project name
+            project="Camera Trap UB July 15",  # Replace with your project name
             name=wandb_run_name,  # Set run name using args.c and module_name
             config=vars(args)  # Log all arguments to wandb
         )
@@ -380,33 +451,6 @@ def run(args):
         monitor_model_memory(classifier, "classifier", args.device, args.wandb)
         gpu_monitor.clear_cache_and_log("model_load")
     
-    log_section_start("🎯 PRETRAINING PHASE", Colors.BRIGHT_GREEN)
-    
-    # Pretrain
-    if pretrain_config['pretrain']:
-        log_info(f"Pretraining enabled with {pretrain_config['epochs']} epochs")
-        if args.gpu_memory_monitor:
-            gpu_monitor.log_memory_usage("pretrain", "before")
-        classifier = pretrain(classifier, 
-                              class_names, 
-                              pretrain_config, 
-                              common_config, 
-                              args.device,
-                              gpu_monitor,
-                              interpolation_model=args.interpolation_model,
-                              interpolation_head=args.interpolation_head,
-                              interpolation_alpha=args.interpolation_alpha,
-                              eval_per_epoch=args.eval_per_epoch,
-                              save_dir=args.save_dir,
-                              args=args)
-
-        if args.gpu_memory_monitor:
-            gpu_monitor.log_memory_usage("pretrain", "after")
-            gpu_monitor.clear_cache_and_log("pretrain")
-        log_success("Pretraining completed successfully")
-    else:
-        log_warning("Pretraining skipped (disabled in configuration)")
-    
     log_section_start("📊 DATASET PREPARATION", Colors.BRIGHT_YELLOW)
     
     # Prepare dataset
@@ -428,6 +472,35 @@ def run(args):
     dataset_summary += f"Number of checkpoints: {len(ckp_list)}\n"
     dataset_summary += f"Checkpoints: {', '.join(ckp_list)}"
     logging.info(create_info_box("Dataset Information", dataset_summary))
+    
+    log_section_start("🎯 PRETRAINING PHASE", Colors.BRIGHT_GREEN)
+    
+    # Pretrain
+    if pretrain_config['pretrain']:
+        log_info(f"Pretraining enabled with {pretrain_config['epochs']} epochs")
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("pretrain", "before")
+        classifier = pretrain(classifier, 
+                              class_names, 
+                              pretrain_config, 
+                              common_config, 
+                              args.device,
+                              gpu_monitor,
+                              interpolation_model=args.interpolation_model,
+                              interpolation_head=args.interpolation_head,
+                              interpolation_alpha=args.interpolation_alpha,
+                              eval_per_epoch=args.eval_per_epoch,
+                              save_dir=args.save_dir,
+                              args=args,
+                              test_per_epoch=args.test_per_epoch,
+                              eval_dset=eval_dset)
+
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("pretrain", "after")
+            gpu_monitor.clear_cache_and_log("pretrain")
+        log_success("Pretraining completed successfully")
+    else:
+        log_warning("Pretraining skipped (disabled in configuration)")
     
     log_step(5, "Initializing pipeline modules")
     # Initialize modules
