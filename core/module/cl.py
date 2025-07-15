@@ -205,7 +205,6 @@ class CLAccumulativeScratchLWF(CLModule):
         cl_train_dset.add_samples(self.buffer)
         # Train
         self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True)
-
         # Process buffer
         for msk, sample in zip(train_mask, train_dset.samples):
             if msk:

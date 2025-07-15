@@ -9,15 +9,17 @@
 #SBATCH --gpus-per-node=1         # One GPU per node
 #SBATCH --cpus-per-task=12
 
-USER_NAME="camera-trap-benchmark-logs"
-CONDA_ENV="icicle"
+
+USER_NAME="mino"
+
+CONDA_ENV="ICICLE"
 
 # Load your env
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate ${CONDA_ENV}
 
 DATA_ROOT="/fs/scratch/PAS2099/camera-trap-benchmark"
-CONFIG_ROOT="/fs/scratch/PAS2099/${USER_NAME}/icicle/configs/generated_common"
+CONFIG_ROOT="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/configs/generated_common"
 # CSV_PATH="/fs/ess/PAS2099/${USER_NAME}/Documents/icicle/ICICLE-Benchmark/balanced_accuracy_common.csv"
 
 mkdir -p $CONFIG_ROOT
@@ -61,7 +63,7 @@ for DATASET in "${BIG_FOLDERS[@]}"; do
 
     cat <<EOF > $CONFIG_FILE
 module_name: upper_bound
-log_path: /fs/scratch/PAS2099/${USER_NAME}/icicle/log_auto/pipeline/${DATASET//\//_}/upper_bound/lr_${LEARNING_RATE}/${PARENT_TIMESTAMP}/
+log_path: /fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/upper_bound/lr_${LEARNING_RATE}/${PARENT_TIMESTAMP}/
 
 common_config:
   model: bioclip2

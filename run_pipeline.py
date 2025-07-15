@@ -54,10 +54,9 @@ def setup_logging(log_path, debug, params):
         log_path = os.path.join(log_path, 'log')
     else:
         logger.setLevel(logging.DEBUG)
-
         curr_time = f"debug-{deterministic_time}"
         log_path = os.path.join(log_path, curr_time)
-
+        
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
     # Log to stdout
@@ -78,8 +77,8 @@ def setup_logging(log_path, debug, params):
     return log_path
 
 
-def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None, interpolation_model=False, interpolation_head=False, interpolation_alpha=0.5, eval_per_epoch=False, save_dir=None, args=None):
 
+def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None, interpolation_model=False, interpolation_head=False, interpolation_alpha=0.5, eval_per_epoch=False, save_dir=None, args=None):
     """Pretrain the classifier on the pretraining dataset.
         
         Args:
@@ -235,7 +234,6 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
     # Get dataloader
 
     loader = DataLoader(dataset, batch_size=train_batch_size, shuffle=True, num_workers=4, worker_init_fn=worker_init_fn)
-
     # Get model saving setting from args, with fallback
     save_best_model = getattr(args, 'save_best_model', True) if args else True
     
@@ -248,7 +246,6 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
           save_best_model=save_best_model,
           save_dir=save_dir,
           model_name_prefix="pretrain")
-
     if interpolation_model or interpolation_head:
         if gpu_monitor:
             gpu_monitor.log_memory_usage("interpolation", "after_pretrain")
@@ -305,7 +302,7 @@ def run(args):
 
         module_name = getattr(args, 'module_name', 'default_module')  # Fallback if module_name is not in args
         wandb.init(
-            project="Camera Trap Benchmark - ALL CAMERA UB",  # Replace with your project name
+            project="ICICLE-Benchmark-LR-FINAL-SANITY-LOSS-BEST",  # Replace with your project name
             name=wandb_run_name,  # Set run name using args.c and module_name
             config=vars(args)  # Log all arguments to wandb
         )

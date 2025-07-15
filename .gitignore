@@ -21,15 +21,12 @@ pretrained_weights/
 *.log
 *.wandb
 latest-run
-config/pipeline/APN_K024/ce/accumulative-scratch.yaml
-config/pipeline/APN_K024/ce/percentage-1.yaml
-config/pipeline/APN_K024/ce/zs.yaml
-config/pipeline/ENO_B06/ce/accumulative-scratch.yaml
-config/pipeline/ENO_B06/ce/lwf.yaml
-config/pipeline/ENO_B06/ce/percentage-1.yaml
-config/pipeline/ENO_B06/ce/zs.yaml
-config/pipeline/MAD_MAD05_new/ce/accumulative-scratch.yaml
-config/pipeline/MAD_MAD05_new/ce/percentage-1.yaml
-config/pipeline/MAD_MAD05_new/ce/zs.yaml
-scripts/train/train.sh
+config/
 *.err
+# Additional patterns for SLURM job outputs
+slurm-*.out
+slurm-*.err
+*.err
+*.out
+compare_eval.py
+.vscode/launch.json
