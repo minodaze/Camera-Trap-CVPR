@@ -4,6 +4,8 @@ import os
 import copy
 import time
 import json
+import re
+import random
 
 from datetime import datetime
 import numpy as np
@@ -21,7 +23,8 @@ from utils.gpu_monitor import get_gpu_monitor, log_gpu_memory, monitor_model_mem
 from utils.log_formatter import (
     setup_colored_logging, log_section_start, log_subsection_start, log_step,
     log_success, log_warning, log_error, log_info, log_config_item,
-    log_checkpoint, log_final_result, log_metric, create_info_box, Colors
+    log_checkpoint, log_final_result, log_metric, create_info_box, Colors,
+    configure_colors_for_wandb
 )
 
 # Global worker init function for deterministic DataLoader behavior
@@ -375,7 +378,6 @@ def run(args):
     # Initialize wandb if enabled
     if args.wandb:
         log_step(2, "Initializing Weights & Biases logging")
-        import re
         
         # Extract components from the original save_dir
         match = re.search(r"pipeline/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)", args.save_dir)
@@ -398,13 +400,20 @@ def run(args):
             config=vars(args)  # Log all arguments to wandb
         )
         log_success("Weights & Biases logging initialized")
+        
+        # Configure colors for wandb compatibility (darker colors for light background)
+        configure_colors_for_wandb(wandb_enabled=True)
+        log_info("Color scheme adjusted for wandb compatibility (darker colors)", Colors.CYAN)
+    else:
+        # Configure colors for terminal use (bright colors for dark background)
+        configure_colors_for_wandb(wandb_enabled=False)
 
     log_subsection_start("📋 CONFIGURATION OVERVIEW")
     # Print args in a structured way
     config_summary = f"Device: {args.device}\n"
     config_summary += f"Seed: {args.seed}\n"
     config_summary += f"Validation Mode: {getattr(args, 'validation_mode', 'balanced_acc')}\n"
-    config_summary += f"Early Stop Epochs: {getattr(args, 'early_stop_epoch', 10)}\n"
+    config_summary += f"Early Stop Epochs: {getattr(args, 'early_stop_epoch', 5)}\n"
     logging.info(create_info_box("Pipeline Configuration", config_summary))
     
     # Display save directory separately for easy copying
@@ -807,6 +816,12 @@ def run_eval_only(args):
             config=vars(args)
         )
         logging.info("wandb logging is enabled for evaluation.")
+        
+        # Configure colors for wandb compatibility (darker colors for light background)
+        configure_colors_for_wandb(wandb_enabled=True)
+    else:
+        # Configure colors for terminal use (bright colors for dark background)
+        configure_colors_for_wandb(wandb_enabled=False)
     
     # Validate required arguments for eval_only mode
     if not args.model_dir:
@@ -1068,7 +1083,7 @@ def parse_args():
     parser.add_argument('--test_per_epoch', action='store_true', help='Test with current and next checkpoint test data after each epoch (requires eval_per_epoch)')
     parser.add_argument('--save_best_model', action='store_true', default=True, help='Save best model during training')
     parser.add_argument('--validation_mode', type=str, default='balanced_acc', choices=['balanced_acc', 'loss'], help='Metric to use for best model selection: balanced_acc (higher is better) or loss (lower is better)')
-    parser.add_argument('--early_stop_epoch', type=int, default=10, help='Number of epochs without improvement to trigger early stopping (default: 10)')
+    parser.add_argument('--early_stop_epoch', type=int, default=10, help='Number of epochs without improvement to trigger early stopping after warmup period (default: 10)')
     parser.add_argument('--is_save', action='store_true', help='Save model')
     parser.add_argument('--eval_only', action='store_true', help='Evaluate only mode - loads trained model checkpoints and evaluates them')
     parser.add_argument('--model_dir', type=str, help='Directory containing trained model checkpoints (.pth files) for eval_only mode')

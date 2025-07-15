@@ -9,7 +9,7 @@ from typing import Optional
 
 class Colors:
     """ANSI color codes for terminal output."""
-    # Standard colors
+    # Standard colors (bright for dark terminal)
     RED = '\033[91m'
     GREEN = '\033[92m'
     YELLOW = '\033[93m'
@@ -18,13 +18,37 @@ class Colors:
     CYAN = '\033[96m'
     WHITE = '\033[97m'
     
-    # Bright colors
+    # Bright colors (very bright for dark terminal)
     BRIGHT_RED = '\033[1;91m'
     BRIGHT_GREEN = '\033[1;92m'
     BRIGHT_YELLOW = '\033[1;93m'
     BRIGHT_BLUE = '\033[1;94m'
     BRIGHT_MAGENTA = '\033[1;95m'
     BRIGHT_CYAN = '\033[1;96m'
+    
+    # Dark colors (for light background like wandb)
+    DARK_RED = '\033[31m'
+    DARK_GREEN = '\033[32m'
+    DARK_YELLOW = '\033[33m'
+    DARK_BLUE = '\033[34m'
+    DARK_MAGENTA = '\033[35m'
+    DARK_CYAN = '\033[36m'
+    DARK_GRAY = '\033[90m'
+    
+    # Very dark colors (for excellent readability on white backgrounds)
+    VERY_DARK_RED = '\033[38;5;88m'      # Dark red
+    VERY_DARK_GREEN = '\033[38;5;22m'    # Dark green  
+    VERY_DARK_YELLOW = '\033[38;5;94m'   # Dark brown/yellow
+    VERY_DARK_BLUE = '\033[38;5;18m'     # Dark blue
+    VERY_DARK_MAGENTA = '\033[38;5;89m'  # Dark magenta
+    VERY_DARK_CYAN = '\033[38;5;23m'     # Dark cyan/teal
+    BLACK = '\033[30m'                   # Black
+    DARK_BROWN = '\033[38;5;52m'         # Dark brown
+    
+    # Ultra dark colors for wandb (nearly black but with slight color tint)
+    ULTRA_DARK_GREEN = '\033[38;5;16m'   # Almost black with green tint
+    ULTRA_DARK_BLUE = '\033[38;5;17m'    # Almost black with blue tint
+    ULTRA_DARK_GRAY = '\033[38;5;236m'   # Very dark gray
     
     # Styles
     BOLD = '\033[1m'
@@ -36,6 +60,52 @@ class Colors:
     BG_GREEN = '\033[42m'
     BG_YELLOW = '\033[43m'
     BG_BLUE = '\033[44m'
+
+# Global variable to track if we should use dark colors
+_use_dark_colors = False
+
+def configure_colors_for_wandb(wandb_enabled=False):
+    """Configure color scheme based on whether wandb is running.
+    
+    Args:
+        wandb_enabled (bool): If True, use darker colors suitable for light backgrounds
+    """
+    global _use_dark_colors
+    _use_dark_colors = wandb_enabled
+    
+    if wandb_enabled:
+        # Use ultra dark colors for excellent readability on white background
+        Colors.RED = Colors.VERY_DARK_RED
+        Colors.GREEN = Colors.ULTRA_DARK_GREEN  # Use ultra dark for better contrast
+        Colors.YELLOW = Colors.DARK_BROWN       # Use brown instead of yellow
+        Colors.BLUE = Colors.ULTRA_DARK_BLUE    # Use ultra dark for better contrast
+        Colors.MAGENTA = Colors.VERY_DARK_MAGENTA
+        Colors.CYAN = Colors.ULTRA_DARK_GRAY    # Use dark gray instead of cyan
+        Colors.WHITE = Colors.BLACK
+        
+        # Also override bright colors with ultra dark versions
+        Colors.BRIGHT_RED = Colors.VERY_DARK_RED
+        Colors.BRIGHT_GREEN = Colors.ULTRA_DARK_GREEN   # Ultra dark green
+        Colors.BRIGHT_YELLOW = Colors.DARK_BROWN        # Brown instead of yellow
+        Colors.BRIGHT_BLUE = Colors.ULTRA_DARK_BLUE     # Ultra dark blue
+        Colors.BRIGHT_MAGENTA = Colors.VERY_DARK_MAGENTA
+        Colors.BRIGHT_CYAN = Colors.ULTRA_DARK_GRAY     # Dark gray instead of cyan
+    else:
+        # Reset to original bright colors for dark terminal
+        Colors.RED = '\033[91m'
+        Colors.GREEN = '\033[92m'
+        Colors.YELLOW = '\033[93m'
+        Colors.BLUE = '\033[94m'
+        Colors.MAGENTA = '\033[95m'
+        Colors.CYAN = '\033[96m'
+        Colors.WHITE = '\033[97m'
+        
+        Colors.BRIGHT_RED = '\033[1;91m'
+        Colors.BRIGHT_GREEN = '\033[1;92m'
+        Colors.BRIGHT_YELLOW = '\033[1;93m'
+        Colors.BRIGHT_BLUE = '\033[1;94m'
+        Colors.BRIGHT_MAGENTA = '\033[1;95m'
+        Colors.BRIGHT_CYAN = '\033[1;96m'
 
 
 def create_section_header(title: str, color: str = Colors.BRIGHT_CYAN, width: int = 80) -> str:

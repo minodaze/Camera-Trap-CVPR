@@ -96,7 +96,7 @@ class CLModule(ABC):
                     save_dir=save_dir,
                     model_name_prefix=model_name_prefix,
                     validation_mode=getattr(self.args, 'validation_mode', 'balanced_acc'),
-                    early_stop_epoch=getattr(self.args, 'early_stop_epoch', 10),
+                    early_stop_epoch=getattr(self.args, 'early_stop_epoch', 5),
                     test_per_epoch=test_per_epoch,
                     next_test_loader=next_test_loader,
                     test_type="NEXT")

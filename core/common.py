@@ -205,6 +205,9 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
     best_model_state = None
     epochs_without_improvement = 0  # For early stopping
     
+    # Fixed early stopping warmup period (20 epochs)
+    early_stop_warmup = 20
+    
     # Determine validation mode
     use_loss_for_best = (validation_mode == "loss")
     
@@ -215,7 +218,8 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
         logging.info(f'Using validation balanced accuracy as primary metric for best model selection (higher is better)')
     
     if eval_per_epoch and early_stop_epoch > 0:
-        logging.info(f'Early stopping enabled: will stop if no improvement for {early_stop_epoch} epochs')
+        logging.info(f'Early stopping warmup: first {early_stop_warmup} epochs will run without early stopping')
+        logging.info(f'Early stopping monitoring: after epoch {early_stop_warmup}, will stop if no improvement for {early_stop_epoch} epochs')
     
     # Add training header for better visualization
     log_training_header(model_name_prefix, epochs)
@@ -419,9 +423,10 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                     best_model_path = os.path.join(save_dir, f'{model_name_prefix}_best_model.pth')
                     torch.save(best_model_state, best_model_path)
             
-            # Early stopping check
-            if early_stop_epoch > 0 and epochs_without_improvement >= early_stop_epoch:
-                logging.info(f'Early stopping triggered: no improvement for {early_stop_epoch} epochs')
+            # Early stopping check (only after warmup period)
+            if early_stop_epoch > 0 and epoch >= early_stop_warmup and epochs_without_improvement >= early_stop_epoch:
+                logging.info(f'Early stopping triggered: no improvement for {early_stop_epoch} epochs after warmup period')
+                logging.info(f'Warmup period completed: first {early_stop_warmup} epochs, monitoring started from epoch {early_stop_warmup}')
                 if use_loss_for_best:
                     logging.info(f'Best epoch was {best_epoch} with val_loss={best_val_loss:.4f}')
                 else:
@@ -433,7 +438,10 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                 import wandb
                 if wandb.run is not None:
                     eval_loss = loss_arr.mean()
-                    status_indicator = "(BEST)" if is_best else f"({epochs_without_improvement}/{early_stop_epoch})" if early_stop_epoch > 0 else ""
+                    if epoch < early_stop_warmup:
+                        status_indicator = "(WARMUP)" if not is_best else "(BEST-WARMUP)"
+                    else:
+                        status_indicator = "(BEST)" if is_best else f"({epochs_without_improvement}/{early_stop_epoch})" if early_stop_epoch > 0 else ""
                     logging.info(f'Epoch {epoch}: train_acc={avg_acc:.4f}, train_balanced_acc={balanced_acc:.4f}, val_acc={eval_acc:.4f}, val_balanced_acc={eval_balanced_acc:.4f}, val_loss={eval_loss:.4f}, LR={optimizer.param_groups[0]["lr"]:.8f} {status_indicator}')
                     wandb.log({
                         "val/loss": eval_loss,
@@ -442,7 +450,9 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                         "val/is_best": is_best,
                         "val/best_epoch": best_epoch,
                         "val/epochs_without_improvement": epochs_without_improvement,
-                        "val/validation_mode": validation_mode
+                        "val/validation_mode": validation_mode,
+                        "val/in_warmup": epoch < early_stop_warmup,
+                        "val/warmup_epoch": early_stop_warmup
                     })
             except (ImportError, AttributeError):
                 pass  # wandb not available or not initialized
