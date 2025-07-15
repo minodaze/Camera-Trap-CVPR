@@ -425,6 +425,15 @@ def run(args):
             cls_name = class_names[cls_idx] if cls_idx < len(class_names) else f"class_{cls_idx}"
             logging.info(f'  Class {cls_name} (idx {cls_idx}): {count} samples {count / sum_count:.2%}')
 
+        eval_cls_count = {}
+        for sample in ckp_eval_dset.samples:
+            label = sample.label
+            eval_cls_count[label] = eval_cls_count.get(label, 0) + 1
+        sum_count = sum(eval_cls_count.values())
+        for cls_idx, count in eval_cls_count.items():
+            cls_name = class_names[cls_idx] if cls_idx < len(class_names) else f"class_{cls_idx}"
+            logging.info(f'  Class {cls_name} (idx {cls_idx}): {count} samples {count / sum_count:.2%}')
+
         # Monitor memory after data subset
         if args.gpu_memory_monitor:
             gpu_monitor.monitor_data_loading(f"ckp_{ckp}_train", 
