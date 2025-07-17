@@ -10,6 +10,7 @@ from torch.nn import functional as F
 from tqdm import tqdm
 
 from .loss import CB_loss, focal_loss, standard_focal_loss, LDAM_loss, loss_fn_kd, SupConLoss, cdt_loss, balanced_softmax_loss
+from utils.vram_check import check_vram_and_clean, maintenance_vram_check, conditional_cache_clear
 
 # Import epoch logging functions
 try:
@@ -19,6 +20,10 @@ except ImportError:
     def log_epoch_train(*args, **kwargs): pass
     def log_epoch_val(*args, **kwargs): pass
     def log_epoch_test(*args, **kwargs): pass
+    def log_training_header(*args, **kwargs): pass
+    def log_training_summary(*args, **kwargs): pass
+    def create_epoch_table_header(*args, **kwargs): pass
+    def log_epoch_table_row(*args, **kwargs): pass
     def log_training_header(*args, **kwargs): pass
     def log_training_summary(*args, **kwargs): pass
     def create_epoch_table_header(*args, **kwargs): return ""
@@ -197,7 +202,7 @@ def get_scheduler(optimizer, scheduler_name, scheduler_params):
         raise ValueError(f'Unknown scheduler {scheduler_name}. ')
     return scheduler
 
-def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False, gpu_monitor=None, save_best_model=True, save_dir=None, model_name_prefix="model", validation_mode="balanced_acc", early_stop_epoch=10, test_per_epoch=False, next_test_loader=None, test_type="NEXT"):
+def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False, gpu_monitor=None, save_best_model=True, save_dir=None, model_name_prefix="model", validation_mode="balanced_acc", early_stop_epoch=5, test_per_epoch=False, next_test_loader=None, test_type="NEXT"):
     # Initialize best model tracking
     best_val_metric = float('-inf')  # For accuracy tracking (higher is better)
     best_val_loss = float('inf')     # For loss (lower is better)
@@ -205,8 +210,8 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
     best_model_state = None
     epochs_without_improvement = 0  # For early stopping
     
-    # Fixed early stopping warmup period (20 epochs)
-    early_stop_warmup = 20
+    # Fixed early stopping warmup period (15 epochs)
+    early_stop_warmup = 15
     
     # Determine validation mode
     use_loss_for_best = (validation_mode == "loss")
@@ -235,6 +240,9 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
         # Log memory at epoch start
         if gpu_monitor:
             gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_start")
+        
+        # Additional VRAM debug log for hanging detection
+        check_vram_and_clean(context="epoch start")
             
         if train_head_only:
             classifier.visual_model.eval()
@@ -245,42 +253,106 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
         correct_arr = []
         preds_arr = []
         labels_arr = []
+        
+        # Set up maintenance VRAM checker
+        maintenance_check = maintenance_vram_check(batch_interval=25, threshold=30.0)
+        
         for batch_idx, (inputs, labels, old_logits, is_buf) in enumerate(loader):
-            # Log memory for first few batches
-            if gpu_monitor and batch_idx < 3:
-                gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_before")
+            # Silent optimized cache clearing and critical warnings only
+            if batch_idx % 5 == 0 or batch_idx < 3:
+                check_vram_and_clean(context=f"batch {batch_idx}")
+                    
+                # Silent optimized cache clearing - keeps memory fresh without debug logs
+                if batch_idx % 15 == 0:  # Every 15 batches
+                    conditional_cache_clear()
+            
+            # Enhanced VRAM debugging for accumulative training - log every batch in first few epochs
+            debug_memory = gpu_monitor and (epoch < 3 or batch_idx < 5)
+            
+            if debug_memory:
+                gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_start", {
+                    'batch_size': len(labels) if hasattr(labels, '__len__') else 1,
+                    'has_old_logits': old_logits is not None,
+                    'has_buffer_samples': is_buf.any() if hasattr(is_buf, 'any') else False
+                })
                 
             if isinstance(inputs, list):  # for TwoCropTransform
                 inputs = torch.cat(inputs, dim=0)
-            # Forward
+                
+            # Move to device and log memory impact
             inputs, labels = inputs.to(device), labels.to(device)
+            if debug_memory:
+                gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_data_to_device")
+            
+            # Forward pass with detailed memory tracking
             bsz = labels.size(0)
             if inputs.size(0) == 2 * bsz:
                 i1, i2 = torch.split(inputs, [bsz, bsz], dim=0)
+                if debug_memory:
+                    gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_before_forward")
                 logits = classifier(i1)
+                if debug_memory:
+                    gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after_forward")
             else:
+                if debug_memory:
+                    gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_before_forward")
                 logits = classifier(inputs)
+                if debug_memory:
+                    gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after_forward")
+                    
             preds = logits.argmax(dim=1)
             correct = preds == labels
             proj_features = None
             if hasattr(classifier, 'proj_head'):
                 # For SupCon loss, we need to get the features
                 proj_features = classifier.proj_features(inputs)
+                
+            if debug_memory:
+                gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_before_loss")
             loss = f_loss(logits, labels, images=inputs, proj_features=proj_features, old_logits=old_logits, is_buf=is_buf)
-            # Backward
+            if debug_memory:
+                gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after_loss", {
+                    'loss_value': loss.item()
+                })
+            
+            # Backward pass with memory tracking
             optimizer.zero_grad()
+            if debug_memory:
+                gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_before_backward")
             loss.backward()
+            if debug_memory:
+                gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after_backward")
             optimizer.step()
+            if debug_memory:
+                gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after_optimizer_step")
             
-            # Log memory for first few batches
-            if gpu_monitor and batch_idx < 3:
-                gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after")
-            
-            # Append
+            # Append arrays before cleanup (need to access tensors)
             loss_arr.append(loss.cpu().item())
             correct_arr.append(correct.cpu().numpy())
             preds_arr.append(preds.cpu().numpy())
             labels_arr.append(labels.cpu().numpy())
+            
+            # Clean up tensors to help with memory
+            del inputs, labels, logits, loss
+            if proj_features is not None:
+                del proj_features
+            
+            # Safe cache clearing after batch completion - only when really needed
+            if debug_memory:
+                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after_cleanup")
+            else:
+                # Every 25 batches, silent maintenance cleaning
+                maintenance_check(batch_idx)
+        
+        # Debug log after completing all batches
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            mem_allocated = torch.cuda.memory_allocated() / 1024**3
+            mem_reserved = torch.cuda.memory_reserved() / 1024**3
+            
+            # Safe epoch-end cache clearing if memory is high
+            conditional_cache_clear(threshold=22.0)
         
         loss_arr = np.array(loss_arr)
         correct_arr = np.concatenate(correct_arr, axis=0)
@@ -332,7 +404,18 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             scheduler.step()
 
         if eval_per_epoch:
+            # Log memory before evaluation
+            if gpu_monitor:
+                gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_before_eval")
+                
             loss_arr, preds_arr, labels_arr = eval(classifier, eval_loader, device)
+            
+            # Log memory after evaluation
+            if gpu_monitor:
+                gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_after_eval", {
+                    'eval_samples': len(labels_arr)
+                })
+                
             # Compute metrics without logging to avoid duplication
             eval_acc, eval_balanced_acc, eval_loss = compute_metrics(loss_arr, preds_arr, labels_arr, len(eval_loader.dataset.class_names))
             
@@ -355,7 +438,9 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                     epochs_without_improvement = 0
                     best_indicator = f"BEST LOSS (↓) SAVED"
                 else:
-                    epochs_without_improvement += 1
+                    # Only increment epochs_without_improvement after warmup period
+                    if epoch >= early_stop_warmup:
+                        epochs_without_improvement += 1
             else:
                 # Use validation balanced accuracy as primary metric (higher is better)
                 # For same balanced accuracy, use the earliest one (strict >)
@@ -368,13 +453,19 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                     epochs_without_improvement = 0
                     best_indicator = f"BEST ACC (↑) SAVED"
                 else:
-                    epochs_without_improvement += 1
+                    # Only increment epochs_without_improvement after warmup period
+                    if epoch >= early_stop_warmup:
+                        epochs_without_improvement += 1
             
             # Use new validation logging format with best model indicator
             log_epoch_val(epoch, eval_loss, eval_acc, eval_balanced_acc, len(labels_arr), is_best, best_indicator)
             
             # Test evaluation per epoch if enabled
             if test_per_epoch and next_test_loader is not None:
+                # Log memory before test evaluation
+                if gpu_monitor:
+                    gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_before_test_eval")
+                    
                 if isinstance(next_test_loader, dict):
                     # Upper bound mode: evaluate on each test checkpoint separately and compute average
                     test_results = []
@@ -411,6 +502,10 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                         len(next_test_loader.dataset.class_names)
                     )
                     log_epoch_test(epoch, next_test_loss, next_test_acc, next_test_balanced_acc, len(next_test_labels_arr), test_type)
+                
+                # Log memory after test evaluation
+                if gpu_monitor:
+                    gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_after_test_eval")
             
             # Add separator line after each epoch's complete log set
             if eval_per_epoch or test_per_epoch:
@@ -418,15 +513,34 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             
             # Save best model state (without logging - already shown in epoch log)
             if is_best and save_best_model:
+                # Log memory before model state saving
+                if gpu_monitor:
+                    gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_before_save_best_model")
+                    
                 best_model_state = copy.deepcopy(classifier.state_dict())
+                
+                # Log memory after model state copying
+                if gpu_monitor:
+                    gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_after_copy_best_model")
+                    
                 if save_dir:
                     best_model_path = os.path.join(save_dir, f'{model_name_prefix}_best_model.pth')
                     torch.save(best_model_state, best_model_path)
+                    # If saving to disk, we can clean up immediately and load later from disk
+                    del best_model_state
+                    best_model_state = None  # Mark as saved to disk
+                    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                    
+                    # Log memory after model state cleanup
+                    if gpu_monitor:
+                        gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_after_cleanup_best_model")
             
             # Early stopping check (only after warmup period)
             if early_stop_epoch > 0 and epoch >= early_stop_warmup and epochs_without_improvement >= early_stop_epoch:
                 logging.info(f'Early stopping triggered: no improvement for {early_stop_epoch} epochs after warmup period')
                 logging.info(f'Warmup period completed: first {early_stop_warmup} epochs, monitoring started from epoch {early_stop_warmup}')
+                logging.info(f'Early stopping triggered at epoch {epoch} (after {epochs_without_improvement} epochs without improvement)')
+                logging.info(f'Latest model would have stopped at epoch {early_stop_warmup + early_stop_epoch} if no improvement')
                 if use_loss_for_best:
                     logging.info(f'Best epoch was {best_epoch} with val_loss={best_val_loss:.4f}')
                 else:
@@ -461,8 +575,22 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             pass
     
     # Load best model if we saved one
-    if save_best_model and best_model_state is not None:
-        classifier.load_state_dict(best_model_state)
+    if save_best_model and (best_model_state is not None or save_dir):
+        if best_model_state is not None:
+            # Load from memory
+            classifier.load_state_dict(best_model_state)
+            # Clean up best model state from memory
+            del best_model_state
+            torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        elif save_dir:
+            # Load from disk
+            best_model_path = os.path.join(save_dir, f'{model_name_prefix}_best_model.pth')
+            if os.path.exists(best_model_path):
+                state_dict = torch.load(best_model_path, map_location=device)
+                classifier.load_state_dict(state_dict)
+                del state_dict  # Clean up loaded state
+                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        
         if use_loss_for_best:
             logging.info(f'Loaded best model from epoch {best_epoch} (val_loss={best_val_loss:.4f}, val_balanced_acc={best_val_metric:.4f})')
         else:

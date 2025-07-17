@@ -9,8 +9,8 @@
 #SBATCH --gpus-per-node=1         # One GPU per node
 #SBATCH --cpus-per-task=24
 
-USER_NAME="Lemeng"
-CONDA_ENV="icicle_env"
+USER_NAME=""
+CONDA_ENV=""
 
 # Load your env
 source ~/miniconda3/etc/profile.d/conda.sh
