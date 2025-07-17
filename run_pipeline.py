@@ -51,8 +51,6 @@ def setup_logging(log_path, debug, params):
     # Clear existing handlers to prevent duplicates
     logger.handlers.clear()
     
-    # Use deterministic timestamp based on configuration for reproducibility
-    deterministic_time = f"2025-07-12-20-{abs(hash(str(vars(params)))) % 10000:04d}-00"
     petl_method_name = method_name(params)
     log_path = os.path.join(log_path, params.pretrained_weights)
 
@@ -60,15 +58,13 @@ def setup_logging(log_path, debug, params):
     if params.interpolation_model:
         petl_method_name += f'_interpolation_model_{params.interpolation_alpha}'
     log_path = os.path.join(log_path, petl_method_name)
-    log_path = os.path.join(log_path, deterministic_time)
     if not debug:
         logger.setLevel(logging.INFO)
         log_path = os.path.join(log_path, 'log')
     else:
         logger.setLevel(logging.DEBUG)
-        curr_time = f"debug-{deterministic_time}"
-        log_path = os.path.join(log_path, curr_time)
-        
+        log_path = os.path.join(log_path, 'debug')
+
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
     # Log to stdout
@@ -876,8 +872,8 @@ def run_eval_only(args):
         monitor_model_memory(classifier, "classifier", args.device, args.wandb)
     
     # Prepare dataset
-    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type)
-    
+    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, is_train=False, label_type=label_type)
+
     # Get checkpoint list
     ckp_list = eval_dset.get_ckp_list()
     logging.info(f'Available checkpoints in dataset: {ckp_list}')

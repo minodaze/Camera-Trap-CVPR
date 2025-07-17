@@ -1,1 +1,5 @@
+/fs/scratch/PAS2099/camera-trap-benchmark-logs/icicle/log_auto/pipeline/idaho_idaho_85/upper_bound/lr_0.000025/2025-07-12-20-5f-1f/bioclip2/full_text_head/2025-07-12-20-3187-00/log/
 /fs/scratch/PAS2099/camera-trap-benchmark-logs/icicle/log_auto/pipeline/na_na_archbold_FL-23/upper_bound/lr_0.000025/2025-07-12-20-52-4b/bioclip2/full_text_head/2025-07-12-20-0475-00/log/
+/fs/scratch/PAS2099/camera-trap-benchmark-logs/icicle/log_auto/pipeline/idaho_idaho_103/upper_bound/lr_0.000025/2025-07-12-20-7f-b3/bioclip2/full_text_head/2025-07-12-20-1705-00/log/
+/fs/scratch/PAS2099/camera-trap-benchmark-logs/icicle/log_auto/pipeline/idaho_idaho_76/upper_bound/lr_0.000025/2025-07-12-20-60-06/bioclip2/full_text_head/2025-07-12-20-2388-00/log/
+/fs/scratch/PAS2099/camera-trap-benchmark-logs/icicle/log_auto/pipeline/nz_nz_EFH_HCAMD07/upper_bound/lr_0.000025/2025-07-12-20-4d-f5/bioclip2/full_text_head/2025-07-12-20-5999-00/log/

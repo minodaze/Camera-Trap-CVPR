@@ -26,7 +26,7 @@ ALL_DATASETS=("${TEMP_DATASETS[@]}")
 # LEARNING_RATES=(0.000001 0.0000025 0.000005 0.00001 0.000025 0.00005 0.0001 0.00025 0.0005 )
 LEARNING_RATES=(0.000025)
 # Number of datasets to process per sbatch job
-DATASETS_PER_JOB=4
+DATASETS_PER_JOB=3
 
 # Calculate total number of jobs needed
 TOTAL_DATASETS=${#ALL_DATASETS[@]}
@@ -72,12 +72,20 @@ for lr in "${LEARNING_RATES[@]}"; do
         echo "  Datasets: ${datasets_string}"
         
         # Submit the sbatch job with the datasets and learning rate as arguments
-        # sbatch sbatch_run_accu_lora_bsm.sh "${datasets_string}" "$lr"
+        sbatch sbatch_run_accu_lora_bsm.sh "${datasets_string}" "$lr"
         # sleep 1
-        # sbatch sbatch_run_accu_lora_cdt.sh "${datasets_string}" "$lr"
         # sbatch sbatch_run_ub_lora.sh "${datasets_string}" "$lr"
-        sbatch sbatch_run_ub_lora_lwf.sh "${datasets_string}" "$lr"
-        sbatch sbatch_run_ub_full_lwf.sh "${datasets_string}" "$lr"
+        # sleep 1
+        # sbatch sbatch_run_ub_lora_bsm.sh "${datasets_string}" "$lr"
+        # sleep 1
+        # sbatch sbatch_run_ub_full_bsm.sh "${datasets_string}" "$lr"
+        # sleep 1
+        # sbatch sbatch_run_ub_repadapter.sh "${datasets_string}" "$lr"
+        # sleep 1
+        # sbatch sbatch_run_ub_repadapter_bsm.sh "${datasets_string}" "$lr"
+        # sleep 1
+        # sbatch sbatch_run_ub_lora_lwf.sh "${datasets_string}" "$lr"
+        # sbatch sbatch_run_ub_full_lwf.sh "${datasets_string}" "$lr"
         # sleep 1
         # sbatch sbatch_run_accu_full.sh "${datasets_string}" "$lr"
         
