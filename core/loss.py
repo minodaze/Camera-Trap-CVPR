@@ -185,7 +185,7 @@ def cdt_loss(logits, labels, samples_per_cls, gamma=0.3, device='cuda'):
     """
     # logits: [batch, C], labels: [batch]
     samples_per_cls = torch.tensor(samples_per_cls, dtype=torch.float32, device=device)  # [C]
-    
+  
     # 1) 计算最大样本数 N_max
     N_max = torch.max(samples_per_cls)
     # 2) 计算每类温度系数 t_c = (N_max / n_c)^gamma
