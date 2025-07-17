@@ -15,9 +15,17 @@ from torch.utils.data import DataLoader
 import pprint
 import pickle
 import wandb  # Ensure wandb is imported
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+from matplotlib.colors import LinearSegmentedColormap
 
 from core import *
 from core.module import get_al_module, get_cl_module, get_ood_module
+from core.calibration import (
+    comprehensive_paper_calibration, 
+    get_training_classes_for_checkpoint,
+    convert_numpy_types
+)
 from utils.misc import method_name
 from utils.gpu_monitor import get_gpu_monitor, log_gpu_memory, monitor_model_memory
 from utils.log_formatter import (
@@ -866,6 +874,416 @@ def run(args):
     print(Colors.BOLD + "=" * 80 + Colors.RESET)
     print()
 
+
+def generate_calibration_auc_curve(test_logits, test_labels, train_logits, train_labels, 
+                                  training_classes, class_names, ckp, save_dir):
+    """
+    Generate AUC curve showing the trade-off between seen class accuracy and absent class accuracy.
+    
+    This creates a curve similar to the paper's figure showing how calibration affects
+    the balance between fine-tuning class accuracy and absent class accuracy.
+    
+    Args:
+        test_logits: Test logits [N, C]
+        test_labels: Test labels [N]
+        train_logits: Training logits [N_train, C] (for learning gamma)
+        train_labels: Training labels [N_train]
+        training_classes: List of seen class indices
+        class_names: List of all class names
+        ckp: Checkpoint name
+        save_dir: Directory to save the plot
+    """
+    try:
+        from core.calibration import learn_gamma_alg, logit_bias_correction
+        from sklearn.metrics import accuracy_score
+        
+        # Get absent classes
+        num_classes = len(class_names)
+        absent_classes = [i for i in range(num_classes) if i not in training_classes]
+        
+        # Debug information
+        log_info(f"🔍 AUC Curve Debug for {ckp}:", Colors.CYAN)
+        log_info(f"   Total classes: {num_classes}", Colors.CYAN)
+        log_info(f"   Training classes: {len(training_classes)} -> {training_classes[:10]}{'...' if len(training_classes) > 10 else ''}", Colors.CYAN)
+        log_info(f"   Absent classes: {len(absent_classes)} -> {absent_classes[:10]}{'...' if len(absent_classes) > 10 else ''}", Colors.CYAN)
+        
+        # Check class presence in test data
+        unique_test_labels = np.unique(test_labels)
+        log_info(f"   Test data classes: {len(unique_test_labels)} -> {unique_test_labels[:10].tolist()}{'...' if len(unique_test_labels) > 10 else ''}", Colors.CYAN)
+        
+        if not absent_classes or not training_classes:
+            log_warning(f"Cannot generate AUC curve for {ckp}: missing seen or absent classes")
+            log_warning(f"   Training classes empty: {len(training_classes) == 0}")
+            log_warning(f"   Absent classes empty: {len(absent_classes) == 0}")
+            return None
+        
+        # Separate test samples by class type
+        seen_mask = np.isin(test_labels, training_classes)
+        absent_mask = np.isin(test_labels, absent_classes)
+        
+        # More detailed debugging
+        seen_count = np.sum(seen_mask)
+        absent_count = np.sum(absent_mask)
+        log_info(f"   Test samples with seen classes: {seen_count}/{len(test_labels)}", Colors.CYAN)
+        log_info(f"   Test samples with absent classes: {absent_count}/{len(test_labels)}", Colors.CYAN)
+        
+        if not np.any(seen_mask) or not np.any(absent_mask):
+            log_warning(f"Cannot generate full AUC curve for {ckp}: missing seen or absent test samples")
+            log_warning(f"   Seen samples in test: {seen_count}")
+            log_warning(f"   Absent samples in test: {absent_count}")
+            
+            # Show which training classes are actually in test data
+            training_in_test = [cls for cls in training_classes if cls in unique_test_labels]
+            absent_in_test = [cls for cls in absent_classes if cls in unique_test_labels]
+            log_info(f"   Training classes found in test: {len(training_in_test)}/{len(training_classes)} -> {training_in_test[:10]}{'...' if len(training_in_test) > 10 else ''}", Colors.YELLOW)
+            log_info(f"   Absent classes found in test: {len(absent_in_test)}/{len(absent_classes)} -> {absent_in_test[:10]}{'...' if len(absent_in_test) > 10 else ''}", Colors.YELLOW)
+            
+            # Try alternative approach: generate a simpler visualization
+            if np.any(seen_mask) and not np.any(absent_mask):
+                log_info(f"   Generating seen-classes-only calibration plot for {ckp}", Colors.BLUE)
+                return generate_simple_calibration_plot(test_logits, test_labels, train_logits, train_labels,
+                                                       training_classes, class_names, ckp, save_dir, "seen_only")
+            elif np.any(absent_mask) and not np.any(seen_mask):
+                log_info(f"   Generating absent-classes-only calibration plot for {ckp}", Colors.BLUE)
+                return generate_simple_calibration_plot(test_logits, test_labels, train_logits, train_labels,
+                                                       training_classes, class_names, ckp, save_dir, "absent_only")
+            else:
+                log_warning(f"   No compatible test samples found for {ckp} - skipping AUC curve")
+                return None
+        
+        # Learn base gamma from training data
+        if train_logits is not None and train_labels is not None:
+            base_gamma = learn_gamma_alg(train_logits, training_classes)
+        else:
+            base_gamma = learn_gamma_alg(test_logits, training_classes)
+        
+        # Generate curve by varying gamma around the learned value
+        gamma_range = np.linspace(base_gamma - 3.0, base_gamma + 3.0, 50)
+        seen_accuracies = []
+        absent_accuracies = []
+        
+        for gamma in gamma_range:
+            # Apply calibration with this gamma
+            corrected_logits = logit_bias_correction(test_logits, training_classes, gamma)
+            corrected_preds = np.argmax(corrected_logits, axis=1)
+            
+            # Calculate accuracies for seen and absent classes
+            seen_acc = accuracy_score(test_labels[seen_mask], corrected_preds[seen_mask])
+            absent_acc = accuracy_score(test_labels[absent_mask], corrected_preds[absent_mask])
+            
+            seen_accuracies.append(seen_acc * 100)  # Convert to percentage
+            absent_accuracies.append(absent_acc * 100)  # Convert to percentage
+        
+        # Create the plot
+        plt.figure(figsize=(10, 8))
+        
+        # Plot the curve
+        plt.plot(seen_accuracies, absent_accuracies, 'r-', linewidth=2, label='Fine-tuning + γ')
+        
+        # Mark special points
+        # Original point (gamma = 0)
+        original_logits = test_logits.copy()
+        original_preds = np.argmax(original_logits, axis=1)
+        orig_seen_acc = accuracy_score(test_labels[seen_mask], original_preds[seen_mask]) * 100
+        orig_absent_acc = accuracy_score(test_labels[absent_mask], original_preds[absent_mask]) * 100
+        plt.plot(orig_seen_acc, orig_absent_acc, 'rs', markersize=10, label='Fine-tuning', zorder=5)
+        
+        # Optimal point (learned gamma)
+        opt_corrected_logits = logit_bias_correction(test_logits, training_classes, base_gamma)
+        opt_corrected_preds = np.argmax(opt_corrected_logits, axis=1)
+        opt_seen_acc = accuracy_score(test_labels[seen_mask], opt_corrected_preds[seen_mask]) * 100
+        opt_absent_acc = accuracy_score(test_labels[absent_mask], opt_corrected_preds[absent_mask]) * 100
+        plt.plot(opt_seen_acc, opt_absent_acc, 'k*', markersize=15, label=f'{ckp} (γ={base_gamma:.2f})', zorder=5)
+        
+        # Pre-training point (theoretical - equal performance)
+        if len(training_classes) > 0 and len(absent_classes) > 0:
+            # Estimate pre-training performance as balanced point
+            balanced_acc = (orig_seen_acc + orig_absent_acc) / 2
+            plt.plot(balanced_acc, balanced_acc, 'g*', markersize=12, label='Pre-training (estimated)', zorder=5)
+        
+        # Styling to match the reference figure
+        plt.xlabel('Fine-tuning Class Data Accuracy', fontsize=14)
+        plt.ylabel('Absent Class Data Accuracy', fontsize=14)
+        plt.title(f'{ckp}: Fine-tuning vs Absent Class Accuracy\n({len(training_classes)} seen, {len(absent_classes)} absent classes)', fontsize=16, fontweight='bold')
+        
+        # Set grid and limits
+        plt.grid(True, alpha=0.3)
+        plt.xlim(0, max(100, max(seen_accuracies) + 5))
+        plt.ylim(0, max(100, max(absent_accuracies) + 5))
+        
+        # Add diagonal line for reference (equal performance)
+        max_val = max(max(seen_accuracies), max(absent_accuracies))
+        plt.plot([0, max_val], [0, max_val], 'k--', alpha=0.3, label='Equal performance')
+        
+        # Legend
+        plt.legend(loc='best', fontsize=12)
+        
+        # Add text box with statistics
+        stats_text = f"Training Classes: {len(training_classes)}\n"
+        stats_text += f"Absent Classes: {len(absent_classes)}\n"
+        stats_text += f"Test Samples: {len(test_labels)}\n"
+        stats_text += f"Learned γ: {base_gamma:.3f}\n"
+        stats_text += f"Seen Acc Δ: {opt_seen_acc - orig_seen_acc:+.1f}%\n"
+        stats_text += f"Absent Acc Δ: {opt_absent_acc - orig_absent_acc:+.1f}%"
+        
+        plt.text(0.02, 0.98, stats_text, transform=plt.gca().transAxes, 
+                fontsize=10, verticalalignment='top', 
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+        
+        plt.tight_layout()
+        
+        # Save the plot
+        plot_path = os.path.join(save_dir, f'{ckp}_calibration_auc_curve.png')
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        log_success(f"📊 AUC curve saved to {plot_path}")
+        
+        # Return summary data
+        return {
+            'plot_path': plot_path,
+            'original_seen_acc': orig_seen_acc,
+            'original_absent_acc': orig_absent_acc,
+            'calibrated_seen_acc': opt_seen_acc,
+            'calibrated_absent_acc': opt_absent_acc,
+            'gamma': base_gamma,
+            'seen_improvement': opt_seen_acc - orig_seen_acc,
+            'absent_improvement': opt_absent_acc - orig_absent_acc
+        }
+        
+    except Exception as e:
+        log_error(f"Failed to generate AUC curve for {ckp}: {e}")
+        return None
+
+
+def generate_simple_calibration_plot(test_logits, test_labels, train_logits, train_labels,
+                                   training_classes, class_names, ckp, save_dir, plot_type="seen_only"):
+    """
+    Generate a simple calibration plot when full AUC curve cannot be generated.
+    
+    Args:
+        test_logits: Test logits [N, C]
+        test_labels: Test labels [N]
+        train_logits: Training logits [N_train, C]
+        train_labels: Training labels [N_train]
+        training_classes: List of seen class indices
+        class_names: List of all class names
+        ckp: Checkpoint name
+        save_dir: Directory to save the plot
+        plot_type: "seen_only" or "absent_only"
+    """
+    try:
+        from core.calibration import learn_gamma_alg, logit_bias_correction
+        from sklearn.metrics import accuracy_score
+        
+        # Learn base gamma
+        if train_logits is not None and train_labels is not None:
+            base_gamma = learn_gamma_alg(train_logits, training_classes)
+        else:
+            base_gamma = learn_gamma_alg(test_logits, training_classes)
+        
+        # Generate gamma range
+        gamma_range = np.linspace(base_gamma - 2.0, base_gamma + 2.0, 30)
+        accuracies = []
+        
+        # Determine which classes to focus on
+        if plot_type == "seen_only":
+            focus_classes = training_classes
+            title_suffix = "Seen Classes Only"
+            ylabel = "Seen Class Accuracy (%)"
+        else:  # absent_only
+            focus_classes = [i for i in range(len(class_names)) if i not in training_classes]
+            title_suffix = "Absent Classes Only"
+            ylabel = "Absent Class Accuracy (%)"
+        
+        focus_mask = np.isin(test_labels, focus_classes)
+        
+        if not np.any(focus_mask):
+            log_warning(f"No {plot_type} samples found - cannot generate simple plot")
+            return None
+        
+        # Calculate accuracies for different gamma values
+        for gamma in gamma_range:
+            corrected_logits = logit_bias_correction(test_logits, training_classes, gamma)
+            corrected_preds = np.argmax(corrected_logits, axis=1)
+            acc = accuracy_score(test_labels[focus_mask], corrected_preds[focus_mask])
+            accuracies.append(acc * 100)
+        
+        # Create the plot
+        plt.figure(figsize=(10, 6))
+        
+        # Plot the curve
+        plt.plot(gamma_range, accuracies, 'b-', linewidth=2, label=f'{title_suffix} Accuracy')
+        
+        # Mark special points
+        original_preds = np.argmax(test_logits, axis=1)
+        orig_acc = accuracy_score(test_labels[focus_mask], original_preds[focus_mask]) * 100
+        plt.plot(0, orig_acc, 'rs', markersize=10, label='No Calibration (γ=0)')
+        
+        # Optimal point
+        opt_corrected_logits = logit_bias_correction(test_logits, training_classes, base_gamma)
+        opt_corrected_preds = np.argmax(opt_corrected_logits, axis=1)
+        opt_acc = accuracy_score(test_labels[focus_mask], opt_corrected_preds[focus_mask]) * 100
+        plt.plot(base_gamma, opt_acc, 'k*', markersize=15, label=f'Optimal (γ={base_gamma:.2f})')
+        
+        # Styling
+        plt.xlabel('Gamma (γ)', fontsize=14)
+        plt.ylabel(ylabel, fontsize=14)
+        plt.title(f'{ckp}: Calibration Effect - {title_suffix}\n({len(focus_classes)} classes, {np.sum(focus_mask)} test samples)', fontsize=14, fontweight='bold')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        
+        # Add text box with statistics
+        stats_text = f"Focus Classes: {len(focus_classes)}\n"
+        stats_text += f"Test Samples: {np.sum(focus_mask)}\n"
+        stats_text += f"Learned γ: {base_gamma:.3f}\n"
+        stats_text += f"Accuracy Δ: {opt_acc - orig_acc:+.1f}%"
+        
+        plt.text(0.02, 0.98, stats_text, transform=plt.gca().transAxes,
+                fontsize=10, verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+        
+        plt.tight_layout()
+        
+        # Save the plot
+        plot_path = os.path.join(save_dir, f'{ckp}_calibration_{plot_type}_curve.png')
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        log_success(f"📊 Simple calibration plot saved to {plot_path}")
+        
+        return {
+            'plot_path': plot_path,
+            'plot_type': plot_type,
+            'original_acc': orig_acc,
+            'calibrated_acc': opt_acc,
+            'gamma': base_gamma,
+            'improvement': opt_acc - orig_acc,
+            'focus_classes': len(focus_classes),
+            'test_samples': int(np.sum(focus_mask))
+        }
+        
+    except Exception as e:
+        log_error(f"Failed to generate simple calibration plot for {ckp}: {e}")
+        return None
+
+
+def get_training_logits(classifier, train_dset, ckp, device, batch_size=32):
+    """
+    Get training logits for calibration analysis.
+    
+    Args:
+        classifier: Model to evaluate
+        train_dset: Training dataset object
+        ckp: Current checkpoint
+        device: Device to run evaluation on
+        batch_size: Batch size for evaluation
+    
+    Returns:
+        tuple: (train_logits, train_labels) or (None, None) if no training data
+    """
+    try:
+        if ckp == 'ckp_1':
+            # Zero-shot model - no training data
+            return None, None
+        
+        # For ckp_N, get training data from ckp_(N-1)
+        ckp_num = int(ckp.split('_')[1])
+        prev_ckp = f'ckp_{ckp_num - 1}'
+        
+        # Get training dataset for previous checkpoint
+        prev_train_dset = train_dset.get_subset(is_train=True, ckp_list=prev_ckp)
+        
+        if len(prev_train_dset) == 0:
+            log_warning(f"No training data found for {prev_ckp}")
+            return None, None
+        
+        # Create data loader
+        train_loader = DataLoader(
+            prev_train_dset, 
+            batch_size=batch_size, 
+            shuffle=False, 
+            num_workers=4
+        )
+        
+        # Get logits using eval_with_logits function
+        _, _, train_labels, train_logits = eval_with_logits(
+            classifier, train_loader, device, chop_head=False
+        )
+        
+        log_info(f"Collected training logits from {prev_ckp}: {len(train_labels)} samples", Colors.CYAN)
+        return train_logits, train_labels
+        
+    except Exception as e:
+        log_warning(f"Failed to get training logits for {ckp}: {e}")
+        return None, None
+
+
+def eval_with_logits(classifier, loader, device, chop_head=False):
+    """
+    Evaluate model and return logits, predictions, and labels.
+    Modified version of the core eval function that also returns logits.
+    
+    Args:
+        classifier: Model to evaluate
+        loader: DataLoader for evaluation data
+        device: Device to run evaluation on
+        chop_head: Whether to remove classification head
+    
+    Returns:
+        tuple: (loss_arr, preds_arr, labels_arr, logits_arr)
+    """
+    dset = loader.dataset
+    if len(dset) == 0:
+        return np.array([]), np.array([]), np.array([]), np.array([])
+    
+    classifier.eval()
+    loss_arr = []
+    preds_arr = []
+    labels_arr = []
+    logits_arr = []
+    n_classes = len(dset.class_names)
+
+    if chop_head:
+        observed_classes = set()
+        for sample in dset.samples:
+            cls = sample.label
+            observed_classes.add(cls)
+        observed_classes = list(observed_classes)
+        observed_classes.sort()
+        chop_mask = np.ones(n_classes, dtype=bool)
+        chop_mask[observed_classes] = 0
+    else:
+        chop_mask = np.zeros(n_classes, dtype=bool)
+    
+    with torch.no_grad():
+        for inputs, labels, _, _ in loader:
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+            
+            if chop_head:
+                _ = classifier(inputs)
+            else:
+                logits = classifier(inputs)
+                
+                # Compute loss
+                loss = torch.nn.functional.cross_entropy(logits, labels, reduction='none')
+                
+                # Apply chop mask
+                logits[:, chop_mask] = -np.inf
+                
+                # Get predictions
+                preds = torch.argmax(logits, dim=1)
+                
+                # Store results
+                loss_arr.extend(loss.detach().cpu().numpy())
+                preds_arr.extend(preds.detach().cpu().numpy())
+                labels_arr.extend(labels.detach().cpu().numpy())
+                logits_arr.extend(logits.detach().cpu().numpy())
+    
+    return np.array(loss_arr), np.array(preds_arr), np.array(labels_arr), np.array(logits_arr)
+
+
 def run_eval_only(args):
     """Run evaluation only on trained model checkpoints.
     
@@ -959,6 +1377,382 @@ def run_eval_only(args):
     # Prepare dataset
     eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, is_train=False, label_type=label_type)
 
+    # Get checkpoint list
+    ckp_list = eval_dset.get_ckp_list()
+    log_info(f"Available checkpoints in dataset: {ckp_list}", Colors.CYAN)
+    
+    # Simplified checkpoint selection for this implementation
+    if args.checkpoint_list:
+        target_checkpoints = [f"ckp_{ckp_str}" for ckp_str in args.checkpoint_list if f"ckp_{ckp_str}" in ckp_list]
+        if target_checkpoints:
+            ckp_list = target_checkpoints
+            log_success(f"Will evaluate specified checkpoints: {ckp_list}")
+        else:
+            log_warning("No valid checkpoints found, using all available")
+    
+    # Create output directory if not exists
+    if not os.path.exists(args.save_dir):
+        os.makedirs(args.save_dir, exist_ok=True)
+        log_success(f"Created output directory: {args.save_dir}")
+    
+    log_section_start("🎯 CHECKPOINT EVALUATION", Colors.BRIGHT_MAGENTA)
+    # Run evaluation for each checkpoint
+    eval_results = {}
+    
+    for i, ckp in enumerate(ckp_list):
+        log_subsection_start(f"📊 Evaluating Checkpoint {ckp} ({i+1}/{len(ckp_list)})", Colors.CYAN)
+        
+        log_step(1, f"Loading model weights", Colors.BLUE)
+        # Load model weights for this checkpoint
+        model_path = os.path.join(args.model_dir, f'ckp_{ckp}_best_model.pth')
+        
+        try:
+            if os.path.exists(model_path):
+                classifier.load_state_dict(torch.load(model_path, map_location=args.device))
+                log_success(f"Loaded model weights from {model_path}")
+            else:
+                log_warning(f"Model file not found: {model_path}, using current model state")
+        except Exception as e:
+            log_error(f"Failed to load model for {ckp}: {e}")
+            continue
+        
+        log_step(2, f"Preparing evaluation dataset", Colors.YELLOW)
+        # Get evaluation dataset for this checkpoint
+        ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp)
+        log_info(f"Evaluation dataset size for {ckp}: {len(ckp_eval_dset)}", Colors.CYAN)
+        
+        if len(ckp_eval_dset) == 0:
+            log_warning(f"No evaluation data found for checkpoint {ckp}")
+            continue
+        
+        # Create data loader
+        eval_loader = DataLoader(
+            ckp_eval_dset, 
+            batch_size=common_config['eval_batch_size'], 
+            shuffle=False, 
+            num_workers=4
+        )
+        
+        log_step(3, f"Running model evaluation", Colors.GREEN)
+        # Run evaluation with logits for calibration
+        if args.calibration:
+            loss_arr, preds_arr, labels_arr, logits_arr = eval_with_logits(
+                classifier, eval_loader, args.device, chop_head=common_config['chop_head']
+            )
+        else:
+            loss_arr, preds_arr, labels_arr = eval(
+                classifier, eval_loader, args.device, chop_head=common_config['chop_head']
+            )
+            logits_arr = None
+        
+        # Calculate and log metrics
+        acc, balanced_acc = print_metrics(
+            loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"📊 {ckp}: "
+        )
+        eval_loss = np.mean(loss_arr)
+        
+        # Initialize calibration results
+        calibration_results = {}
+        
+        if args.calibration and logits_arr is not None:
+            log_subsection_start("🎯 PAPER CALIBRATION ANALYSIS", Colors.BRIGHT_CYAN)
+            
+            # Determine training classes for paper's method
+            if ckp == 'ckp_1':
+                log_warning("ckp_1 uses zero-shot model - no training classes available")
+                training_classes = []
+            else:
+                # For ckp_N, get training classes from ckp_(N-1) training data
+                try:
+                    train_dset = CkpDataset(common_config["train_data_config_path"], class_names, label_type=label_type)
+                    training_classes = get_training_classes_for_checkpoint(ckp, train_dset, label_type)
+                    log_info(f"📋 Training classes for {ckp}: {len(training_classes)} classes -> {training_classes[:10]}{'...' if len(training_classes) > 10 else ''}", Colors.GREEN)
+                except Exception as e:
+                    log_warning(f"Could not determine training classes: {e}")
+                    training_classes = list(set(labels_arr.tolist()))
+                    log_info(f"Fallback: using eval classes as training classes: {len(training_classes)} classes", Colors.YELLOW)
+            
+            # Show test data class distribution for comparison
+            unique_test_classes = np.unique(labels_arr)
+            log_info(f"📋 Test classes for {ckp}: {len(unique_test_classes)} classes -> {unique_test_classes[:10].tolist()}{'...' if len(unique_test_classes) > 10 else ''}", Colors.CYAN)
+            
+            # Get training logits for proper calibration
+            log_step("4a", "Collecting training data for calibration", Colors.BLUE)
+            try:
+                train_dset = CkpDataset(common_config["train_data_config_path"], class_names, label_type=label_type)
+                train_logits, train_labels = get_training_logits(classifier, train_dset, ckp, args.device, 
+                                                               common_config.get('eval_batch_size', 32))
+            except Exception as e:
+                log_warning(f"Could not get training logits: {e}")
+                train_logits, train_labels = None, None
+            
+            # Run paper calibration analysis
+            log_step("4b", "Running paper calibration analysis", Colors.BLUE)
+            
+            calib_results = comprehensive_paper_calibration(
+                logits_arr,  # test logits
+                labels_arr,  # test labels
+                class_names, 
+                training_classes=training_classes,
+                train_logits=train_logits,  # training logits (proper method)
+                train_labels=train_labels,  # training labels (proper method)
+                verbose=True
+            )
+            
+            # Generate AUC curve for calibration analysis
+            log_step("4c", "Generating calibration AUC curve", Colors.MAGENTA)
+            auc_curve_data = generate_calibration_auc_curve(
+                logits_arr, labels_arr, train_logits, train_labels,
+                training_classes, class_names, ckp, args.save_dir
+            )
+            
+            # Store calibration results
+            calibration_results = {
+                'checkpoint': ckp,
+                'training_classes': training_classes,
+                'original_accuracy': float(acc),
+                'original_balanced_accuracy': float(balanced_acc),
+                'auc_curve': auc_curve_data  # Add AUC curve data
+            }
+            
+            # Add paper calibration results  
+            if calib_results.get('paper_calibration') is not None:
+                paper_results = calib_results['paper_calibration']
+                calibration_results.update({
+                    'paper_calibration': {
+                        'gamma': float(paper_results['gamma']),
+                        'accuracy': float(paper_results['corrected_accuracy']),
+                        'balanced_accuracy': float(paper_results['balanced_accuracy']),
+                        'accuracy_improvement': float(paper_results['accuracy_improvement']),
+                        'balanced_accuracy_improvement': float(paper_results['balanced_accuracy_change']),
+                        'absent_classes': paper_results['absent_classes'],
+                        'absent_accuracy_improvement': float(paper_results['absent_accuracy_improvement']),
+                        'seen_accuracy_improvement': float(paper_results['seen_accuracy_improvement'])
+                    }
+                })
+                
+                log_success(f"📄 Paper Method: γ={paper_results['gamma']:.3f}, Acc Δ={paper_results['accuracy_improvement']:+.4f}, Bal_Acc Δ={paper_results['balanced_accuracy_change']:+.4f}")
+                log_success(f"   Absent Class Improvement: Δ={paper_results['absent_accuracy_improvement']:+.4f}")
+                
+                # Update metrics if calibration improved them
+                if paper_results['balanced_accuracy_change'] > 0:
+                    log_success(f"🎯 Calibration improved balanced accuracy by {paper_results['balanced_accuracy_change']:.4f}!")
+                    acc = paper_results['corrected_accuracy']
+                    balanced_acc = paper_results['balanced_accuracy']
+                else:
+                    log_info("📊 Calibration did not improve balanced accuracy", Colors.CYAN)
+            
+            # Save detailed calibration results
+            calib_path = os.path.join(args.save_dir, f'{ckp}_calibration_analysis.json')
+            with open(calib_path, 'w') as f:
+                json.dump(convert_numpy_types(calibration_results), f, indent=2)
+            log_success(f"Detailed calibration results saved to {calib_path}")
+            
+            # Log to wandb if enabled
+            if args.wandb:
+                wandb_metrics = {
+                    f"eval_calibration/original_accuracy": acc,
+                    f"eval_calibration/original_balanced_accuracy": balanced_acc,
+                    f"eval_calibration/checkpoint": ckp
+                }
+                
+                if calib_results.get('paper_calibration'):
+                    pc = calib_results['paper_calibration']
+                    wandb_metrics.update({
+                        f"eval_calibration/paper_accuracy": pc['corrected_accuracy'],
+                        f"eval_calibration/paper_balanced_accuracy": pc['balanced_accuracy'],
+                        f"eval_calibration/paper_accuracy_improvement": pc['accuracy_improvement'],
+                        f"eval_calibration/paper_balanced_accuracy_improvement": pc['balanced_accuracy_change'],
+                        f"eval_calibration/gamma": pc['gamma'],
+                        f"eval_calibration/absent_accuracy_improvement": pc['absent_accuracy_improvement'],
+                        f"eval_calibration/absent_classes_count": len(pc['absent_classes'])
+                    })
+                
+                # Add AUC curve metrics if available
+                if auc_curve_data:
+                    wandb_metrics.update({
+                        f"eval_calibration/auc_seen_improvement": auc_curve_data['seen_improvement'],
+                        f"eval_calibration/auc_absent_improvement": auc_curve_data['absent_improvement'],
+                        f"eval_calibration/auc_original_seen_acc": auc_curve_data['original_seen_acc'],
+                        f"eval_calibration/auc_original_absent_acc": auc_curve_data['original_absent_acc'],
+                        f"eval_calibration/auc_calibrated_seen_acc": auc_curve_data['calibrated_seen_acc'],
+                        f"eval_calibration/auc_calibrated_absent_acc": auc_curve_data['calibrated_absent_acc']
+                    })
+                    
+                    # Log the plot to wandb
+                    if os.path.exists(auc_curve_data['plot_path']):
+                        wandb.log({f"eval_calibration/auc_curve_{ckp}": wandb.Image(auc_curve_data['plot_path'])}, step=i)
+                
+                wandb.log(wandb_metrics, step=i)
+                log_success("Calibration metrics and AUC curve logged to wandb")
+        else:
+            if args.calibration:
+                log_warning("Calibration requested but logits not available - skipping calibration analysis")
+            calibration_results = {'skipped': True, 'reason': 'Calibration not requested or logits not available'}
+        
+        # Log metrics with colors
+        log_metric("Accuracy", acc, ".4f", Colors.BRIGHT_GREEN)
+        log_metric("Balanced Accuracy", balanced_acc, ".4f", Colors.BRIGHT_GREEN)
+        log_metric("Evaluation Loss", eval_loss, ".4f", Colors.BRIGHT_BLUE)
+        
+        # Store results (convert numpy types to Python types for JSON serialization)
+        eval_results[ckp] = {
+            'accuracy': float(acc),
+            'balanced_accuracy': float(balanced_acc),
+            'loss': float(eval_loss),
+            'num_samples': int(len(ckp_eval_dset)),
+            'calibration': calibration_results
+        }
+        
+        # Log to wandb if enabled
+        if args.wandb:
+            wandb.log({
+                "test/accuracy": acc,
+                "test/balanced_accuracy": balanced_acc,
+                "test/loss": eval_loss,
+                "checkpoint": ckp
+            }, step=i)
+        
+        # Save predictions if requested
+        if args.save_predictions:
+            pred_path = os.path.join(args.save_dir, f'{ckp}_preds.pkl')
+            with open(pred_path, 'wb') as f:
+                pickle.dump((preds_arr, labels_arr), f)
+            log_success(f"Predictions saved to {pred_path}")
+        
+        log_subsection_start(f"✅ Checkpoint {ckp} Complete", Colors.BRIGHT_GREEN)
+    
+    log_section_start("📊 FINAL EVALUATION SUMMARY", Colors.BRIGHT_YELLOW)
+    # Save summary results
+    summary_path = os.path.join(args.save_dir, 'eval_only_summary.json')
+    with open(summary_path, 'w') as f:
+        json.dump(convert_numpy_types(eval_results), f, indent=2)
+    log_success(f"Summary saved to {summary_path}")
+    
+    # Calculate average metrics
+    if eval_results:
+        avg_accuracy = sum(result['accuracy'] for result in eval_results.values()) / len(eval_results)
+        avg_balanced_accuracy = sum(result['balanced_accuracy'] for result in eval_results.values()) / len(eval_results)
+        avg_loss = sum(result['loss'] for result in eval_results.values()) / len(eval_results)
+        total_samples = sum(result['num_samples'] for result in eval_results.values())
+    else:
+        avg_accuracy = avg_balanced_accuracy = avg_loss = 0.0
+        total_samples = 0
+    
+    # Log summary with beautiful formatting
+    logging.info("=== CHECKPOINT RESULTS SUMMARY ===")
+    for ckp, results in eval_results.items():
+        base_info = f"{ckp}: acc={results['accuracy']:.4f}, balanced_acc={results['balanced_accuracy']:.4f}, loss={results['loss']:.4f}, samples={results['num_samples']}"
+        
+        # Add calibration info if available
+        if 'calibration' in results and results['calibration'].get('paper_calibration'):
+            pc = results['calibration']['paper_calibration']
+            calib_info = f" | calib: γ={pc['gamma']:.3f}, acc_Δ={pc['accuracy_improvement']:+.4f}, bal_acc_Δ={pc['balanced_accuracy_improvement']:+.4f}"
+            base_info += calib_info
+        elif 'calibration' in results and results['calibration'].get('skipped', False):
+            base_info += f" | calib: {results['calibration']['reason']}"
+        
+        logging.info(base_info)
+    
+    logging.info("=" * 60)
+    logging.info(f"🎯 FINAL AVERAGE ACROSS ALL CHECKPOINTS:")
+    log_metric("Average Accuracy", avg_accuracy, ".4f", Colors.BRIGHT_GREEN)
+    log_metric("Average Balanced Accuracy", avg_balanced_accuracy, ".4f", Colors.BRIGHT_GREEN)
+    log_metric("Average Loss", avg_loss, ".4f", Colors.BRIGHT_BLUE)
+    logging.info(f"  📊 Total Checkpoints: {len(eval_results)}")
+    logging.info(f"  📊 Total Samples: {total_samples}")
+    
+    # Calculate and display calibration improvements if calibration was used
+    if args.calibration:
+        calibration_improvements = []
+        paper_improvements = []
+        absent_improvements = []
+        checkpoints_with_calibration = 0
+        
+        for ckp, results in eval_results.items():
+            if ('calibration' in results and 
+                results['calibration'].get('paper_calibration') is not None and
+                not results['calibration'].get('skipped', False)):
+                
+                checkpoints_with_calibration += 1
+                paper_calib = results['calibration']['paper_calibration']
+                
+                calibration_improvements.append(paper_calib['balanced_accuracy_improvement'])
+                paper_improvements.append(paper_calib['accuracy_improvement'])
+                absent_improvements.append(paper_calib['absent_accuracy_improvement'])
+        
+        if checkpoints_with_calibration > 0:
+            avg_bal_acc_improvement = np.mean(calibration_improvements)
+            avg_acc_improvement = np.mean(paper_improvements)
+            avg_absent_improvement = np.mean(absent_improvements)
+            
+            logging.info("")
+            log_subsection_start("📄 PAPER CALIBRATION IMPACT SUMMARY", Colors.BRIGHT_YELLOW)
+            log_metric("Average Accuracy Improvement", avg_acc_improvement, "+.4f", 
+                     Colors.BRIGHT_GREEN if avg_acc_improvement >= 0 else Colors.BRIGHT_RED)
+            log_metric("Average Balanced Accuracy Improvement", avg_bal_acc_improvement, "+.4f",
+                     Colors.BRIGHT_GREEN if avg_bal_acc_improvement >= 0 else Colors.BRIGHT_RED)
+            log_metric("Average Absent Class Accuracy Improvement", avg_absent_improvement, "+.4f",
+                     Colors.BRIGHT_GREEN if avg_absent_improvement >= 0 else Colors.BRIGHT_RED)
+            logging.info(f"  📊 Checkpoints with Calibration: {checkpoints_with_calibration}/{len(eval_results)}")
+            
+            if avg_bal_acc_improvement > 0:
+                log_success(f"🎯 Paper calibration method improved balanced accuracy across checkpoints!")
+            else:
+                log_info("📊 Paper calibration method had minimal impact on balanced accuracy", Colors.CYAN)
+        else:
+            log_warning("No calibration improvements recorded (calibration may have been skipped)")
+    
+    logging.info("=" * 60)
+    
+    # Finalize wandb if enabled
+    if args.wandb:
+        wandb.finish()
+        log_success("✅ W&B run finished")
+    
+    # Final completion logs
+    print(Colors.BOLD + "=" * 80 + Colors.RESET)
+    log_final_result("🎉 EVALUATION-ONLY MODE COMPLETED SUCCESSFULLY!")
+    print(Colors.BOLD + "=" * 80 + Colors.RESET)
+    
+    # Final summary with colors
+    log_info(f"📊 Total checkpoints evaluated: {len(eval_results)}")
+    log_info(f"💾 Results saved to: {args.save_dir}")
+    print(Colors.BOLD + "=" * 80 + Colors.RESET)
+    print()
+    common_config = args.common_config
+    train_path = common_config['train_data_config_path']
+    test_path = common_config['eval_data_config_path']
+    
+    with open(train_path, 'r') as fin:
+        data = json.load(fin)
+    with open(test_path, 'r') as fin:
+        data_test = json.load(fin)
+        data.update(data_test)
+    
+    class_names = []
+    label_type = args.label_type
+    for key, value in data.items():
+        for v in value:
+            if v[label_type] not in class_names:
+                class_names.append(v[label_type])
+    del data, data_test
+    
+    log_success(f"Loaded {len(class_names)} classes using '{label_type}' labels")
+    
+    log_step(4, "Building classifier model")
+    # Build classifier architecture (same as training)
+    classifier = build_classifier(args, class_names, args.device)
+    log_success("Classifier built successfully")
+    
+    if args.gpu_memory_monitor:
+        gpu_monitor.log_memory_usage("model_load", "after_build")
+        monitor_model_memory(classifier, "classifier", args.device, args.wandb)
+    
+    log_section_start("📊 DATASET PREPARATION", Colors.BRIGHT_YELLOW)
+    # Prepare dataset
+    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type)
+    
     # Get checkpoint list
     ckp_list = eval_dset.get_ckp_list()
     log_info(f"Available checkpoints in dataset: {ckp_list}", Colors.CYAN)
@@ -1224,6 +2018,39 @@ def run_eval_only(args):
         wandb.finish()
         log_success("✅ W&B run finished")
     
+    # Generate AUC curve summary if calibration was used
+    if args.calibration:
+        log_section_start("📊 CALIBRATION AUC CURVE SUMMARY", Colors.BRIGHT_MAGENTA)
+        
+        auc_curves_generated = 0
+        calibration_improvements = []
+        
+        for ckp, results in eval_results.items():
+            if 'calibration' in results and results['calibration'].get('auc_curve'):
+                auc_data = results['calibration']['auc_curve']
+                auc_curves_generated += 1
+                
+                absent_improvement = auc_data['absent_improvement']
+                calibration_improvements.append(absent_improvement)
+                
+                log_info(f"📈 {ckp}: AUC curve generated", Colors.GREEN)
+                log_info(f"   Plot: {os.path.basename(auc_data['plot_path'])}", Colors.CYAN)
+                log_info(f"   Absent class improvement: {absent_improvement:+.2f}%", 
+                        Colors.GREEN if absent_improvement > 0 else Colors.RED)
+        
+        if auc_curves_generated > 0:
+            avg_absent_improvement = sum(calibration_improvements) / len(calibration_improvements)
+            
+            curve_summary = f"AUC curves generated: {auc_curves_generated}/{len(eval_results)}\n"
+            curve_summary += f"Average absent class improvement: {avg_absent_improvement:+.2f}%\n"
+            curve_summary += f"Best absent class improvement: {max(calibration_improvements):+.2f}%\n"
+            curve_summary += f"Worst absent class improvement: {min(calibration_improvements):+.2f}%"
+            
+            logging.info(create_info_box("AUC Curve Summary", curve_summary))
+            log_info(f"📁 All AUC curves saved to: {args.save_dir}", Colors.CYAN)
+        else:
+            log_warning("No AUC curves were generated (possibly due to missing seen/absent classes)")
+
     # Final completion logs
     print(Colors.BOLD + "=" * 80 + Colors.RESET)
     log_final_result("🎉 EVALUATION-ONLY MODE COMPLETED SUCCESSFULLY!")
@@ -1419,6 +2246,10 @@ def parse_args():
     parser.add_argument('--merge_factor', default=1, type=float,
                         help='merge factor')
 
+    ########################calibration#########################
+    parser.add_argument('--calibration', action='store_true', 
+                        help='Enable paper calibration analysis for eval_only mode')
+
     args = parser.parse_args()
 
     # Override configurations
@@ -1468,7 +2299,12 @@ if __name__ == '__main__':
         args.save_dir = os.path.join(args.log_path, f"debug-{ts}")
 
     # Setup logging
-    args.save_dir = setup_logging(args.log_path, args.debug, args)
+    
+    default_log_path = args.log_path
+    if args.eval_only:
+        default_log_path = "/fs/ess/PAS2099/sooyoung/ICICLE-Benchmark/benchmark_logs/icicle/study_logs"
+    
+    args.save_dir = setup_logging(default_log_path, args.debug, args)
     logging.info(f'Saving to {args.save_dir}. ')
 
     # Save configuration
