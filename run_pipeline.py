@@ -51,8 +51,6 @@ def setup_logging(log_path, debug, params):
     # Clear existing handlers to prevent duplicates
     logger.handlers.clear()
     
-    # Use deterministic timestamp based on configuration for reproducibility
-    deterministic_time = f"2025-07-12-20-{abs(hash(str(vars(params)))) % 10000:04d}-00"
     petl_method_name = method_name(params)
     log_path = os.path.join(log_path, params.pretrained_weights)
 
@@ -60,15 +58,13 @@ def setup_logging(log_path, debug, params):
     if params.interpolation_model:
         petl_method_name += f'_interpolation_model_{params.interpolation_alpha}'
     log_path = os.path.join(log_path, petl_method_name)
-    log_path = os.path.join(log_path, deterministic_time)
     if not debug:
         logger.setLevel(logging.INFO)
         log_path = os.path.join(log_path, 'log')
     else:
         logger.setLevel(logging.DEBUG)
-        curr_time = f"debug-{deterministic_time}"
-        log_path = os.path.join(log_path, curr_time)
-        
+        log_path = os.path.join(log_path, 'debug')
+
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
     # Log to stdout
@@ -537,17 +533,36 @@ def run(args):
         # Get training and evaluation dataset
         ckp_train_dset = train_dset.get_subset(is_train=True, ckp_list=ckp_prev)
         ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp)
-        
-        checkpoint_summary = f"Training samples: {len(ckp_train_dset)}\n"
-        checkpoint_summary += f"Evaluation samples: {len(ckp_eval_dset)}\n"
-        if ckp_prev:
-            checkpoint_summary += f"Training on: {ckp_prev}\n"
-            checkpoint_summary += f"Final evaluation on: {ckp}\n"
-        else:
-            checkpoint_summary += f"Training on: {ckp}\n"
-            checkpoint_summary += f"Evaluating on: {ckp}"
-        logging.info(create_info_box(f"Checkpoint {ckp} Data", checkpoint_summary))
-        
+        logging.info(f'Training dataset size: {len(ckp_train_dset)}. ')
+        train_cls_count = {}
+        for sample in ckp_train_dset.samples:
+            label = sample.label
+            train_cls_count[label] = train_cls_count.get(label, 0) + 1
+        sum_count = sum(train_cls_count.values())
+        for cls_idx, count in train_cls_count.items():
+            cls_name = class_names[cls_idx] if cls_idx < len(class_names) else f"class_{cls_idx}"
+            logging.info(f'  Class {cls_name} (idx {cls_idx}): {count} samples {count / sum_count:.2%}')
+
+        logging.info(f'Evaluation dataset size: {len(ckp_eval_dset)}. ')
+
+        eval_cls_count = {}
+        for sample in ckp_eval_dset.samples:
+            label = sample.label
+            eval_cls_count[label] = eval_cls_count.get(label, 0) + 1
+        sum_count = sum(eval_cls_count.values())
+        for cls_idx, count in eval_cls_count.items():
+            cls_name = class_names[cls_idx] if cls_idx < len(class_names) else f"class_{cls_idx}"
+            logging.info(f'  Class {cls_name} (idx {cls_idx}): {count} samples {count / sum_count:.2%}')
+
+        eval_cls_count = {}
+        for sample in ckp_eval_dset.samples:
+            label = sample.label
+            eval_cls_count[label] = eval_cls_count.get(label, 0) + 1
+        sum_count = sum(eval_cls_count.values())
+        for cls_idx, count in eval_cls_count.items():
+            cls_name = class_names[cls_idx] if cls_idx < len(class_names) else f"class_{cls_idx}"
+            logging.info(f'  Class {cls_name} (idx {cls_idx}): {count} samples {count / sum_count:.2%}')
+
         # Monitor memory after data subset
         if args.gpu_memory_monitor:
             gpu_monitor.monitor_data_loading(f"ckp_{ckp}_train", 
@@ -652,7 +667,7 @@ def run(args):
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("continual_learning", f"after_{ckp}")
 
-        if not pretrain_config['pretrain'] and (args.interpolation_model or args.interpolation_head):
+        if args.interpolation_model or args.interpolation_head:
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("interpolation", f"before_{ckp}")
             # Interpolate model if enabled
@@ -860,8 +875,8 @@ def run_eval_only(args):
         monitor_model_memory(classifier, "classifier", args.device, args.wandb)
     
     # Prepare dataset
-    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type)
-    
+    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, is_train=False, label_type=label_type)
+
     # Get checkpoint list
     ckp_list = eval_dset.get_ckp_list()
     logging.info(f'Available checkpoints in dataset: {ckp_list}')
@@ -891,8 +906,8 @@ def run_eval_only(args):
     training_mode = None
     
     # Check for upper bound (full training) - single pretrain_best_model.pth
-    upperbound_model_path = os.path.join(args.model_dir, 'pretrain_best_model.pth')
-    
+    upperbound_model_path = args.model_dir if 'pretrain_best_model.pth' in args.model_dir else os.path.join(args.model_dir, 'pretrain_best_model.pth')
+
     if os.path.exists(upperbound_model_path):
         # Upper bound training - one model for all checkpoints
         training_mode = "upper_bound"
@@ -934,6 +949,11 @@ def run_eval_only(args):
     # Run evaluation for each checkpoint
     eval_results = {}
     
+    # Save zs backbone for interpolation if needed
+    if args.interpolation_model or args.interpolation_head:
+        _classifier = copy.deepcopy(classifier)
+        _classifier = _classifier.to(args.device)
+
     for i, ckp in enumerate(ckp_list):
         logging.info(f'Evaluating checkpoint {ckp} ({i+1}/{len(ckp_list)})')
         
@@ -946,7 +966,11 @@ def run_eval_only(args):
             classifier.load_state_dict(state_dict)
             classifier.to(args.device)
             classifier.eval()
-            
+
+            if (args.interpolation_model or args.interpolation_head) and _classifier is not None:
+                logging.info(f"Interpolating model at checkpoint {ckp} with alpha {args.interpolation_alpha}")
+                classifier.interpolate_model(_classifier, alpha=args.interpolation_alpha)
+
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("model_load", f"after_load_{ckp}")
                 
@@ -1107,7 +1131,6 @@ def parse_args():
     parser.add_argument('--class_type', type=str, default='common_name',
                         choices=['common_name', 'scientific_name'],
                         help='Class type for the model')
-                        
     
     parser.add_argument('--drop_path_rate', default=0.,
                         type=float,
