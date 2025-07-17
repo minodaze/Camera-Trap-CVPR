@@ -1,18 +1,16 @@
 #!/bin/bash
 #SBATCH --account=PAS2099
-#SBATCH --job-name=bioclip2_upper_bound
+#SBATCH --job-name=bioclip2_accumu_mcm
 #SBATCH --output=logs/bioclip2_%j.out
 #SBATCH --error=logs/bioclip2_%j.err
-#SBATCH --time=06:00:00
+#SBATCH --time=12:00:00
 #SBATCH --nodes=1                 # Request 4 nodes
 #SBATCH --ntasks-per-node=1       # One task per node
 #SBATCH --gpus-per-node=1         # One GPU per node
 #SBATCH --cpus-per-task=24
 
-
-USER_NAME="mino"
-
-CONDA_ENV="ICICLE"
+USER_NAME="Lemeng"
+CONDA_ENV="icicle_env"
 
 # Load your env
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -59,11 +57,11 @@ for DATASET in "${BIG_FOLDERS[@]}"; do
 # print('\n'.join(['  - ' + s for s in common]))
 # ")
 
-    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}_upper_bound_lr${LEARNING_RATE}.yaml"
+    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}_accumulative_lr_mcm_${LEARNING_RATE}.yaml"
 
     cat <<EOF > $CONFIG_FILE
-module_name: upper_bound
-log_path: /fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/upper_bound/lr_${LEARNING_RATE}/${PARENT_TIMESTAMP}/
+module_name: accumulative-scratch
+log_path: /fs/scratch/PAS2099/${USER_NAME}/icicle/log_ood/pipeline/${DATASET//\//_}/accumulative_mcm/lr_${LEARNING_RATE}/${PARENT_TIMESTAMP}/
 
 common_config:
   model: bioclip2
@@ -83,19 +81,19 @@ common_config:
     eta_min: $(echo "${LEARNING_RATE} / 10" | bc -l)
 
 pretrain_config:
-  pretrain: true
-  pretrain_data_config_path: ${ALL_JSON}
-  epochs: 60
-  loss_type: ce
+  pretrain: false
 
 ood_config:
-  method: none
+  method: "mcm"
+  mean_cov_file: "mean_cov_${DATASET//\//_}.npz"
 
 al_config:
-  method: none
+  method: all
 
 cl_config:
-  method: none
+  method: accumulative-scratch
+  epochs: 60
+  loss_type: ce
 EOF
 
     echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
