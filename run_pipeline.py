@@ -561,10 +561,13 @@ def run(args):
         train_dset_mask = np.ones(len(ckp_train_dset), dtype=bool)
         
         # Run OOD detection
+        # Check if first checkpoint
+        is_first_ckp = (i == 0)
+        is_zs = (args.module_name == 'zs')
         log_step(1, f"Out-of-Distribution Detection ({ood_config.get('method', 'none')})", Colors.YELLOW)
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("ood", f"before_{ckp}")
-        classifier, ood_mask = ood_module.process(classifier, ckp_train_dset, ckp_eval_dset, train_dset_mask)
+        classifier, ood_mask = ood_module.process(classifier, ckp_train_dset, ckp_eval_dset, train_dset_mask, is_first_ckp=is_first_ckp, is_zs=is_zs)
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("ood", f"after_{ckp}")
         log_info(f"OOD samples identified: {ood_mask.sum()} / {len(ood_mask)}", Colors.YELLOW)
