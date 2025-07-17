@@ -1,16 +1,28 @@
 #!/bin/bash
 #SBATCH --account=PAS2099
-#SBATCH --job-name=bioclip2_accumu_mcm
+#SBATCH --job-name=bioclip2_upper_bound
 #SBATCH --output=logs/bioclip2_%j.out
 #SBATCH --error=logs/bioclip2_%j.err
-#SBATCH --time=12:00:00
+#SBATCH --time=20:00:00
 #SBATCH --nodes=1                 # Request 4 nodes
 #SBATCH --ntasks-per-node=1       # One task per node
 #SBATCH --gpus-per-node=1         # One GPU per node
-#SBATCH --cpus-per-task=24
+#SBATCH --cpus-per-task=12
 
-USER_NAME="Lemeng"
-CONDA_ENV="icicle_env"
+USER_NAME="mino"
+CONDA_ENV="ICICLE"
+
+interpolation_alpha=(
+    0.1
+    0.2
+    0.3
+    0.4
+    0.5
+    0.6
+    0.7
+    0.8
+    0.9
+)
 
 # Load your env
 source ~/miniconda3/etc/profile.d/conda.sh
@@ -18,7 +30,7 @@ conda activate ${CONDA_ENV}
 
 DATA_ROOT="/fs/scratch/PAS2099/camera-trap-benchmark"
 CONFIG_ROOT="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/configs/generated_common"
-# CSV_PATH="/fs/ess/PAS2099/${USER_NAME}/Documents/icicle/ICICLE-Benchmark/balanced_accuracy_common.csv"
+# CSV_PATH="/fs/ess/PAS2099/${USER_NAME}/Documents/ICICLE/ICICLE-Benchmark/balanced_accuracy_common.csv"
 
 mkdir -p $CONFIG_ROOT
 # mkdir -p $(dirname "$CSV_PATH")
@@ -34,9 +46,11 @@ fi
 IFS=' ' read -ra BIG_FOLDERS <<< "$1"
 # Get learning rate from the second argument
 LEARNING_RATE="$2"
+MODEL_DIR="$3"
 
 echo "Processing ${#BIG_FOLDERS[@]} datasets: ${BIG_FOLDERS[*]}"
 echo "Using learning rate: ${LEARNING_RATE}"
+echo "Using model directory: ${MODEL_DIR}"
 
 for DATASET in "${BIG_FOLDERS[@]}"; do
     echo "=== Processing ${DATASET} ==="
@@ -47,7 +61,7 @@ for DATASET in "${BIG_FOLDERS[@]}"; do
     # This ensures identical runs use the same directory, improving reproducibility
     HASH_INPUT="${DATASET}_${LEARNING_RATE}"
     PARENT_TIMESTAMP=$(echo -n "$HASH_INPUT" | sha256sum | cut -c1-16)
-    PARENT_TIMESTAMP="2025-07-12-20-$(echo $PARENT_TIMESTAMP | cut -c1-2)-$(echo $PARENT_TIMESTAMP | cut -c3-4)"
+    PARENT_TIMESTAMP="$(date +%Y-%m-%d-%H)-$(echo $PARENT_TIMESTAMP | cut -c1-2)-$(echo $PARENT_TIMESTAMP | cut -c3-4)"
     # === Extract class names ===
 #     CLASS_NAMES=$(python -c "
 # import json
@@ -57,11 +71,11 @@ for DATASET in "${BIG_FOLDERS[@]}"; do
 # print('\n'.join(['  - ' + s for s in common]))
 # ")
 
-    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}_accumulative_lr_mcm_${LEARNING_RATE}.yaml"
+    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}_eval_interpolation_lr${LEARNING_RATE}.yaml"
 
     cat <<EOF > $CONFIG_FILE
-module_name: accumulative-scratch
-log_path: /fs/scratch/PAS2099/${USER_NAME}/icicle/log_ood/pipeline/${DATASET//\//_}/accumulative_mcm/lr_${LEARNING_RATE}/${PARENT_TIMESTAMP}/
+module_name: eval_interpolation
+log_path: /fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/eval_interpolation/lr_${LEARNING_RATE}/${PARENT_TIMESTAMP}/
 
 common_config:
   model: bioclip2
@@ -82,25 +96,22 @@ common_config:
 
 pretrain_config:
   pretrain: false
-
 ood_config:
-  method: "mcm"
-  mean_cov_file: "mean_cov_${DATASET//\//_}.npz"
-
+  method: none
 al_config:
-  method: all
-
+  method: none
 cl_config:
-  method: accumulative-scratch
-  epochs: 60
-  loss_type: ce
+  method: none
 EOF
 
-    echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
-    python run_pipeline.py --c $CONFIG_FILE --full --wandb --eval_per_epoch --test_per_epoch --save_best_model
+    # Run pipeline for each interpolation alpha value
+    for alpha in "${interpolation_alpha[@]}"; do
+        echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE} and alpha=${alpha}"
+        python run_pipeline.py --c $CONFIG_FILE --eval_per_epoch --save_best_model --eval_only --model_dir "${MODEL_DIR}" --pretrained_weights bioclip2 --interpolation_model --interpolation_alpha ${alpha} --full
+    done
 
 #     # === Robust log path discovery ===
-#     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/icicle/log_auto/pipeline/${DATASET//\//_}/zs_common/${PARENT_TIMESTAMP}/"
+#     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/zs_common/${PARENT_TIMESTAMP}/"
 
 #     echo "Searching for nested logs in: ${BASE_LOG_DIR}"
 #     echo "Contents:"
