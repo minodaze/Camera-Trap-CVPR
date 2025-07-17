@@ -1,0 +1,1 @@
+/fs/scratch/PAS2099/camera-trap-benchmark-logs/icicle/log_auto/pipeline/na_na_archbold_FL-23/upper_bound/lr_0.000025/2025-07-12-20-52-4b/bioclip2/full_text_head/2025-07-12-20-0475-00/log/

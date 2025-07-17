@@ -668,7 +668,7 @@ def run(args):
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("continual_learning", f"after_{ckp}")
 
-        if not pretrain_config['pretrain'] and (args.interpolation_model or args.interpolation_head):
+        if args.interpolation_model or args.interpolation_head:
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("interpolation", f"before_{ckp}")
             # Interpolate model if enabled
@@ -907,8 +907,8 @@ def run_eval_only(args):
     training_mode = None
     
     # Check for upper bound (full training) - single pretrain_best_model.pth
-    upperbound_model_path = os.path.join(args.model_dir, 'pretrain_best_model.pth')
-    
+    upperbound_model_path = args.model_dir if 'pretrain_best_model.pth' in args.model_dir else os.path.join(args.model_dir, 'pretrain_best_model.pth')
+
     if os.path.exists(upperbound_model_path):
         # Upper bound training - one model for all checkpoints
         training_mode = "upper_bound"
@@ -950,6 +950,11 @@ def run_eval_only(args):
     # Run evaluation for each checkpoint
     eval_results = {}
     
+    # Save zs backbone for interpolation if needed
+    if args.interpolation_model or args.interpolation_head:
+        _classifier = copy.deepcopy(classifier)
+        _classifier = _classifier.to(args.device)
+
     for i, ckp in enumerate(ckp_list):
         logging.info(f'Evaluating checkpoint {ckp} ({i+1}/{len(ckp_list)})')
         
@@ -962,7 +967,11 @@ def run_eval_only(args):
             classifier.load_state_dict(state_dict)
             classifier.to(args.device)
             classifier.eval()
-            
+
+            if (args.interpolation_model or args.interpolation_head) and _classifier is not None:
+                logging.info(f"Interpolating model at checkpoint {ckp} with alpha {args.interpolation_alpha}")
+                classifier.interpolate_model(_classifier, alpha=args.interpolation_alpha)
+
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("model_load", f"after_load_{ckp}")
                 
@@ -1123,7 +1132,6 @@ def parse_args():
     parser.add_argument('--class_type', type=str, default='common_name',
                         choices=['common_name', 'scientific_name'],
                         help='Class type for the model')
-                        
     
     parser.add_argument('--drop_path_rate', default=0.,
                         type=float,
