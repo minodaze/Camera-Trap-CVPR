@@ -329,7 +329,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
           save_dir=save_dir,
           model_name_prefix="pretrain",
           validation_mode=getattr(args, 'validation_mode', 'balanced_acc'),
-          early_stop_epoch=getattr(args, 'early_stop_epoch', 10),
+          early_stop_epoch=getattr(args, 'early_stop_epoch', 5),
           test_per_epoch=test_per_epoch,
           next_test_loader=next_test_loader,
           test_type="UB_AVG" if test_per_epoch else "NEXT")
@@ -393,7 +393,7 @@ def run(args):
 
         module_name = getattr(args, 'module_name', 'default_module')  # Fallback if module_name is not in args
         wandb.init(
-            project="Camera Trap UB July 15",  # Replace with your project name
+            project="Camera Trap UB Part 2 July 16",  # Replace with your project name
             name=wandb_run_name,  # Set run name using args.c and module_name
             config=vars(args)  # Log all arguments to wandb
         )
@@ -522,6 +522,9 @@ def run(args):
     
     log_section_start("🔄 CONTINUAL LEARNING LOOP", Colors.BRIGHT_MAGENTA)
     
+    # Initialize final results tracking
+    final_eval_results = {}
+    
     # Main loop
     for i in range(len(ckp_list)):
         # Get checkpoint
@@ -536,6 +539,7 @@ def run(args):
         
         # Get training and evaluation dataset
         ckp_train_dset = train_dset.get_subset(is_train=True, ckp_list=ckp_prev)
+        
         ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp)
         logging.info(f'Training dataset size: {len(ckp_train_dset)}. ')
         train_cls_count = {}
@@ -653,6 +657,7 @@ def run(args):
 
         # Run continual learning
         log_step(3, f"Continual Learning ({cl_config.get('method', 'none')})", Colors.GREEN)
+        
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("continual_learning", f"before_{ckp}")
         classifier = cl_module.process(
@@ -667,6 +672,11 @@ def run(args):
         )
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("continual_learning", f"after_{ckp}")
+            
+        # Force memory cleanup after continual learning
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
         if not pretrain_config['pretrain'] and (args.interpolation_model or args.interpolation_head):
             if args.gpu_memory_monitor:
@@ -750,6 +760,14 @@ def run(args):
                 "checkpoint": ckp
             }, step=i)
 
+        # Store final evaluation results for summary
+        final_eval_results[ckp] = {
+            'accuracy': float(acc),
+            'balanced_accuracy': float(balanced_acc),
+            'loss': float(eval_loss),
+            'num_samples': len(preds_arr)
+        }
+
         log_step(5, "Saving Results", Colors.MAGENTA)
         if args.is_save:
             save_path = os.path.join(args.save_dir, f'{ckp}.pth')
@@ -771,6 +789,58 @@ def run(args):
             gpu_monitor.clear_cache_and_log(f"checkpoint_end_{ckp}")
         
         log_subsection_start(f"✅ Checkpoint {ckp} Complete", Colors.BRIGHT_GREEN)
+
+    # Calculate and report final average balanced accuracy across all checkpoints
+    if final_eval_results:
+        # Calculate average metrics
+        avg_accuracy = sum(result['accuracy'] for result in final_eval_results.values()) / len(final_eval_results)
+        avg_balanced_accuracy = sum(result['balanced_accuracy'] for result in final_eval_results.values()) / len(final_eval_results)
+        avg_loss = sum(result['loss'] for result in final_eval_results.values()) / len(final_eval_results)
+        total_samples = sum(result['num_samples'] for result in final_eval_results.values())
+        
+        # Log final summary
+        print(Colors.BOLD + "=" * 80 + Colors.RESET)
+        log_section_start("📊 FINAL EVALUATION SUMMARY", Colors.BRIGHT_YELLOW)
+        logging.info("=== CHECKPOINT RESULTS SUMMARY ===")
+        for ckp, results in final_eval_results.items():
+            logging.info(f"{ckp}: acc={results['accuracy']:.4f}, balanced_acc={results['balanced_accuracy']:.4f}, "
+                        f"loss={results['loss']:.4f}, samples={results['num_samples']}")
+        
+        logging.info("=" * 60)
+        logging.info(f"🎯 FINAL AVERAGE ACROSS ALL CHECKPOINTS:")
+        log_metric("Average Accuracy", avg_accuracy, ".4f", Colors.BRIGHT_GREEN)
+        log_metric("Average Balanced Accuracy", avg_balanced_accuracy, ".4f", Colors.BRIGHT_GREEN)
+        log_metric("Average Loss", avg_loss, ".4f", Colors.BRIGHT_BLUE)
+        logging.info(f"  📊 Total Checkpoints: {len(final_eval_results)}")
+        logging.info(f"  📊 Total Samples: {total_samples}")
+        logging.info("=" * 60)
+        
+        # Log final average to wandb
+        if args.wandb:
+            wandb.log({
+                "final/average_accuracy": avg_accuracy,
+                "final/average_balanced_accuracy": avg_balanced_accuracy,
+                "final/average_loss": avg_loss,
+                "final/total_checkpoints": len(final_eval_results),
+                "final/total_samples": total_samples
+            })
+        
+        # Save final summary to file
+        final_summary = {
+            'checkpoint_results': final_eval_results,
+            'averages': {
+                'accuracy': float(avg_accuracy),
+                'balanced_accuracy': float(avg_balanced_accuracy),
+                'loss': float(avg_loss)
+            },
+            'total_checkpoints': len(final_eval_results),
+            'total_samples': int(total_samples)
+        }
+        
+        summary_path = os.path.join(args.save_dir, 'final_training_summary.json')
+        with open(summary_path, 'w') as f:
+            json.dump(final_summary, f, indent=2)
+        log_success(f"Final summary saved to {summary_path}")
 
     # Final completion logs
     print(Colors.BOLD + "=" * 80 + Colors.RESET)
@@ -803,18 +873,20 @@ def run_eval_only(args):
     Args:
         args (argparse.Namespace): Parsed command-line arguments.
     """
-    logging.info("Starting evaluation-only mode")
+    log_section_start("🔍 EVALUATION-ONLY MODE INITIALIZATION", Colors.BRIGHT_CYAN)
     
     # Initialize GPU memory monitoring if enabled
     gpu_monitor = None
     if args.gpu_memory_monitor:
+        log_step(1, "Setting up GPU memory monitoring")
         enable_colors = not args.no_gpu_monitor_colors
         gpu_monitor = get_gpu_monitor(args.device, args.wandb, enable_colors)
-        logging.info("GPU memory monitoring enabled.")
+        log_success("GPU memory monitoring enabled")
         gpu_monitor.log_memory_usage("startup", "initial")
     
     # Initialize wandb if enabled
     if args.wandb:
+        log_step(2, "Initializing Weights & Biases logging")
         import re
         match = re.search(r"pipeline/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)", args.save_dir)
         wandb_run_name = "Eval Only Run"
@@ -832,21 +904,28 @@ def run_eval_only(args):
             name=wandb_run_name,
             config=vars(args)
         )
-        logging.info("wandb logging is enabled for evaluation.")
+        log_success("Weights & Biases logging initialized")
         
         # Configure colors for wandb compatibility (darker colors for light background)
         configure_colors_for_wandb(wandb_enabled=True)
+        log_info("Color scheme adjusted for wandb compatibility (darker colors)", Colors.CYAN)
     else:
         # Configure colors for terminal use (bright colors for dark background)
         configure_colors_for_wandb(wandb_enabled=False)
     
+    log_subsection_start("📋 VALIDATION & SETUP")
     # Validate required arguments for eval_only mode
     if not args.model_dir:
+        log_error("--model_dir is required for eval_only mode")
         raise ValueError("--model_dir is required for eval_only mode")
     
     if not os.path.exists(args.model_dir):
+        log_error(f"Model directory not found: {args.model_dir}")
         raise FileNotFoundError(f"Model directory not found: {args.model_dir}")
     
+    log_success(f"Model directory found: {args.model_dir}")
+    
+    log_step(3, "Loading data configuration")
     # Load configuration
     common_config = args.common_config
     train_path = common_config['train_data_config_path']
@@ -866,24 +945,28 @@ def run_eval_only(args):
                 class_names.append(v[label_type])
     del data, data_test
     
-    logging.info(f'Found {len(class_names)} classes')
+    log_success(f"Loaded {len(class_names)} classes using '{label_type}' labels")
     
+    log_step(4, "Building classifier model")
     # Build classifier architecture (same as training)
     classifier = build_classifier(args, class_names, args.device)
+    log_success("Classifier built successfully")
     
     if args.gpu_memory_monitor:
         gpu_monitor.log_memory_usage("model_load", "after_build")
         monitor_model_memory(classifier, "classifier", args.device, args.wandb)
     
+    log_section_start("📊 DATASET PREPARATION", Colors.BRIGHT_YELLOW)
     # Prepare dataset
     eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type)
     
     # Get checkpoint list
     ckp_list = eval_dset.get_ckp_list()
-    logging.info(f'Available checkpoints in dataset: {ckp_list}')
+    log_info(f"Available checkpoints in dataset: {ckp_list}", Colors.CYAN)
     
     # Determine which checkpoints to evaluate and detect training mode
     if args.checkpoint_list:
+        log_info(f"User specified checkpoints: {args.checkpoint_list}", Colors.CYAN)
         # Use specific checkpoints provided by user
         target_checkpoints = []
         for ckp_str in args.checkpoint_list:
@@ -891,17 +974,24 @@ def run_eval_only(args):
             if ckp_name in ckp_list:
                 target_checkpoints.append(ckp_name)
             else:
-                logging.warning(f'Checkpoint {ckp_name} not found in dataset. Available: {ckp_list}')
+                log_warning(f"Checkpoint {ckp_name} not found in dataset. Available: {ckp_list}")
         
         if not target_checkpoints:
+            log_error("No valid checkpoints found from the provided list")
             raise ValueError("No valid checkpoints found from the provided list")
         
         ckp_list = target_checkpoints
-        logging.info(f'Evaluating specified checkpoints: {ckp_list}')
+        log_success(f"Will evaluate specified checkpoints: {ckp_list}")
     else:
         ckp_list = eval_dset.get_ckp_list()
-        logging.info(f'Will evaluate all available checkpoints: {ckp_list}')
+        log_info(f"Will evaluate all available checkpoints: {ckp_list}", Colors.CYAN)
     
+    dataset_summary = f"Evaluation dataset size: {len(eval_dset)}\n"
+    dataset_summary += f"Number of checkpoints: {len(ckp_list)}\n"
+    dataset_summary += f"Checkpoints: {', '.join(ckp_list)}"
+    logging.info(create_info_box("Dataset Information", dataset_summary))
+    
+    log_section_start("🔍 TRAINING MODE DETECTION", Colors.BRIGHT_GREEN)
     # Detect training mode by checking what model files exist
     model_file_mapping = {}
     training_mode = None
@@ -914,68 +1004,95 @@ def run_eval_only(args):
         training_mode = "upper_bound"
         for ckp in ckp_list:
             model_file_mapping[ckp] = upperbound_model_path
-        logging.info(f'Detected UPPER BOUND training mode')
-        logging.info(f'Using single model file: {upperbound_model_path}')
-        logging.info(f'Will evaluate this model on all {len(ckp_list)} checkpoints: {ckp_list}')
+        log_success("Detected UPPER BOUND training mode")
+        log_info(f"Using single model file: {upperbound_model_path}", Colors.GREEN)
+        log_info(f"Will evaluate this model on all {len(ckp_list)} checkpoints: {ckp_list}", Colors.GREEN)
     else:
-        # Check for accumulative training files (ckp_X.pth)
+        # Check for accumulative training files (ckp_X_best_model.pth)
         for ckp in ckp_list:
-            acc_model_path = os.path.join(args.model_dir, f'{ckp}.pth')
-            if os.path.exists(acc_model_path):
-                model_file_mapping[ckp] = acc_model_path
+            if ckp == 'ckp_1':
+                # For ckp_1, use the original pretrained model (zero-shot)
+                model_file_mapping[ckp] = 'pretrained_model'  # Special marker for pretrained model
                 if training_mode is None:
                     training_mode = "accumulative"
+                log_info(f"Using original pretrained model for {ckp} (zero-shot)", Colors.BLUE)
             else:
-                logging.warning(f'No model file found for {ckp}: {acc_model_path}')
+                acc_model_path = os.path.join(args.model_dir, f'ckp_{ckp}_best_model.pth')
+                if os.path.exists(acc_model_path):
+                    model_file_mapping[ckp] = acc_model_path
+                    if training_mode is None:
+                        training_mode = "accumulative"
+                else:
+                    log_warning(f"No model file found for {ckp}: {acc_model_path}")
         
         if training_mode == "accumulative":
-            logging.info(f'Detected ACCUMULATIVE training mode')
-            logging.info(f'Found model files for {len(model_file_mapping)} checkpoints')
+            log_success("Detected ACCUMULATIVE training mode")
+            log_info(f"Found model files for {len(model_file_mapping)} checkpoints", Colors.BLUE)
     
     if not model_file_mapping:
-        raise ValueError(f"No model files found in {args.model_dir}. Expected either:\n"
-                        f"  - Upper bound training: pretrain_best_model.pth directly in {args.model_dir}\n"
-                        f"  - Accumulative training: ckp_X.pth files directly in {args.model_dir}")
+        error_msg = f"No model files found in {args.model_dir}. Expected either:\n"
+        error_msg += f"  - Upper bound training: pretrain_best_model.pth directly in {args.model_dir}\n"
+        error_msg += f"  - Accumulative training: ckp_X_best_model.pth files directly in {args.model_dir}"
+        log_error(error_msg)
+        raise ValueError(error_msg)
     
     # Filter to only checkpoints that have model files
     ckp_list = list(model_file_mapping.keys())
     
-    logging.info(f'Training mode: {training_mode}')
-    logging.info(f'Will evaluate {len(ckp_list)} checkpoints: {ckp_list}')
+    # Create final summary
+    mode_summary = f"Training mode: {training_mode}\n"
+    mode_summary += f"Checkpoints to evaluate: {len(ckp_list)}\n"
+    mode_summary += f"Checkpoint list: {', '.join(ckp_list)}"
+    logging.info(create_info_box("Evaluation Plan", mode_summary))
     
     # Create output directory if not exists
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir, exist_ok=True)
+        log_success(f"Created output directory: {args.save_dir}")
+    else:
+        log_info(f"Using existing output directory: {args.save_dir}", Colors.CYAN)
     
+    log_section_start("🎯 CHECKPOINT EVALUATION", Colors.BRIGHT_MAGENTA)
     # Run evaluation for each checkpoint
     eval_results = {}
     
     for i, ckp in enumerate(ckp_list):
-        logging.info(f'Evaluating checkpoint {ckp} ({i+1}/{len(ckp_list)})')
+        log_subsection_start(f"📊 Evaluating Checkpoint {ckp} ({i+1}/{len(ckp_list)})", Colors.CYAN)
         
+        log_step(1, f"Loading model weights", Colors.BLUE)
         # Load model weights for this checkpoint
         model_path = model_file_mapping[ckp]
         
         try:
-            logging.info(f'Loading model from {model_path}')
-            state_dict = torch.load(model_path, map_location=args.device)
-            classifier.load_state_dict(state_dict)
-            classifier.to(args.device)
-            classifier.eval()
+            if model_path == 'pretrained_model':
+                # For ckp_1, use the original pretrained model (already loaded in classifier)
+                log_info(f"Using original pretrained model for {ckp} (zero-shot)", Colors.GREEN)
+                # classifier is already the pretrained model, no need to load anything
+                classifier.to(args.device)
+                classifier.eval()
+            else:
+                log_info(f"Loading model from {model_path}", Colors.GREEN)
+                state_dict = torch.load(model_path, map_location=args.device)
+                classifier.load_state_dict(state_dict)
+                classifier.to(args.device)
+                classifier.eval()
             
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("model_load", f"after_load_{ckp}")
+            
+            log_success("Model loaded successfully")
                 
         except Exception as e:
-            logging.error(f'Failed to load model for {ckp}: {e}')
+            log_error(f"Failed to load model for {ckp}: {e}")
             continue
         
+        log_step(2, f"Preparing evaluation dataset", Colors.YELLOW)
         # Get evaluation dataset for this checkpoint
         ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp)
-        logging.info(f'Evaluation dataset size for {ckp}: {len(ckp_eval_dset)}')
+        log_info(f"Evaluation dataset size for {ckp}: {len(ckp_eval_dset)}", Colors.CYAN)
         
         if len(ckp_eval_dset) == 0:
-            logging.warning(f'No evaluation data found for checkpoint {ckp}')
+            log_warning(f"No evaluation data found for checkpoint {ckp}")
             continue
         
         # Create data loader
@@ -985,7 +1102,9 @@ def run_eval_only(args):
             shuffle=False, 
             num_workers=4
         )
+        log_success("Data loader created successfully")
         
+        log_step(3, f"Running model evaluation", Colors.GREEN)
         # Run evaluation
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
@@ -1000,15 +1119,23 @@ def run_eval_only(args):
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("evaluation", f"after_{ckp}")
         
+        log_success("Model evaluation completed")
+        
+        log_step(4, f"Computing metrics", Colors.MAGENTA)
         # Calculate and log metrics
         acc, balanced_acc = print_metrics(
             loss_arr, 
             preds_arr, 
             labels_arr, 
             len(class_names),
-            log_predix=f"Eval-only {ckp}: "
+            log_predix=f"📊 {ckp}: "
         )
         eval_loss = np.mean(loss_arr)
+        
+        # Log metrics with colors
+        log_metric("Accuracy", acc, ".4f", Colors.BRIGHT_GREEN)
+        log_metric("Balanced Accuracy", balanced_acc, ".4f", Colors.BRIGHT_GREEN)
+        log_metric("Evaluation Loss", eval_loss, ".4f", Colors.BRIGHT_BLUE)
         
         # Store results (convert numpy types to Python types for JSON serialization)
         eval_results[ckp] = {
@@ -1020,6 +1147,7 @@ def run_eval_only(args):
         
         # Log to wandb if enabled
         if args.wandb:
+            log_info(f"📈 Logging metrics to W&B: {ckp}", Colors.CYAN)
             wandb.log({
                 "eval/accuracy": acc,
                 "eval/balanced_accuracy": balanced_acc,
@@ -1028,21 +1156,26 @@ def run_eval_only(args):
                 "eval/num_samples": len(ckp_eval_dset)
             }, step=i)
         
+        log_step(5, f"Saving results", Colors.BLUE)
         # Save predictions if requested
         if args.save_predictions:
             pred_path = os.path.join(args.save_dir, f'{ckp}_eval_preds.pkl')
             with open(pred_path, 'wb') as f:
                 pickle.dump((preds_arr, labels_arr), f)
-            logging.info(f'Predictions saved to {pred_path}')
+            log_success(f"Predictions saved to {pred_path}")
         
         # Clear GPU cache between checkpoints
         if args.gpu_memory_monitor:
             gpu_monitor.clear_cache_and_log(f"eval_checkpoint_{ckp}")
+        
+        log_subsection_start(f"✅ Checkpoint {ckp} Complete", Colors.BRIGHT_GREEN)
     
+    log_section_start("📊 FINAL EVALUATION SUMMARY", Colors.BRIGHT_YELLOW)
     # Save summary results
     summary_path = os.path.join(args.save_dir, 'eval_only_summary.json')
     with open(summary_path, 'w') as f:
         json.dump(eval_results, f, indent=2)
+    log_success(f"Summary saved to {summary_path}")
     
     # Calculate average metrics
     if eval_results:
@@ -1054,35 +1187,44 @@ def run_eval_only(args):
         avg_accuracy = avg_balanced_accuracy = avg_loss = 0.0
         total_samples = 0
     
-    # Log summary
-    logging.info("=== EVALUATION SUMMARY ===")
+    # Log summary with beautiful formatting
+    logging.info("=== CHECKPOINT RESULTS SUMMARY ===")
     for ckp, results in eval_results.items():
         logging.info(f"{ckp}: acc={results['accuracy']:.4f}, balanced_acc={results['balanced_accuracy']:.4f}, "
                     f"loss={results['loss']:.4f}, samples={results['num_samples']}")
     
-    logging.info("=" * 50)
-    logging.info(f"AVERAGE ACROSS ALL CHECKPOINTS:")
-    logging.info(f"  Average Accuracy: {avg_accuracy:.4f}")
-    logging.info(f"  Average Balanced Accuracy: {avg_balanced_accuracy:.4f}")
-    logging.info(f"  Average Loss: {avg_loss:.4f}")
-    logging.info(f"  Total Checkpoints: {len(eval_results)}")
-    logging.info(f"  Total Samples: {total_samples}")
-    logging.info("=" * 50)
-    
-    logging.info(f"Summary saved to {summary_path}")
+    logging.info("=" * 60)
+    logging.info(f"🎯 FINAL AVERAGE ACROSS ALL CHECKPOINTS:")
+    log_metric("Average Accuracy", avg_accuracy, ".4f", Colors.BRIGHT_GREEN)
+    log_metric("Average Balanced Accuracy", avg_balanced_accuracy, ".4f", Colors.BRIGHT_GREEN)
+    log_metric("Average Loss", avg_loss, ".4f", Colors.BRIGHT_BLUE)
+    logging.info(f"  📊 Total Checkpoints: {len(eval_results)}")
+    logging.info(f"  📊 Total Samples: {total_samples}")
+    logging.info("=" * 60)
     
     # Final GPU memory summary
     if args.gpu_memory_monitor:
         summary = gpu_monitor.get_memory_summary()
-        logging.info(f"GPU Memory Summary: {summary}")
+        log_info(f"🔧 GPU Memory Summary: {summary}", Colors.CYAN)
         if args.wandb:
             wandb.log({"gpu_memory/summary": summary})
     
     # Finalize wandb if enabled
     if args.wandb:
+        log_info(f"📈 Metrics logged to W&B project: Camera Trap Benchmark - EVAL ONLY", Colors.CYAN)
         wandb.finish()
+        log_success("✅ W&B run finished")
     
-    logging.info("Evaluation-only mode completed successfully")
+    # Final completion logs
+    print(Colors.BOLD + "=" * 80 + Colors.RESET)
+    log_final_result("🎉 EVALUATION-ONLY MODE COMPLETED SUCCESSFULLY!")
+    print(Colors.BOLD + "=" * 80 + Colors.RESET)
+    
+    # Final summary with colors
+    log_info(f"📊 Total checkpoints evaluated: {len(eval_results)}")
+    log_info(f"💾 Results saved to: {args.save_dir}")
+    print(Colors.BOLD + "=" * 80 + Colors.RESET)
+    print()
 
 def parse_args():
     """Parse command-line arguments for the adaptive learning pipeline.
@@ -1100,7 +1242,7 @@ def parse_args():
     parser.add_argument('--test_per_epoch', action='store_true', help='Test with current and next checkpoint test data after each epoch (requires eval_per_epoch)')
     parser.add_argument('--save_best_model', action='store_true', default=True, help='Save best model during training')
     parser.add_argument('--validation_mode', type=str, default='balanced_acc', choices=['balanced_acc', 'loss'], help='Metric to use for best model selection: balanced_acc (higher is better) or loss (lower is better)')
-    parser.add_argument('--early_stop_epoch', type=int, default=10, help='Number of epochs without improvement to trigger early stopping after warmup period (default: 10)')
+    parser.add_argument('--early_stop_epoch', type=int, default=5, help='Number of epochs without improvement to trigger early stopping after warmup period (default: 5)')
     parser.add_argument('--is_save', action='store_true', help='Save model')
     parser.add_argument('--eval_only', action='store_true', help='Evaluate only mode - loads trained model checkpoints and evaluates them')
     parser.add_argument('--model_dir', type=str, help='Directory containing trained model checkpoints (.pth files) for eval_only mode')

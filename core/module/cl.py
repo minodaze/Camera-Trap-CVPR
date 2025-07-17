@@ -3,7 +3,6 @@ import logging
 import numpy as np
 import torch
 from torch import nn
-import os
 from torch.utils.data import DataLoader
 from ..common import get_optimizer, train, eval, get_f_loss, print_metrics, get_scheduler
 from ..data import BufferDataset
@@ -11,6 +10,7 @@ from abc import ABC, abstractmethod
 import random
 from collections import defaultdict
 from torch.nn import functional as F
+from utils.vram_check import check_vram_and_clean, conditional_cache_clear
 
 """
 
@@ -54,8 +54,11 @@ class CLModule(ABC):
             logging.info('No samples to train classifier, skipping. ')
         else:
             logging.info(f'Training classifier with {len(cl_train_dset)} samples. ')
+            
             cl_train_loader = DataLoader(cl_train_dset, batch_size=self.common_config['train_batch_size'], shuffle=True, num_workers=12)
+            
             optimizer = get_optimizer(classifier, self.common_config['optimizer_name'], self.common_config['optimizer_params'])
+            
             if self.common_config['scheduler'] is not None:
                 scheduler = get_scheduler(optimizer, self.common_config['scheduler'], self.common_config['scheduler_params'])
             else:
@@ -164,6 +167,11 @@ class CLAccumulative(CLModule):
         self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True)
         # Process buffer
         self.buffer.extend(train_dset.samples)
+        
+        # Memory cleanup
+        del cl_train_dset
+        conditional_cache_clear()
+        
         return classifier
 
     def refresh_buffer(self, new_samples):
@@ -181,16 +189,31 @@ class CLAccumulativeScratch(CLModule):
     def process(self, _, train_dset, eval_dset, train_mask, eval_per_epoch=True, eval_loader=None, ckp=None, gpu_monitor=None):
         # global idx
         classifier = copy.deepcopy(self._classifier)
+        
+        # VRAM check after classifier copy
+        check_vram_and_clean(context="after classifier copy")
+        
         # Process data
         cl_train_dset = copy.deepcopy(train_dset)
+        
         cl_train_dset.apply_mask(train_mask)
         cl_train_dset.add_samples(self.buffer)
+        
         # Train
         self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True)
+        
         # Process buffer
         for msk, sample in zip(train_mask, train_dset.samples):
             if msk:
                 self.buffer.append(sample)
+
+        # Memory cleanup
+        del cl_train_dset
+        conditional_cache_clear()
+        
+        # Silent maintenance cleanup - keep memory fresh
+        conditional_cache_clear(threshold=20.0)
+        
         return classifier
     
     def refresh_buffer(self, new_samples):
@@ -220,6 +243,11 @@ class CLAccumulativeScratchLWF(CLModule):
         for msk, sample in zip(train_mask, train_dset.samples):
             if msk:
                 self.buffer.append(sample)
+        
+        # Memory cleanup
+        del cl_train_dset
+        conditional_cache_clear()
+        
         return classifier
     
     def incremental_step(self, model):

@@ -64,19 +64,16 @@ for lr in "${LEARNING_RATES[@]}"; do
             job_datasets+=("${ALL_DATASETS[$i]}")
         done
         
-        # Create a space-separated string of datasets for this job
-        datasets_string="${job_datasets[*]}"
+        # Create a comma-separated string of datasets for this job (using comma as delimiter)
+        IFS=',' datasets_string="${job_datasets[*]}"
+        IFS=' '  # Reset IFS
         
         job_counter=$((job_counter + 1))
         echo "Job $job_counter/$TOTAL_SUBMISSIONS: LR=$lr, Processing datasets ${start_index}-${end_index}"
         echo "  Datasets: ${datasets_string}"
         
         # Submit the sbatch job with the datasets and learning rate as arguments
-        sbatch sbatch_run_accu_lora_bsm.sh "${datasets_string}" "$lr"
-        sleep 1
-        sbatch sbatch_run_accu_lora_cdt.sh "${datasets_string}" "$lr"
-        sleep 1
-        sbatch sbatch_run_accu_lora.sh "${datasets_string}" "$lr"    
+        sbatch sbatch_run_1.sh "${datasets_string}" "$lr"
         
         # Optional: Add a small delay between submissions to avoid overwhelming the scheduler
         

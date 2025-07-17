@@ -10,9 +10,8 @@
 #SBATCH --cpus-per-task=24
 
 
-USER_NAME="mino"
-
-CONDA_ENV="ICICLE"
+USER_NAME="camera-trap-benchmark-logs"
+CONDA_ENV="icicle"
 
 # Load your env
 source ~/miniconda3/etc/profile.d/conda.sh
