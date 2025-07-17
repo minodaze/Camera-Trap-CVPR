@@ -51,8 +51,6 @@ def setup_logging(log_path, debug, params):
     # Clear existing handlers to prevent duplicates
     logger.handlers.clear()
     
-    # Use deterministic timestamp based on configuration for reproducibility
-    deterministic_time = f"2025-07-12-20-{abs(hash(str(vars(params)))) % 10000:04d}-00"
     petl_method_name = method_name(params)
     log_path = os.path.join(log_path, params.pretrained_weights)
 
@@ -60,15 +58,13 @@ def setup_logging(log_path, debug, params):
     if params.interpolation_model:
         petl_method_name += f'_interpolation_model_{params.interpolation_alpha}'
     log_path = os.path.join(log_path, petl_method_name)
-    log_path = os.path.join(log_path, deterministic_time)
     if not debug:
         logger.setLevel(logging.INFO)
         log_path = os.path.join(log_path, 'log')
     else:
         logger.setLevel(logging.DEBUG)
-        curr_time = f"debug-{deterministic_time}"
-        log_path = os.path.join(log_path, curr_time)
-        
+        log_path = os.path.join(log_path, 'debug')
+
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
     # Log to stdout
@@ -584,10 +580,13 @@ def run(args):
         train_dset_mask = np.ones(len(ckp_train_dset), dtype=bool)
         
         # Run OOD detection
+        # Check if first checkpoint
+        is_first_ckp = (i == 0)
+        is_zs = (args.module_name == 'zs')
         log_step(1, f"Out-of-Distribution Detection ({ood_config.get('method', 'none')})", Colors.YELLOW)
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("ood", f"before_{ckp}")
-        classifier, ood_mask = ood_module.process(classifier, ckp_train_dset, ckp_eval_dset, train_dset_mask)
+        classifier, ood_mask = ood_module.process(classifier, ckp_train_dset, ckp_eval_dset, train_dset_mask, is_first_ckp=is_first_ckp, is_zs=is_zs)
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("ood", f"after_{ckp}")
         log_info(f"OOD samples identified: {ood_mask.sum()} / {len(ood_mask)}", Colors.YELLOW)
@@ -678,7 +677,7 @@ def run(args):
         gc.collect()
         torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
-        if not pretrain_config['pretrain'] and (args.interpolation_model or args.interpolation_head):
+        if args.interpolation_model or args.interpolation_head:
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("interpolation", f"before_{ckp}")
             # Interpolate model if enabled
@@ -958,8 +957,8 @@ def run_eval_only(args):
     
     log_section_start("📊 DATASET PREPARATION", Colors.BRIGHT_YELLOW)
     # Prepare dataset
-    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type)
-    
+    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, is_train=False, label_type=label_type)
+
     # Get checkpoint list
     ckp_list = eval_dset.get_ckp_list()
     log_info(f"Available checkpoints in dataset: {ckp_list}", Colors.CYAN)
@@ -997,8 +996,8 @@ def run_eval_only(args):
     training_mode = None
     
     # Check for upper bound (full training) - single pretrain_best_model.pth
-    upperbound_model_path = os.path.join(args.model_dir, 'pretrain_best_model.pth')
-    
+    upperbound_model_path = args.model_dir if 'pretrain_best_model.pth' in args.model_dir else os.path.join(args.model_dir, 'pretrain_best_model.pth')
+
     if os.path.exists(upperbound_model_path):
         # Upper bound training - one model for all checkpoints
         training_mode = "upper_bound"
@@ -1056,6 +1055,11 @@ def run_eval_only(args):
     # Run evaluation for each checkpoint
     eval_results = {}
     
+    # Save zs backbone for interpolation if needed
+    if args.interpolation_model or args.interpolation_head:
+        _classifier = copy.deepcopy(classifier)
+        _classifier = _classifier.to(args.device)
+
     for i, ckp in enumerate(ckp_list):
         log_subsection_start(f"📊 Evaluating Checkpoint {ckp} ({i+1}/{len(ckp_list)})", Colors.CYAN)
         
@@ -1064,6 +1068,7 @@ def run_eval_only(args):
         model_path = model_file_mapping[ckp]
         
         try:
+
             if model_path == 'pretrained_model':
                 # For ckp_1, use the original pretrained model (already loaded in classifier)
                 log_info(f"Using original pretrained model for {ckp} (zero-shot)", Colors.GREEN)
@@ -1076,7 +1081,11 @@ def run_eval_only(args):
                 classifier.load_state_dict(state_dict)
                 classifier.to(args.device)
                 classifier.eval()
-            
+
+            if (args.interpolation_model or args.interpolation_head) and _classifier is not None:
+                logging.info(f"Interpolating model at checkpoint {ckp} with alpha {args.interpolation_alpha}")
+                classifier.interpolate_model(_classifier, alpha=args.interpolation_alpha)
+                
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("model_load", f"after_load_{ckp}")
             
@@ -1265,7 +1274,6 @@ def parse_args():
     parser.add_argument('--class_type', type=str, default='common_name',
                         choices=['common_name', 'scientific_name'],
                         help='Class type for the model')
-                        
     
     parser.add_argument('--drop_path_rate', default=0.,
                         type=float,

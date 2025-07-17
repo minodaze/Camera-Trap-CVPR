@@ -35,3 +35,7 @@ extract_train_log/extract_ub_log.py
 extract_train_log/merge_to_main.py
 other_codes/merge_train_log_csv.py
 benchmark_logs/icicle
+plot.py
+plot_2d.py
+script.py
+run_pipeline_2.py
