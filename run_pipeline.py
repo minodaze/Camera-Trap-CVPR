@@ -382,22 +382,17 @@ def run(args):
         log_step(2, "Initializing Weights & Biases logging")
         
         # Extract components from the original save_dir
-        match = re.search(r"pipeline/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)", args.save_dir)
-        wandb_run_name = "Unidentified Run"  # Default name if regex fails
+        match = re.search(r"logs/([^/]+)/([^/]+)/([^/]+)/", args.save_dir)
+        wandb_run_name = "Train"
         if match:
-            dataset = match.group(1)  # e.g., ENO_C05_new
-            training_mode = match.group(2)  # e.g., ce
-            pretrained_type = match.group(3)  # e.g., accumulative-scratch
-            pretrained_weights = match.group(4)  # e.g., bioclip2
-            method = match.group(5)  # e.g., lora_8_text_lora
-            timestamp = match.group(6)  # e.g., 2025-07-05-14-53-19
-
+            dataset = match.group(1)
+            setting = match.group(2)
             # Construct the wandb run name
-            wandb_run_name = f"{dataset} | {training_mode} | {pretrained_type} | {pretrained_weights} | {method} | {timestamp}"
+            wandb_run_name = f"Train | {dataset} | {setting}"
 
         module_name = getattr(args, 'module_name', 'default_module')  # Fallback if module_name is not in args
         wandb.init(
-            project="Camera Trap UB Part 2 July 16",  # Replace with your project name
+            project="Camera Trap Final",  # Replace with your project name
             name=wandb_run_name,  # Set run name using args.c and module_name
             config=vars(args)  # Log all arguments to wandb
         )
@@ -1305,17 +1300,13 @@ def run_eval_only(args):
     if args.wandb:
         log_step(2, "Initializing Weights & Biases logging")
         import re
-        match = re.search(r"pipeline/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)/([^/]+)", args.save_dir)
+        match = re.search(r"pipeline/([^/]+)/([^/]+)/([^/]+)", args.save_dir)
         wandb_run_name = "Eval Only Run"
         if match:
             dataset = match.group(1)
-            training_mode = match.group(2)
-            pretrained_type = match.group(3)
-            pretrained_weights = match.group(4)
-            method = match.group(5)
-            timestamp = match.group(6)
-            wandb_run_name = f"EVAL | {dataset} | {training_mode} | {pretrained_type} | {pretrained_weights} | {method} | {timestamp}"
-        
+            setting = match.group(2)
+            wandb_run_name = f"EVAL | {dataset} | {setting}"
+
         wandb.init(
             project="Camera Trap Benchmark - EVAL ONLY",
             name=wandb_run_name,
@@ -1751,8 +1742,8 @@ def run_eval_only(args):
     
     log_section_start("📊 DATASET PREPARATION", Colors.BRIGHT_YELLOW)
     # Prepare dataset
-    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type)
-    
+    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, is_train=False, label_type=label_type)
+
     # Get checkpoint list
     ckp_list = eval_dset.get_ckp_list()
     log_info(f"Available checkpoints in dataset: {ckp_list}", Colors.CYAN)
@@ -2301,8 +2292,6 @@ if __name__ == '__main__':
     # Setup logging
     
     default_log_path = args.log_path
-    if args.eval_only:
-        default_log_path = "/fs/ess/PAS2099/sooyoung/ICICLE-Benchmark/benchmark_logs/icicle/study_logs"
     
     args.save_dir = setup_logging(default_log_path, args.debug, args)
     logging.info(f'Saving to {args.save_dir}. ')
