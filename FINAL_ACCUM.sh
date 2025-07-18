@@ -29,7 +29,7 @@ fi
 # The script will automatically convert / to _ 
 # ===================================================================
 DATASET_INPUT_1="orinoquia/orinoquia_N25"
-DATASET_INPUT_2="na/na_archbold_FL-32" 
+DATASET_INPUT_2="na/na_archbold_FL-32"
 DATASET_INPUT_3="MAD/MAD_A05"
 DATASET_INPUT_4="nz/nz_EFH_HCAMB10"
 # ===================================================================

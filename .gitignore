@@ -78,3 +78,6 @@ benchmark_logs/icicle
 AUC_CURVE_DOCUMENTATION.md
 create_auc_curves.py
 sbatch_run_1_acc.sh
+extract_train_log/compare_dataset_list.py
+extract_train_log/extract_final_logs.py
+extract_train_log/extract_final_ub.py

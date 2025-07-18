@@ -1477,8 +1477,8 @@ def run_eval_only(args):
                 log_warning(f"Could not get training logits: {e}")
                 train_logits, train_labels = None, None
             
-            # Run paper calibration analysis
-            log_step("4b", "Running paper calibration analysis", Colors.BLUE)
+            # Run comprehensive calibration analysis
+            log_step("4b", "Running comprehensive calibration analysis", Colors.BLUE)
             
             calib_results = comprehensive_paper_calibration(
                 logits_arr,  # test logits
@@ -1524,14 +1524,61 @@ def run_eval_only(args):
                 
                 log_success(f"📄 Paper Method: γ={paper_results['gamma']:.3f}, Acc Δ={paper_results['accuracy_improvement']:+.4f}, Bal_Acc Δ={paper_results['balanced_accuracy_change']:+.4f}")
                 log_success(f"   Absent Class Improvement: Δ={paper_results['absent_accuracy_improvement']:+.4f}")
+            
+            # Add adaptive calibration results
+            if calib_results.get('adaptive_calibration') is not None:
+                adaptive_results = calib_results['adaptive_calibration']
+                calibration_results.update({
+                    'adaptive_calibration': {
+                        'shift_amount': float(adaptive_results.get('shift_amount', 0.0)),
+                        'accuracy': float(adaptive_results.get('corrected_accuracy', 0.0)),
+                        'balanced_accuracy': float(adaptive_results.get('corrected_balanced_accuracy', 0.0)),
+                        'accuracy_improvement': float(adaptive_results.get('accuracy_improvement', 0.0)),
+                        'balanced_accuracy_improvement': float(adaptive_results.get('balanced_accuracy_improvement', 0.0)),
+                        'auc_score': float(adaptive_results.get('auc_score', 0.0)),
+                        'curve_points': int(adaptive_results.get('curve_points', 0)),
+                        'target_metric': adaptive_results.get('target_metric', 'balanced_accuracy'),
+                        'calibration_applied': adaptive_results.get('calibration_applied', False),
+                        'absent_accuracy_improvement': float(adaptive_results.get('absent_accuracy_improvement', 0.0)),
+                        'seen_accuracy_improvement': float(adaptive_results.get('seen_accuracy_improvement', 0.0))
+                    }
+                })
                 
-                # Update metrics if calibration improved them
-                if paper_results['balanced_accuracy_change'] > 0:
-                    log_success(f"🎯 Calibration improved balanced accuracy by {paper_results['balanced_accuracy_change']:.4f}!")
-                    acc = paper_results['corrected_accuracy']
-                    balanced_acc = paper_results['balanced_accuracy']
+                if adaptive_results.get('calibration_applied', False):
+                    log_success(f"🔄 Adaptive Method: shift={adaptive_results.get('shift_amount', 0.0):.3f}, Acc Δ={adaptive_results.get('accuracy_improvement', 0.0):+.4f}, Bal_Acc Δ={adaptive_results.get('balanced_accuracy_improvement', 0.0):+.4f}")
+                    log_success(f"   AUC Score: {adaptive_results.get('auc_score', 0.0):.4f}, Curve Points: {adaptive_results.get('curve_points', 0)}")
                 else:
-                    log_info("📊 Calibration did not improve balanced accuracy", Colors.CYAN)
+                    log_info(f"🔄 Adaptive Method: {adaptive_results.get('reason', 'not applied')}", Colors.YELLOW)
+            
+            # Determine which calibration method performed best and update final metrics
+            best_method = calib_results.get('best_method', 'none')
+            best_results = calib_results.get('best_results', {})
+            
+            if best_method == 'paper' and calib_results.get('paper_calibration'):
+                paper_bal_acc_change = calib_results['paper_calibration'].get('balanced_accuracy_change', 0.0)
+                if paper_bal_acc_change > 0:
+                    log_success(f"🎯 Paper calibration chosen and improved balanced accuracy by {paper_bal_acc_change:.4f}!")
+                    acc = calib_results['paper_calibration'].get('corrected_accuracy', acc)
+                    balanced_acc = calib_results['paper_calibration'].get('balanced_accuracy', balanced_acc)
+                else:
+                    log_info("📊 Paper calibration chosen but did not improve balanced accuracy", Colors.CYAN)
+            elif best_method == 'adaptive' and calib_results.get('adaptive_calibration') and calib_results['adaptive_calibration'].get('calibration_applied', False):
+                adaptive_bal_acc_improvement = calib_results['adaptive_calibration'].get('balanced_accuracy_improvement', 0.0)
+                if adaptive_bal_acc_improvement > 0:
+                    log_success(f"🎯 Adaptive calibration chosen and improved balanced accuracy by {adaptive_bal_acc_improvement:.4f}!")
+                    acc = calib_results['adaptive_calibration'].get('corrected_accuracy', acc)
+                    balanced_acc = calib_results['adaptive_calibration'].get('corrected_balanced_accuracy', balanced_acc)
+                else:
+                    log_info("📊 Adaptive calibration chosen but did not improve balanced accuracy", Colors.CYAN)
+            else:
+                log_info("📊 No calibration improvement found", Colors.CYAN)
+            
+            # Add best method info to calibration results
+            calibration_results.update({
+                'best_method': best_method,
+                'final_accuracy': float(acc),
+                'final_balanced_accuracy': float(balanced_acc)
+            })
             
             # Save detailed calibration results
             calib_path = os.path.join(args.save_dir, f'{ckp}_calibration_analysis.json')
@@ -1542,11 +1589,15 @@ def run_eval_only(args):
             # Log to wandb if enabled
             if args.wandb:
                 wandb_metrics = {
-                    f"eval_calibration/original_accuracy": acc,
-                    f"eval_calibration/original_balanced_accuracy": balanced_acc,
+                    f"eval_calibration/original_accuracy": calibration_results['original_accuracy'],
+                    f"eval_calibration/original_balanced_accuracy": calibration_results['original_balanced_accuracy'],
+                    f"eval_calibration/final_accuracy": acc,
+                    f"eval_calibration/final_balanced_accuracy": balanced_acc,
+                    f"eval_calibration/best_method": best_method,
                     f"eval_calibration/checkpoint": ckp
                 }
                 
+                # Add paper calibration metrics
                 if calib_results.get('paper_calibration'):
                     pc = calib_results['paper_calibration']
                     wandb_metrics.update({
@@ -1554,9 +1605,24 @@ def run_eval_only(args):
                         f"eval_calibration/paper_balanced_accuracy": pc['balanced_accuracy'],
                         f"eval_calibration/paper_accuracy_improvement": pc['accuracy_improvement'],
                         f"eval_calibration/paper_balanced_accuracy_improvement": pc['balanced_accuracy_change'],
-                        f"eval_calibration/gamma": pc['gamma'],
-                        f"eval_calibration/absent_accuracy_improvement": pc['absent_accuracy_improvement'],
+                        f"eval_calibration/paper_gamma": pc['gamma'],
+                        f"eval_calibration/paper_absent_accuracy_improvement": pc['absent_accuracy_improvement'],
                         f"eval_calibration/absent_classes_count": len(pc['absent_classes'])
+                    })
+                
+                # Add adaptive calibration metrics
+                if calib_results.get('adaptive_calibration') and calib_results['adaptive_calibration'].get('calibration_applied', False):
+                    ac = calib_results['adaptive_calibration']
+                    wandb_metrics.update({
+                        f"eval_calibration/adaptive_accuracy": ac.get('corrected_accuracy', 0.0),
+                        f"eval_calibration/adaptive_balanced_accuracy": ac.get('corrected_balanced_accuracy', 0.0),
+                        f"eval_calibration/adaptive_accuracy_improvement": ac.get('accuracy_improvement', 0.0),
+                        f"eval_calibration/adaptive_balanced_accuracy_improvement": ac.get('balanced_accuracy_improvement', 0.0),
+                        f"eval_calibration/adaptive_shift_amount": ac.get('shift_amount', 0.0),
+                        f"eval_calibration/adaptive_auc_score": ac.get('auc_score', 0.0),
+                        f"eval_calibration/adaptive_curve_points": ac.get('curve_points', 0),
+                        f"eval_calibration/adaptive_absent_accuracy_improvement": ac.get('absent_accuracy_improvement', 0.0),
+                        f"eval_calibration/adaptive_seen_accuracy_improvement": ac.get('seen_accuracy_improvement', 0.0)
                     })
                 
                 # Add AUC curve metrics if available
@@ -1575,7 +1641,7 @@ def run_eval_only(args):
                         wandb.log({f"eval_calibration/auc_curve_{ckp}": wandb.Image(auc_curve_data['plot_path'])}, step=i)
                 
                 wandb.log(wandb_metrics, step=i)
-                log_success("Calibration metrics and AUC curve logged to wandb")
+                log_success("Comprehensive calibration metrics and AUC curve logged to wandb")
         else:
             if args.calibration:
                 log_warning("Calibration requested but logits not available - skipping calibration analysis")
