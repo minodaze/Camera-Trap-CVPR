@@ -16,18 +16,11 @@ def run_training(gpu_id, dataset, setting, config_root, workspace_root, conda_en
     # Convert dataset name from format like "MAD/MAD_MAD01" to "MAD_MAD_MAD01"
     dataset_converted = dataset.replace('/', '_')
     
-    # Determine the config file and additional arguments
-    # Get YAML file name by splitting dataset by '_', removing first part, keeping rest
-    dataset_parts = dataset_converted.split('_')
-    if len(dataset_parts) > 1:
-        yaml_name = '_'.join(dataset_parts[1:])
-    else:
-        yaml_name = dataset_converted
-    
+    # Use the same name as directory for YAML file
     if setting in ['lora_ce', 'full_ce']:
-        config_file = f"{config_root}/{dataset_converted}/{yaml_name}_accu_ce.yaml"
+        config_file = f"{config_root}/{dataset_converted}/{dataset_converted}_accu_ce.yaml"
     else:  # lora_bsm, full_bsm
-        config_file = f"{config_root}/{dataset_converted}/{yaml_name}_accu_bsm.yaml"
+        config_file = f"{config_root}/{dataset_converted}/{dataset_converted}_accu_bsm.yaml"
     
     # Build the command with default arguments
     cmd = [
