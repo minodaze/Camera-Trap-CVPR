@@ -13,18 +13,21 @@ def run_training(gpu_id, dataset, setting, config_root, workspace_root, conda_en
     env = os.environ.copy()
     env['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
     
+    # Convert dataset name from format like "MAD/MAD_MAD01" to "MAD_MAD_MAD01"
+    dataset_converted = dataset.replace('/', '_')
+    
     # Determine the config file and additional arguments
     # Get YAML file name by splitting dataset by '_', removing first part, keeping rest
-    dataset_parts = dataset.split('_')
+    dataset_parts = dataset_converted.split('_')
     if len(dataset_parts) > 1:
         yaml_name = '_'.join(dataset_parts[1:])
     else:
-        yaml_name = dataset
+        yaml_name = dataset_converted
     
     if setting in ['lora_ce', 'full_ce']:
-        config_file = f"{config_root}/{dataset}/{yaml_name}_accu_ce.yaml"
+        config_file = f"{config_root}/{dataset_converted}/{yaml_name}_accu_ce.yaml"
     else:  # lora_bsm, full_bsm
-        config_file = f"{config_root}/{dataset}/{yaml_name}_accu_bsm.yaml"
+        config_file = f"{config_root}/{dataset_converted}/{yaml_name}_accu_bsm.yaml"
     
     # Build the command with default arguments
     cmd = [
@@ -42,7 +45,7 @@ def run_training(gpu_id, dataset, setting, config_root, workspace_root, conda_en
     else:  # full training
         cmd.append('--full')
     
-    print(f"🚀 Starting GPU {gpu_id}: {dataset} with {setting}")
+    print(f"🚀 Starting GPU {gpu_id}: {dataset_converted} with {setting}")
     print(f"Command: {' '.join(cmd)}")
     print(f"Working directory: {workspace_root}")
     print("-" * 50)
@@ -59,18 +62,18 @@ def run_training(gpu_id, dataset, setting, config_root, workspace_root, conda_en
         )
         
         if result.returncode == 0:
-            print(f"✅ GPU {gpu_id} ({dataset}, {setting}) completed successfully")
-            return True, gpu_id, dataset, setting, result.stdout, result.stderr
+            print(f"✅ GPU {gpu_id} ({dataset_converted}, {setting}) completed successfully")
+            return True, gpu_id, dataset_converted, setting, result.stdout, result.stderr
         else:
-            print(f"❌ GPU {gpu_id} ({dataset}, {setting}) failed with return code {result.returncode}")
-            return False, gpu_id, dataset, setting, result.stdout, result.stderr
+            print(f"❌ GPU {gpu_id} ({dataset_converted}, {setting}) failed with return code {result.returncode}")
+            return False, gpu_id, dataset_converted, setting, result.stdout, result.stderr
             
     except subprocess.TimeoutExpired:
-        print(f"⏰ GPU {gpu_id} ({dataset}, {setting}) timed out")
-        return False, gpu_id, dataset, setting, "", "Training timed out"
+        print(f"⏰ GPU {gpu_id} ({dataset_converted}, {setting}) timed out")
+        return False, gpu_id, dataset_converted, setting, "", "Training timed out"
     except Exception as e:
-        print(f"💥 GPU {gpu_id} ({dataset}, {setting}) failed with exception: {str(e)}")
-        return False, gpu_id, dataset, setting, "", str(e)
+        print(f"💥 GPU {gpu_id} ({dataset_converted}, {setting}) failed with exception: {str(e)}")
+        return False, gpu_id, dataset_converted, setting, "", str(e)
 
 def main():
     if len(sys.argv) != 4:
@@ -90,7 +93,8 @@ def main():
     
     print(f"📋 Training Tasks:")
     for gpu_id, dataset, setting in training_tasks:
-        print(f"  GPU {gpu_id}: {dataset} → {setting}")
+        dataset_converted = dataset.replace('/', '_')
+        print(f"  GPU {gpu_id}: {dataset_converted} → {setting}")
     print("")
     
     # Run training tasks in parallel

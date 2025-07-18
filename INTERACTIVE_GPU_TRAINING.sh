@@ -27,10 +27,10 @@ fi
 # ===================================================================
 # HARDCODED CONFIGURATION
 # ===================================================================
-DATASET_INPUT_1="orinoquia/orinoquia_N25"
-# DATASET_INPUT_2="na/na_archbold_FL-32"
-# DATASET_INPUT_3="MAD/MAD_A05"
-# DATASET_INPUT_4="nz/nz_EFH_HCAMB10"
+DATASET_INPUT_1="MAD/MAD01"
+DATASET_INPUT_2="MAD/MAD01"
+DATASET_INPUT_3="MAD/MAD01"
+DATASET_INPUT_4="MAD/MAD01"
 CONDA_ENV="icicle"
 WORKSPACE_ROOT="/fs/ess/PAS2099/sooyoung/ICICLE-Benchmark"
 CONFIG_ROOT="/fs/scratch/PAS2099/camera-trap-final/configs"
@@ -67,6 +67,7 @@ SETTING_DESCRIPTIONS=("LoRA + CE" "LoRA + BSM" "Full + CE" "Full + BSM")
 # GPU tracking
 declare -a GPU_ASSIGNMENTS
 declare -a SELECTED_DATASETS
+declare -a SELECTED_DATASET_INDICES
 declare -a SELECTED_SETTINGS
 declare -a USED_GPUS
 
@@ -100,10 +101,22 @@ display_config() {
     else
         for i in "${!SELECTED_DATASETS[@]}"; do
             dataset_converted=$(echo "${SELECTED_DATASETS[$i]}" | sed 's/\//_/g')
-            echo "  GPU ${GPU_ASSIGNMENTS[$i]}: $dataset_converted → ${SETTING_DESCRIPTIONS[${SELECTED_SETTINGS[$i]}]}"
+            slot_num=$((SELECTED_DATASET_INDICES[$i] + 1))
+            echo "  GPU ${GPU_ASSIGNMENTS[$i]}: $dataset_converted (Slot $slot_num) → ${SETTING_DESCRIPTIONS[${SELECTED_SETTINGS[$i]}]}"
         done
     fi
     echo ""
+}
+
+# Function to check if a dataset slot is already selected
+is_dataset_slot_selected() {
+    local dataset_idx=$1
+    for selected_idx in "${SELECTED_DATASET_INDICES[@]}"; do
+        if [ "$selected_idx" == "$dataset_idx" ]; then
+            return 0  # dataset slot is selected
+        fi
+    done
+    return 1  # dataset slot is not selected
 }
 
 # Function to validate GPU availability
@@ -129,7 +142,11 @@ while true; do
     
     echo -e "${GREEN}Select a dataset to configure (or 'q' to finish, 'r' to reset):${NC}"
     for i in "${!DATASET_NAMES[@]}"; do
-        echo "  $((i+1)). ${DATASET_NAMES[$i]}"
+        if is_dataset_slot_selected "$i"; then
+            echo "  $((i+1)). ${DATASET_NAMES[$i]} ✗ (already configured)"
+        else
+            echo "  $((i+1)). ${DATASET_NAMES[$i]} ✓ (available)"
+        fi
     done
     echo "  q. Finish configuration"
     echo "  r. Reset configuration"
@@ -142,6 +159,13 @@ while true; do
             if [ $dataset_choice -le ${#AVAILABLE_DATASETS[@]} ]; then
                 dataset_idx=$((dataset_choice-1))
                 selected_dataset="${AVAILABLE_DATASETS[$dataset_idx]}"
+                
+                # Check if dataset slot is already selected
+                if is_dataset_slot_selected "$dataset_idx"; then
+                    echo -e "${RED}Dataset slot already configured. Please choose a different dataset slot.${NC}"
+                    echo ""
+                    continue
+                fi
                 
                 echo ""
                 echo -e "${BLUE}Selected: ${DATASET_NAMES[$dataset_idx]}${NC}"
@@ -186,11 +210,12 @@ while true; do
                 
                 # Add to configuration
                 SELECTED_DATASETS+=("$selected_dataset")
+                SELECTED_DATASET_INDICES+=("$dataset_idx")
                 SELECTED_SETTINGS+=("$setting_idx")
                 GPU_ASSIGNMENTS+=("$gpu_choice")
                 USED_GPUS+=("$gpu_choice")
                 
-                echo -e "${GREEN}✓ Added: GPU $gpu_choice → $(echo "$selected_dataset" | sed 's/\//_/g') → ${SETTING_DESCRIPTIONS[$setting_idx]}${NC}"
+                echo -e "${GREEN}✓ Added: GPU $gpu_choice → $(echo "$selected_dataset" | sed 's/\//_/g') (Slot $((dataset_idx+1))) → ${SETTING_DESCRIPTIONS[$setting_idx]}${NC}"
                 echo ""
             else
                 echo -e "${RED}Invalid choice. Please enter 1-$max_choice, q, or r.${NC}"
@@ -201,6 +226,7 @@ while true; do
             ;;
         [rR])
             SELECTED_DATASETS=()
+            SELECTED_DATASET_INDICES=()
             SELECTED_SETTINGS=()
             GPU_ASSIGNMENTS=()
             USED_GPUS=()
@@ -282,14 +308,15 @@ echo ""
 # Create the training configuration for the Python script
 TRAINING_CONFIGS=""
 for i in "${!SELECTED_DATASETS[@]}"; do
-    dataset_converted=$(echo "${SELECTED_DATASETS[$i]}" | sed 's/\//_/g')
+    # Pass the original dataset name (with /) to Python script for conversion
+    original_dataset="${SELECTED_DATASETS[$i]}"
     gpu="${GPU_ASSIGNMENTS[$i]}"
     setting="${TRAINING_SETTINGS[${SELECTED_SETTINGS[$i]}]}"
     
     if [ -n "$TRAINING_CONFIGS" ]; then
         TRAINING_CONFIGS="$TRAINING_CONFIGS,"
     fi
-    TRAINING_CONFIGS="$TRAINING_CONFIGS$gpu:$dataset_converted:$setting"
+    TRAINING_CONFIGS="$TRAINING_CONFIGS$gpu:$original_dataset:$setting"
 done
 
 # Create a simple Python script to handle the interactive training
@@ -309,18 +336,21 @@ def run_training(gpu_id, dataset, setting, config_root, workspace_root, conda_en
     env = os.environ.copy()
     env['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
     
+    # Convert dataset name from format like "MAD/MAD_MAD01" to "MAD_MAD_MAD01"
+    dataset_converted = dataset.replace('/', '_')
+    
     # Determine the config file and additional arguments
     # Get YAML file name by splitting dataset by '_', removing first part, keeping rest
-    dataset_parts = dataset.split('_')
+    dataset_parts = dataset_converted.split('_')
     if len(dataset_parts) > 1:
         yaml_name = '_'.join(dataset_parts[1:])
     else:
-        yaml_name = dataset
+        yaml_name = dataset_converted
     
     if setting in ['lora_ce', 'full_ce']:
-        config_file = f"{config_root}/{dataset}/{yaml_name}_accu_ce.yaml"
+        config_file = f"{config_root}/{dataset_converted}/{yaml_name}_accu_ce.yaml"
     else:  # lora_bsm, full_bsm
-        config_file = f"{config_root}/{dataset}/{yaml_name}_accu_bsm.yaml"
+        config_file = f"{config_root}/{dataset_converted}/{yaml_name}_accu_bsm.yaml"
     
     # Build the command with default arguments
     cmd = [
@@ -338,7 +368,7 @@ def run_training(gpu_id, dataset, setting, config_root, workspace_root, conda_en
     else:  # full training
         cmd.append('--full')
     
-    print(f"🚀 Starting GPU {gpu_id}: {dataset} with {setting}")
+    print(f"🚀 Starting GPU {gpu_id}: {dataset_converted} with {setting}")
     print(f"Command: {' '.join(cmd)}")
     print(f"Working directory: {workspace_root}")
     print("-" * 50)
@@ -355,18 +385,18 @@ def run_training(gpu_id, dataset, setting, config_root, workspace_root, conda_en
         )
         
         if result.returncode == 0:
-            print(f"✅ GPU {gpu_id} ({dataset}, {setting}) completed successfully")
-            return True, gpu_id, dataset, setting, result.stdout, result.stderr
+            print(f"✅ GPU {gpu_id} ({dataset_converted}, {setting}) completed successfully")
+            return True, gpu_id, dataset_converted, setting, result.stdout, result.stderr
         else:
-            print(f"❌ GPU {gpu_id} ({dataset}, {setting}) failed with return code {result.returncode}")
-            return False, gpu_id, dataset, setting, result.stdout, result.stderr
+            print(f"❌ GPU {gpu_id} ({dataset_converted}, {setting}) failed with return code {result.returncode}")
+            return False, gpu_id, dataset_converted, setting, result.stdout, result.stderr
             
     except subprocess.TimeoutExpired:
-        print(f"⏰ GPU {gpu_id} ({dataset}, {setting}) timed out")
-        return False, gpu_id, dataset, setting, "", "Training timed out"
+        print(f"⏰ GPU {gpu_id} ({dataset_converted}, {setting}) timed out")
+        return False, gpu_id, dataset_converted, setting, "", "Training timed out"
     except Exception as e:
-        print(f"💥 GPU {gpu_id} ({dataset}, {setting}) failed with exception: {str(e)}")
-        return False, gpu_id, dataset, setting, "", str(e)
+        print(f"💥 GPU {gpu_id} ({dataset_converted}, {setting}) failed with exception: {str(e)}")
+        return False, gpu_id, dataset_converted, setting, "", str(e)
 
 def main():
     if len(sys.argv) != 4:
@@ -386,7 +416,8 @@ def main():
     
     print(f"📋 Training Tasks:")
     for gpu_id, dataset, setting in training_tasks:
-        print(f"  GPU {gpu_id}: {dataset} → {setting}")
+        dataset_converted = dataset.replace('/', '_')
+        print(f"  GPU {gpu_id}: {dataset_converted} → {setting}")
     print("")
     
     # Run training tasks in parallel
