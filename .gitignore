@@ -16,7 +16,6 @@ pretrained_weights/
 *.output
 *.out
 *.yaml
-*.sh
 *.png
 *.log
 *.wandb
@@ -58,7 +57,6 @@ pretrained_weights/
 *.output
 *.out
 *.yaml
-*.sh
 *.png
 *.log
 *.wandb
@@ -79,3 +77,4 @@ other_codes/merge_train_log_csv.py
 benchmark_logs/icicle
 AUC_CURVE_DOCUMENTATION.md
 create_auc_curves.py
+sbatch_run_1_acc.sh
