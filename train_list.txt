@@ -1,11 +1,6 @@
-na/na_archbold_FL-04
-serengeti/serengeti_L05
-MAD/MAD_G05
-MAD/MAD_I04
-serengeti/serengeti_G03
-serengeti/serengeti_M07
-serengeti/serengeti_M05
+MAD/MAD_MAD01
+serengeti/serengeti_K13
+serengeti/serengeti_T13
+nz/nz_EFH_HCAMG12
 serengeti/serengeti_Q13
-APN/APN_13U
-serengeti/serengeti_L09
-serengeti/serengeti_E08
+serengeti/serengeti_F13

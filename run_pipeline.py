@@ -1,4 +1,5 @@
 import argparse
+import code
 import logging
 import os
 import copy
@@ -65,7 +66,16 @@ def setup_logging(log_path, debug, params):
     petl_method_name = petl_method_name + f'_text_{params.text}'
     if params.interpolation_model:
         petl_method_name += f'_interpolation_model_{params.interpolation_alpha}'
+    if params.eval_only and params.merge_factor is not None:
+        petl_method_name += f'_merge_factor_{params.merge_factor}'
     log_path = os.path.join(log_path, petl_method_name)
+    if params.al_config and params.al_config.get('method') != 'none':
+        al = params.al_config.get('method', 'none')
+        if 'percentage' in params.al_config:
+            al = al + f"_percentage_{params.al_config.get('percentage', 0)}"
+        if 'num_sample_per_cluster' in params.al_config:
+            al = al + f"_num_samples_per_cluster_{params.al_config.get('num_sample_per_cluster', 1)}"
+        log_path = os.path.join(log_path, al)
     if not debug:
         logger.setLevel(logging.INFO)
         log_path = os.path.join(log_path, 'log')
@@ -97,19 +107,9 @@ def setup_logging(log_path, debug, params):
     return log_path
 
 
-def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None, interpolation_model=False, interpolation_head=False, interpolation_alpha=0.5, eval_per_epoch=False, save_dir=None, args=None, test_per_epoch=False, eval_dset=None):
-    """Pretrain the classifier on the pretraining dataset.
-        
-        Args:
-            classifier (nn.Module): Classifier model.
-            class_names (list): List of class names.
-            pretrain_config (dict): Pretraining configuration.
-            common_config (dict): Common configuration.
-            device (str): Device to use for training.
-            gpu_monitor: GPU memory monitor instance.
-        Returns:
-            classifier (nn.Module): Classifier after pretraining.
-    
+def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None, interpolation_model=False, interpolation_head=False, interpolation_alpha=0.5, eval_per_epoch=False, save_dir=None, args=None, test_per_epoch=False, eval_dset=None, ood_config=None, al_config=None):
+    """
+    Pretrain the classifier on the pretraining dataset.
     """
     # Get pretrain configurations
     pretrain_data_config_path = pretrain_config['pretrain_data_config_path']
@@ -204,13 +204,26 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
         # Update the main training dataset to exclude validation samples
         train_samples = [full_dataset.samples[i] for i in train_indices]
         dataset.samples = train_samples
-        
+
+        train_mask = np.ones(len(dataset), dtype=bool)  # Default to all samples
+        # Do a random OOD selection if configured
+        if ood_config and ood_config.get('method') != 'none':
+            logging.info(f'Applying random OOD selection with fraction {ood_config.get("random_fraction", 0.5)}')
+            ood_module = get_ood_module(ood_config, common_config, class_names, args, args.device)
+            classifier, train_mask = ood_module.process(classifier, dataset, eval_dset, train_mask)
+            dataset.apply_mask(train_mask)
+        if al_config and al_config.get('method') != 'none':
+            logging.info(f'Applying active learning selection with method {al_config.get("method")}')
+            al_module = get_al_module(al_config, common_config, class_names, args, args.device)
+            classifier, train_mask = al_module.process(classifier, dataset, eval_dset, train_mask, 'pretrain')
+            dataset.apply_mask(train_mask)
+
         # Log class distribution in validation set with beautiful styling
         val_class_counts = defaultdict(int)
         train_class_counts = defaultdict(int)
         for sample in val_samples:
             val_class_counts[sample.label] += 1
-        for sample in train_samples:
+        for sample in dataset.samples:
             train_class_counts[sample.label] += 1
         
         # Create validation split summary with our theme
@@ -392,7 +405,7 @@ def run(args):
 
         module_name = getattr(args, 'module_name', 'default_module')  # Fallback if module_name is not in args
         wandb.init(
-            project="Camera Trap Final Accum REMAINING 6 RED",  # Replace with your project name
+            project="ICICLE Camera Trap - ML Research",  # Replace with your project name
             name=wandb_run_name,  # Set run name using args.c and module_name
             config=vars(args)  # Log all arguments to wandb
         )
@@ -499,7 +512,9 @@ def run(args):
                               save_dir=args.save_dir,
                               args=args,
                               test_per_epoch=args.test_per_epoch,
-                              eval_dset=eval_dset)
+                              eval_dset=eval_dset,
+                              al_config=al_config,
+                              ood_config=ood_config)
 
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("pretrain", "after")
@@ -523,7 +538,10 @@ def run(args):
     
     # Initialize final results tracking
     final_eval_results = {}
-    
+
+    # FR mask
+    FR_mask = None
+
     # Main loop
     for i in range(len(ckp_list)):
         # Get checkpoint
@@ -538,9 +556,14 @@ def run(args):
         
         # Get training and evaluation dataset
         ckp_train_dset = train_dset.get_subset(is_train=True, ckp_list=ckp_prev)
-        
         ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp)
         logging.info(f'Training dataset size: {len(ckp_train_dset)}. ')
+        logging.info(f'Evaluation dataset size: {len(ckp_eval_dset)}. ')
+        
+        # if ckp 
+        # ckp_next_train_dset = train_dset.get_subset(is_train=True, ckp_list=ckp)
+        # logging.info(f'Next training dataset size (for Feature Resonance): {len(ckp_next_train_dset)}.')
+
         train_cls_count = {}
         for sample in ckp_train_dset.samples:
             label = sample.label
@@ -589,25 +612,54 @@ def run(args):
         log_step(1, f"Out-of-Distribution Detection ({ood_config.get('method', 'none')})", Colors.YELLOW)
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("ood", f"before_{ckp}")
-        classifier, ood_mask = ood_module.process(classifier, ckp_train_dset, ckp_eval_dset, train_dset_mask, is_first_ckp=is_first_ckp, is_zs=is_zs)
+        if not pretrain_config['pretrain']:
+            classifier, ood_mask = ood_module.process(classifier, ckp_train_dset, ckp_eval_dset, train_dset_mask, is_first_ckp=is_first_ckp, is_zs=is_zs)
+            log_info(f"OOD samples identified: {ood_mask.sum()} / {len(ood_mask)}", Colors.YELLOW)
         if args.gpu_memory_monitor:
-            gpu_monitor.log_memory_usage("ood", f"after_{ckp}")
-        log_info(f"OOD samples identified: {ood_mask.sum()} / {len(ood_mask)}", Colors.YELLOW)
+            gpu_monitor.log_memory_usage("ood", f"after_{ckp}")   
         
         # Run active learning
         log_step(2, f"Active Learning ({al_config.get('method', 'none')})", Colors.BLUE)
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("active_learning", f"before_{ckp}")
-        classifier, al_mask = al_module.process(
-            classifier, 
-            ckp_train_dset, 
-            ckp_eval_dset, 
-            ood_mask, 
-            ckp=ckp
-        )
+        if not pretrain_config['pretrain']:
+            if al_config.get('method') == 'fr':
+                # For FR: use the mask generated in the previous iteration for current training
+                al_mask = copy.deepcopy(FR_mask) if FR_mask is not None else ood_mask
+                
+                # Generate FR_mask for the NEXT checkpoint
+                next_train_dset = train_dset.get_subset(is_train=False, ckp_list=ckp)
+                prev_ckps = ckp_list[:i] if i > 0 else []
+                id_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=prev_ckps) if ckp_prev else None
+                id_train_dset = copy.deepcopy(ckp_train_dset) if ckp_prev else None
+                if ckp_prev:
+                    id_train_dset.apply_mask(al_mask)
+                    id_train_dset.add_samples(cl_module.buffer)
+                    id_train_dset.eval()
+                log_info(f"(FR) Active learning mask applied for current checkpoint: {al_mask.sum()} / {len(al_mask)}", Colors.BLUE)
+                
+                classifier, FR_mask = al_module.process(
+                    classifier,
+                    id_train_dset,
+                    ckp_eval_dset,
+                    ood_mask,
+                    ckp=ckp,
+                    id_eval_dset=id_eval_dset,
+                    next_train_dset=next_train_dset
+                )
+                del id_train_dset, id_eval_dset, next_train_dset  # Clear to free memory
+                log_info(f"(FR) new Active learning mask generated for next checkpoint: {FR_mask.sum()} / {len(FR_mask)}", Colors.BLUE)
+            else:
+                classifier, al_mask = al_module.process(
+                    classifier, 
+                    ckp_train_dset, 
+                    ckp_eval_dset, 
+                    ood_mask, 
+                    ckp=ckp,
+                )
+                log_info(f"Active learning samples selected: {al_mask.sum()} / {len(al_mask)}", Colors.BLUE)
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("active_learning", f"after_{ckp}")
-        log_info(f"Active learning samples selected: {al_mask.sum()} / {len(al_mask)}", Colors.BLUE)
 
         # Prepare evaluation dataloader
         cl_eval_loader = DataLoader(ckp_eval_dset, batch_size=common_config['eval_batch_size'], shuffle=False, worker_init_fn=worker_init_fn)
@@ -662,16 +714,17 @@ def run(args):
         
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("continual_learning", f"before_{ckp}")
-        classifier = cl_module.process(
-            classifier, 
-            ckp_train_dset, 
-            ckp_eval_dset, 
-            al_mask, 
-            eval_per_epoch=args.eval_per_epoch, 
-            eval_loader=cl_validation_loader, 
-            ckp=ckp,
-            gpu_monitor=gpu_monitor if args.gpu_memory_monitor else None
-        )
+        if not pretrain_config['pretrain']:
+            classifier = cl_module.process(
+                classifier, 
+                ckp_train_dset, 
+                ckp_eval_dset, 
+                al_mask, 
+                eval_per_epoch=args.eval_per_epoch, 
+                eval_loader=cl_validation_loader, 
+                ckp=ckp,
+                gpu_monitor=gpu_monitor if args.gpu_memory_monitor else None
+            )
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("continual_learning", f"after_{ckp}")
             
@@ -781,10 +834,11 @@ def run(args):
             pickle.dump((preds_arr, labels_arr), f)
         log_success(f"Predictions saved to {pred_path}")
         
-        mask_path = os.path.join(args.save_dir, f'{ckp}_mask.pkl')
-        with open(mask_path, 'wb') as f:
-            pickle.dump((ood_mask, al_mask), f)
-        log_success(f"Masks saved to {mask_path}")
+        if not pretrain_config['pretrain']:
+            mask_path = os.path.join(args.save_dir, f'{ckp}_mask.pkl')
+            with open(mask_path, 'wb') as f:
+                pickle.dump((ood_mask, al_mask), f)
+            log_success(f"Masks saved to {mask_path}")
         
         # Clear GPU cache between checkpoints
         if args.gpu_memory_monitor:
@@ -1477,8 +1531,8 @@ def run_eval_only(args):
                 log_warning(f"Could not get training logits: {e}")
                 train_logits, train_labels = None, None
             
-            # Run comprehensive calibration analysis
-            log_step("4b", "Running comprehensive calibration analysis", Colors.BLUE)
+            # Run paper calibration analysis
+            log_step("4b", "Running paper calibration analysis", Colors.BLUE)
             
             calib_results = comprehensive_paper_calibration(
                 logits_arr,  # test logits
@@ -1524,61 +1578,14 @@ def run_eval_only(args):
                 
                 log_success(f"📄 Paper Method: γ={paper_results['gamma']:.3f}, Acc Δ={paper_results['accuracy_improvement']:+.4f}, Bal_Acc Δ={paper_results['balanced_accuracy_change']:+.4f}")
                 log_success(f"   Absent Class Improvement: Δ={paper_results['absent_accuracy_improvement']:+.4f}")
-            
-            # Add adaptive calibration results
-            if calib_results.get('adaptive_calibration') is not None:
-                adaptive_results = calib_results['adaptive_calibration']
-                calibration_results.update({
-                    'adaptive_calibration': {
-                        'shift_amount': float(adaptive_results.get('shift_amount', 0.0)),
-                        'accuracy': float(adaptive_results.get('corrected_accuracy', 0.0)),
-                        'balanced_accuracy': float(adaptive_results.get('corrected_balanced_accuracy', 0.0)),
-                        'accuracy_improvement': float(adaptive_results.get('accuracy_improvement', 0.0)),
-                        'balanced_accuracy_improvement': float(adaptive_results.get('balanced_accuracy_improvement', 0.0)),
-                        'auc_score': float(adaptive_results.get('auc_score', 0.0)),
-                        'curve_points': int(adaptive_results.get('curve_points', 0)),
-                        'target_metric': adaptive_results.get('target_metric', 'balanced_accuracy'),
-                        'calibration_applied': adaptive_results.get('calibration_applied', False),
-                        'absent_accuracy_improvement': float(adaptive_results.get('absent_accuracy_improvement', 0.0)),
-                        'seen_accuracy_improvement': float(adaptive_results.get('seen_accuracy_improvement', 0.0))
-                    }
-                })
                 
-                if adaptive_results.get('calibration_applied', False):
-                    log_success(f"🔄 Adaptive Method: shift={adaptive_results.get('shift_amount', 0.0):.3f}, Acc Δ={adaptive_results.get('accuracy_improvement', 0.0):+.4f}, Bal_Acc Δ={adaptive_results.get('balanced_accuracy_improvement', 0.0):+.4f}")
-                    log_success(f"   AUC Score: {adaptive_results.get('auc_score', 0.0):.4f}, Curve Points: {adaptive_results.get('curve_points', 0)}")
+                # Update metrics if calibration improved them
+                if paper_results['balanced_accuracy_change'] > 0:
+                    log_success(f"🎯 Calibration improved balanced accuracy by {paper_results['balanced_accuracy_change']:.4f}!")
+                    acc = paper_results['corrected_accuracy']
+                    balanced_acc = paper_results['balanced_accuracy']
                 else:
-                    log_info(f"🔄 Adaptive Method: {adaptive_results.get('reason', 'not applied')}", Colors.YELLOW)
-            
-            # Determine which calibration method performed best and update final metrics
-            best_method = calib_results.get('best_method', 'none')
-            best_results = calib_results.get('best_results', {})
-            
-            if best_method == 'paper' and calib_results.get('paper_calibration'):
-                paper_bal_acc_change = calib_results['paper_calibration'].get('balanced_accuracy_change', 0.0)
-                if paper_bal_acc_change > 0:
-                    log_success(f"🎯 Paper calibration chosen and improved balanced accuracy by {paper_bal_acc_change:.4f}!")
-                    acc = calib_results['paper_calibration'].get('corrected_accuracy', acc)
-                    balanced_acc = calib_results['paper_calibration'].get('balanced_accuracy', balanced_acc)
-                else:
-                    log_info("📊 Paper calibration chosen but did not improve balanced accuracy", Colors.CYAN)
-            elif best_method == 'adaptive' and calib_results.get('adaptive_calibration') and calib_results['adaptive_calibration'].get('calibration_applied', False):
-                adaptive_bal_acc_improvement = calib_results['adaptive_calibration'].get('balanced_accuracy_improvement', 0.0)
-                if adaptive_bal_acc_improvement > 0:
-                    log_success(f"🎯 Adaptive calibration chosen and improved balanced accuracy by {adaptive_bal_acc_improvement:.4f}!")
-                    acc = calib_results['adaptive_calibration'].get('corrected_accuracy', acc)
-                    balanced_acc = calib_results['adaptive_calibration'].get('corrected_balanced_accuracy', balanced_acc)
-                else:
-                    log_info("📊 Adaptive calibration chosen but did not improve balanced accuracy", Colors.CYAN)
-            else:
-                log_info("📊 No calibration improvement found", Colors.CYAN)
-            
-            # Add best method info to calibration results
-            calibration_results.update({
-                'best_method': best_method,
-                'final_accuracy': float(acc),
-                'final_balanced_accuracy': float(balanced_acc)
-            })
+                    log_info("📊 Calibration did not improve balanced accuracy", Colors.CYAN)
             
             # Save detailed calibration results
             calib_path = os.path.join(args.save_dir, f'{ckp}_calibration_analysis.json')
@@ -1589,15 +1596,11 @@ def run_eval_only(args):
             # Log to wandb if enabled
             if args.wandb:
                 wandb_metrics = {
-                    f"eval_calibration/original_accuracy": calibration_results['original_accuracy'],
-                    f"eval_calibration/original_balanced_accuracy": calibration_results['original_balanced_accuracy'],
-                    f"eval_calibration/final_accuracy": acc,
-                    f"eval_calibration/final_balanced_accuracy": balanced_acc,
-                    f"eval_calibration/best_method": best_method,
+                    f"eval_calibration/original_accuracy": acc,
+                    f"eval_calibration/original_balanced_accuracy": balanced_acc,
                     f"eval_calibration/checkpoint": ckp
                 }
                 
-                # Add paper calibration metrics
                 if calib_results.get('paper_calibration'):
                     pc = calib_results['paper_calibration']
                     wandb_metrics.update({
@@ -1605,24 +1608,9 @@ def run_eval_only(args):
                         f"eval_calibration/paper_balanced_accuracy": pc['balanced_accuracy'],
                         f"eval_calibration/paper_accuracy_improvement": pc['accuracy_improvement'],
                         f"eval_calibration/paper_balanced_accuracy_improvement": pc['balanced_accuracy_change'],
-                        f"eval_calibration/paper_gamma": pc['gamma'],
-                        f"eval_calibration/paper_absent_accuracy_improvement": pc['absent_accuracy_improvement'],
+                        f"eval_calibration/gamma": pc['gamma'],
+                        f"eval_calibration/absent_accuracy_improvement": pc['absent_accuracy_improvement'],
                         f"eval_calibration/absent_classes_count": len(pc['absent_classes'])
-                    })
-                
-                # Add adaptive calibration metrics
-                if calib_results.get('adaptive_calibration') and calib_results['adaptive_calibration'].get('calibration_applied', False):
-                    ac = calib_results['adaptive_calibration']
-                    wandb_metrics.update({
-                        f"eval_calibration/adaptive_accuracy": ac.get('corrected_accuracy', 0.0),
-                        f"eval_calibration/adaptive_balanced_accuracy": ac.get('corrected_balanced_accuracy', 0.0),
-                        f"eval_calibration/adaptive_accuracy_improvement": ac.get('accuracy_improvement', 0.0),
-                        f"eval_calibration/adaptive_balanced_accuracy_improvement": ac.get('balanced_accuracy_improvement', 0.0),
-                        f"eval_calibration/adaptive_shift_amount": ac.get('shift_amount', 0.0),
-                        f"eval_calibration/adaptive_auc_score": ac.get('auc_score', 0.0),
-                        f"eval_calibration/adaptive_curve_points": ac.get('curve_points', 0),
-                        f"eval_calibration/adaptive_absent_accuracy_improvement": ac.get('absent_accuracy_improvement', 0.0),
-                        f"eval_calibration/adaptive_seen_accuracy_improvement": ac.get('seen_accuracy_improvement', 0.0)
                     })
                 
                 # Add AUC curve metrics if available
@@ -1641,7 +1629,7 @@ def run_eval_only(args):
                         wandb.log({f"eval_calibration/auc_curve_{ckp}": wandb.Image(auc_curve_data['plot_path'])}, step=i)
                 
                 wandb.log(wandb_metrics, step=i)
-                log_success("Comprehensive calibration metrics and AUC curve logged to wandb")
+                log_success("Calibration metrics and AUC curve logged to wandb")
         else:
             if args.calibration:
                 log_warning("Calibration requested but logits not available - skipping calibration analysis")
@@ -1946,89 +1934,179 @@ def run_eval_only(args):
             log_error(f"Failed to load model for {ckp}: {e}")
             continue
         
-        log_step(2, f"Preparing evaluation dataset", Colors.YELLOW)
-        # Get evaluation dataset for this checkpoint
-        ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp)
-        log_info(f"Evaluation dataset size for {ckp}: {len(ckp_eval_dset)}", Colors.CYAN)
-        
-        if len(ckp_eval_dset) == 0:
-            log_warning(f"No evaluation data found for checkpoint {ckp}")
-            continue
-        
-        # Create data loader
-        eval_loader = DataLoader(
-            ckp_eval_dset, 
-            batch_size=common_config['eval_batch_size'], 
-            shuffle=False, 
-            num_workers=4
-        )
-        log_success("Data loader created successfully")
-        
-        log_step(3, f"Running model evaluation", Colors.GREEN)
-        # Run evaluation
-        if args.gpu_memory_monitor:
-            gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
+        if args.accu_eval:
+            eval_results[ckp] = {}
             
-        loss_arr, preds_arr, labels_arr = eval(
-            classifier, 
-            eval_loader, 
-            args.device, 
-            chop_head=common_config['chop_head']
-        )
-        
-        if args.gpu_memory_monitor:
-            gpu_monitor.log_memory_usage("evaluation", f"after_{ckp}")
-        
-        log_success("Model evaluation completed")
-        
-        log_step(4, f"Computing metrics", Colors.MAGENTA)
-        # Calculate and log metrics
-        acc, balanced_acc = print_metrics(
-            loss_arr, 
-            preds_arr, 
-            labels_arr, 
-            len(class_names),
-            log_predix=f"📊 {ckp}: "
-        )
-        eval_loss = np.mean(loss_arr)
-        
-        # Log metrics with colors
-        log_metric("Accuracy", acc, ".4f", Colors.BRIGHT_GREEN)
-        log_metric("Balanced Accuracy", balanced_acc, ".4f", Colors.BRIGHT_GREEN)
-        log_metric("Evaluation Loss", eval_loss, ".4f", Colors.BRIGHT_BLUE)
-        
-        # Store results (convert numpy types to Python types for JSON serialization)
-        eval_results[ckp] = {
-            'accuracy': float(acc),
-            'balanced_accuracy': float(balanced_acc),
-            'loss': float(eval_loss),
-            'num_samples': int(len(ckp_eval_dset))
-        }
-        
-        # Log to wandb if enabled
-        if args.wandb:
-            log_info(f"📈 Logging metrics to W&B: {ckp}", Colors.CYAN)
-            wandb.log({
-                "eval/accuracy": acc,
-                "eval/balanced_accuracy": balanced_acc,
-                "eval/loss": eval_loss,
-                "eval/checkpoint": ckp,
-                "eval/num_samples": len(ckp_eval_dset)
-            }, step=i)
-        
-        log_step(5, f"Saving results", Colors.BLUE)
-        # Save predictions if requested
-        if args.save_predictions:
-            pred_path = os.path.join(args.save_dir, f'{ckp}_eval_preds.pkl')
-            with open(pred_path, 'wb') as f:
-                pickle.dump((preds_arr, labels_arr), f)
-            log_success(f"Predictions saved to {pred_path}")
-        
-        # Clear GPU cache between checkpoints
-        if args.gpu_memory_monitor:
-            gpu_monitor.clear_cache_and_log(f"eval_checkpoint_{ckp}")
-        
-        log_subsection_start(f"✅ Checkpoint {ckp} Complete", Colors.BRIGHT_GREEN)
+            for idx in range(i, len(ckp_list)):
+                log_step(2, f"Preparing evaluation dataset", Colors.YELLOW)
+                accu_ckp = ckp_list[idx]
+                log_info(f"Accumulating evaluation for checkpoint {accu_ckp}", Colors.YELLOW)
+                ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=accu_ckp)
+                log_info(f"Evaluation dataset size for {accu_ckp}: {len(ckp_eval_dset)}", Colors.CYAN)
+                
+                if len(ckp_eval_dset) == 0:
+                    log_warning(f"No evaluation data found for checkpoint {accu_ckp}")
+                    continue
+                
+                # Create data loader
+                eval_loader = DataLoader(
+                    ckp_eval_dset, 
+                    batch_size=common_config['eval_batch_size'], 
+                    shuffle=False, 
+                    num_workers=4
+                )
+                log_success("Data loader created successfully")
+                
+                log_step(3, f"Running model evaluation", Colors.GREEN)
+                # Run evaluation
+                if args.gpu_memory_monitor:
+                    gpu_monitor.log_memory_usage("evaluation", f"before_{accu_ckp}")
+                    
+                loss_arr, preds_arr, labels_arr = eval(
+                    classifier, 
+                    eval_loader, 
+                    args.device, 
+                    chop_head=common_config['chop_head']
+                )
+                
+                if args.gpu_memory_monitor:
+                    gpu_monitor.log_memory_usage("evaluation", f"after_{accu_ckp}")
+                
+                acc, balanced_acc = print_metrics(
+                    loss_arr, 
+                    preds_arr, 
+                    labels_arr, 
+                    len(class_names),
+                    log_predix=f"📊 {ckp}: "
+                )
+                eval_loss = np.mean(loss_arr)
+            
+                # Log metrics with colors
+                log_metric(f"Accuracy for ckp {accu_ckp} using ckp model {ckp}", acc, ".4f", Colors.BRIGHT_GREEN)
+                log_metric(f"Balanced Accuracy for ckp {accu_ckp} using ckp model {ckp}", balanced_acc, ".4f", Colors.BRIGHT_GREEN)
+                log_metric(f"Evaluation Loss for ckp {accu_ckp} using ckp model {ckp}", eval_loss, ".4f", Colors.BRIGHT_BLUE)
+
+                # Store results (convert numpy types to Python types for JSON serialization)
+                eval_results[ckp][accu_ckp] = {
+                    'accuracy': float(acc),
+                    'balanced_accuracy': float(balanced_acc),
+                    'loss': float(eval_loss),
+                    'num_samples': int(len(ckp_eval_dset))
+                }
+
+                # Compare with previous checkpoints that were also evaluated on the same data (accu_ckp)
+                # Only compare if we're evaluating on the current checkpoint data (accu_ckp == ckp)
+                if accu_ckp == ckp:
+                    for pre in range(0, i):
+                        pre_ckp = ckp_list[pre]
+                        # Check if previous checkpoint was evaluated on this same data
+                        if pre_ckp in eval_results and ckp in eval_results[pre_ckp]:
+                            prev_balanced_acc = eval_results[pre_ckp][ckp]['balanced_accuracy']
+                            difference = balanced_acc - prev_balanced_acc
+                            eval_results[ckp][ckp]['improvement_over_' + pre_ckp] = difference
+                                
+                            if difference > 0:
+                                log_info(f"🎯 Model {ckp} improved over {pre_ckp} by {difference:.4f} on {ckp} data!", Colors.CYAN)
+                            else:
+                                log_info(f"📊 Model {ckp} did not improve over {pre_ckp} on {ckp} data (Δ={difference:+.4f})", Colors.CYAN)
+
+                log_step(5, f"Saving results", Colors.BLUE)
+                # Save predictions if requested
+                if args.save_predictions:
+                    pred_path = os.path.join(args.save_dir, f'{ckp}_eval_preds.pkl')
+                    with open(pred_path, 'wb') as f:
+                        pickle.dump((preds_arr, labels_arr), f)
+                    log_success(f"Predictions saved to {pred_path}")
+                
+                # Clear GPU cache between checkpoints
+                if args.gpu_memory_monitor:
+                    gpu_monitor.clear_cache_and_log(f"eval_checkpoint_{ckp}")
+                
+                log_subsection_start(f"✅ Checkpoint {ckp} Complete", Colors.BRIGHT_GREEN)
+        else:
+            log_step(2, f"Preparing evaluation dataset", Colors.YELLOW)
+            # Get evaluation dataset for this checkpoint
+            ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp)
+            log_info(f"Evaluation dataset size for {ckp}: {len(ckp_eval_dset)}", Colors.CYAN)
+            
+            if len(ckp_eval_dset) == 0:
+                log_warning(f"No evaluation data found for checkpoint {ckp}")
+                continue
+            
+            # Create data loader
+            eval_loader = DataLoader(
+                ckp_eval_dset, 
+                batch_size=common_config['eval_batch_size'], 
+                shuffle=False, 
+                num_workers=4
+            )
+            log_success("Data loader created successfully")
+            
+            log_step(3, f"Running model evaluation", Colors.GREEN)
+            # Run evaluation
+            if args.gpu_memory_monitor:
+                gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
+                
+            loss_arr, preds_arr, labels_arr = eval(
+                classifier, 
+                eval_loader, 
+                args.device, 
+                chop_head=common_config['chop_head']
+            )
+            
+            if args.gpu_memory_monitor:
+                gpu_monitor.log_memory_usage("evaluation", f"after_{ckp}")
+            
+            log_success("Model evaluation completed")
+            
+            log_step(4, f"Computing metrics", Colors.MAGENTA)
+            # Calculate and log metrics
+            acc, balanced_acc = print_metrics(
+                loss_arr, 
+                preds_arr, 
+                labels_arr, 
+                len(class_names),
+                log_predix=f"📊 {ckp}: "
+            )
+            eval_loss = np.mean(loss_arr)
+            
+            # Log metrics with colors
+            log_metric("Accuracy", acc, ".4f", Colors.BRIGHT_GREEN)
+            log_metric("Balanced Accuracy", balanced_acc, ".4f", Colors.BRIGHT_GREEN)
+            log_metric("Evaluation Loss", eval_loss, ".4f", Colors.BRIGHT_BLUE)
+            
+            # Store results (convert numpy types to Python types for JSON serialization)
+            eval_results[ckp] = {
+                'accuracy': float(acc),
+                'balanced_accuracy': float(balanced_acc),
+                'loss': float(eval_loss),
+                'num_samples': int(len(ckp_eval_dset))
+            }
+            
+            # Log to wandb if enabled
+            if args.wandb:
+                log_info(f"📈 Logging metrics to W&B: {ckp}", Colors.CYAN)
+                wandb.log({
+                    "eval/accuracy": acc,
+                    "eval/balanced_accuracy": balanced_acc,
+                    "eval/loss": eval_loss,
+                    "eval/checkpoint": ckp,
+                    "eval/num_samples": len(ckp_eval_dset)
+                }, step=i)
+            
+            log_step(5, f"Saving results", Colors.BLUE)
+            # Save predictions if requested
+            if args.save_predictions:
+                pred_path = os.path.join(args.save_dir, f'{ckp}_eval_preds.pkl')
+                with open(pred_path, 'wb') as f:
+                    pickle.dump((preds_arr, labels_arr), f)
+                log_success(f"Predictions saved to {pred_path}")
+            
+            # Clear GPU cache between checkpoints
+            if args.gpu_memory_monitor:
+                gpu_monitor.clear_cache_and_log(f"eval_checkpoint_{ckp}")
+            
+            log_subsection_start(f"✅ Checkpoint {ckp} Complete", Colors.BRIGHT_GREEN)
     
     log_section_start("📊 FINAL EVALUATION SUMMARY", Colors.BRIGHT_YELLOW)
     # Save summary results
@@ -2039,10 +2117,25 @@ def run_eval_only(args):
     
     # Calculate average metrics
     if eval_results:
-        avg_accuracy = sum(result['accuracy'] for result in eval_results.values()) / len(eval_results)
-        avg_balanced_accuracy = sum(result['balanced_accuracy'] for result in eval_results.values()) / len(eval_results)
-        avg_loss = sum(result['loss'] for result in eval_results.values()) / len(eval_results)
-        total_samples = sum(result['num_samples'] for result in eval_results.values())
+        if not args.accu_eval:
+            avg_accuracy = sum(result['accuracy'] for result in eval_results.values()) / len(eval_results)
+            avg_balanced_accuracy = sum(result['balanced_accuracy'] for result in eval_results.values()) / len(eval_results)
+            avg_loss = sum(result['loss'] for result in eval_results.values()) / len(eval_results)
+            total_samples = sum(result['num_samples'] for result in eval_results.values())
+        else:
+            # For eval_accu mode, average over all accumulated results
+            all_accuracies = []
+            all_balanced_accuracies = []
+            all_losses = []
+            total_samples = 0
+            for ckp, sub_results in eval_results.items():
+                all_accuracies.append(sub_results[ckp]['accuracy'])
+                all_balanced_accuracies.append(sub_results[ckp]['balanced_accuracy'])
+                all_losses.append(sub_results[ckp]['loss'])
+                total_samples += sub_results[ckp]['num_samples']
+            avg_accuracy = sum(all_accuracies) / len(all_accuracies) if all_accuracies else 0.0
+            avg_balanced_accuracy = sum(all_balanced_accuracies) / len(all_balanced_accuracies) if all_balanced_accuracies else 0.0
+            avg_loss = sum(all_losses) / len(all_losses) if all_losses else 0.0
     else:
         avg_accuracy = avg_balanced_accuracy = avg_loss = 0.0
         total_samples = 0
@@ -2050,9 +2143,8 @@ def run_eval_only(args):
     # Log summary with beautiful formatting
     logging.info("=== CHECKPOINT RESULTS SUMMARY ===")
     for ckp, results in eval_results.items():
-        logging.info(f"{ckp}: acc={results['accuracy']:.4f}, balanced_acc={results['balanced_accuracy']:.4f}, "
-                    f"loss={results['loss']:.4f}, samples={results['num_samples']}")
-    
+        logging.info(f"{ckp}: acc={results[ckp]['accuracy']:.4f}, balanced_acc={results[ckp]['balanced_accuracy']:.4f}, "
+                    f"loss={results[ckp]['loss']:.4f}, samples={results[ckp]['num_samples']}")
     logging.info("=" * 60)
     logging.info(f"🎯 FINAL AVERAGE ACROSS ALL CHECKPOINTS:")
     log_metric("Average Accuracy", avg_accuracy, ".4f", Colors.BRIGHT_GREEN)
@@ -2076,7 +2168,7 @@ def run_eval_only(args):
         log_success("✅ W&B run finished")
     
     # Generate AUC curve summary if calibration was used
-    if args.calibration:
+    if args.calibration and not args.accu_eval:
         log_section_start("📊 CALIBRATION AUC CURVE SUMMARY", Colors.BRIGHT_MAGENTA)
         
         auc_curves_generated = 0
@@ -2138,6 +2230,7 @@ def parse_args():
     parser.add_argument('--early_stop_epoch', type=int, default=5, help='Number of epochs without improvement to trigger early stopping after warmup period (default: 5)')
     parser.add_argument('--is_save', action='store_true', help='Save model')
     parser.add_argument('--eval_only', action='store_true', help='Evaluate only mode - loads trained model checkpoints and evaluates them')
+    parser.add_argument('--eval_accu', action='store_true', help='Perform calibration analysis during eval_only mode')
     parser.add_argument('--model_dir', type=str, help='Directory containing trained model checkpoints (.pth files) for eval_only mode')
     parser.add_argument('--checkpoint_list', type=str, nargs='+', default=None, help='Specific checkpoint numbers to evaluate (for eval_only mode). If not provided, evaluates all available checkpoints')
     parser.add_argument('--save_predictions', action='store_true', help='Save prediction arrays for each checkpoint (for eval_only mode)')

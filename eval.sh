@@ -43,7 +43,7 @@ fi
 # LEARNING_RATES=(0.000001 0.0000025 0.000005 0.00001 0.000025 0.00005 0.0001 0.00025 0.0005 )
 LEARNING_RATES=(0.000025)
 # Number of datasets to process per sbatch job
-DATASETS_PER_JOB=1
+DATASETS_PER_JOB=5
 
 # Calculate total number of jobs needed
 TOTAL_DATASETS=${#ALL_DATASETS[@]}
@@ -92,17 +92,18 @@ for lr in "${LEARNING_RATES[@]}"; do
         
         # Create a space-separated string of datasets for this job
         datasets_string="${job_datasets[*]}"
-        model_dirs_string="${job_model_dirs[*]}"
         
         job_counter=$((job_counter + 1))
         echo "Job $job_counter/$TOTAL_SUBMISSIONS: LR=$lr, Processing datasets ${start_index}-${end_index}"
         echo "  Datasets: ${datasets_string}"
+        echo "  Model dirs: ${job_model_dirs[*]}"
         
-        # Submit the sbatch job with the datasets and learning rate as arguments
-        sbatch sbatch_eval_ub_interpolation.sh "${datasets_string}" "$lr" "${model_dirs_string}"
-
+        for i in "${!job_datasets[@]}"; do
+            dataset="${job_datasets[$i]}"
+            model_dir="${job_model_dirs[$i]}"
+            sbatch sbatch_eval_full_accu.sh "${dataset}" "$lr" "${model_dir}"
+        done
         # Optional: Add a small delay between submissions to avoid overwhelming the scheduler
-        
     done
 done
 

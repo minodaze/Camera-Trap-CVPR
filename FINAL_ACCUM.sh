@@ -29,7 +29,7 @@ fi
 # The script will automatically convert / to _ 
 # ===================================================================
 DATASET_INPUT_1="orinoquia/orinoquia_N25"
-DATASET_INPUT_2="na/na_archbold_FL-32"
+DATASET_INPUT_2="na/na_archbold_FL-32" 
 DATASET_INPUT_3="MAD/MAD_A05"
 DATASET_INPUT_4="nz/nz_EFH_HCAMB10"
 # ===================================================================
@@ -37,7 +37,7 @@ DATASET_INPUT_4="nz/nz_EFH_HCAMB10"
 # ===================================================================
 # MANUALLY EDIT CONDA ENVIRONMENT NAME
 # ===================================================================
-CONDA_ENV="icicle"
+CONDA_ENV="ICICLE"
 # ===================================================================
 
 # Convert dataset names (replace / with _)
@@ -64,7 +64,7 @@ echo ""
 
 # Validate that datasets exist
 CONFIG_ROOT="/fs/scratch/PAS2099/camera-trap-final/configs"
-WORKSPACE_ROOT="/fs/ess/PAS2099/sooyoung/ICICLE-Benchmark"
+WORKSPACE_ROOT="/users/PAS2099/mino/ICICLE"
 
 echo -e "${YELLOW}Validating dataset directories...${NC}"
 for dataset in $DATASET1 $DATASET2 $DATASET3 $DATASET4; do

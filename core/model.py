@@ -320,6 +320,10 @@ class CLIPClassifier(nn.Module):
                     raise ValueError(f"Projection head parameter names don't match: {name1} vs {name2}")
                 param1.data = (1 - alpha) * param1.data + alpha * param2.data        
 
+    def interpolate_lora(self, alpha=0.5):
+        for block in self.visual_model.transformer.resblocks:
+            block.attn.lora.params.merge_factor = alpha
+
     def get_class_embedding(self, model, tokenizer, embed_dim, class_name_idx, text_template='openai'): 
         device = next(model.parameters()).device
         context_length = model.context_length
