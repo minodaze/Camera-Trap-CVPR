@@ -9,7 +9,7 @@ if [ ! -f "train_list.txt" ]; then
 fi
 
 # Read datasets from file into array
-readarray -t ALL_DATASETS < train_list.txt
+readarray -t ALL_DATASETS < ML_list.txt
 
 # Remove empty lines and trim whitespace
 TEMP_DATASETS=()
@@ -26,7 +26,7 @@ ALL_DATASETS=("${TEMP_DATASETS[@]}")
 # LEARNING_RATES=(0.000001 0.0000025 0.000005 0.00001 0.000025 0.00005 0.0001 0.00025 0.0005 )
 LEARNING_RATES=(0.000025)
 # Number of datasets to process per sbatch job
-DATASETS_PER_JOB=3
+DATASETS_PER_JOB=1
 
 # Calculate total number of jobs needed
 TOTAL_DATASETS=${#ALL_DATASETS[@]}
@@ -72,13 +72,47 @@ for lr in "${LEARNING_RATES[@]}"; do
         echo "  Datasets: ${datasets_string}"
         
         # Submit the sbatch job with the datasets and learning rate as arguments
-        sbatch sbatch_run_ub_lora.sh "${datasets_string}" "$lr"
-        sleep 1
-        sbatch sbatch_run_ub_lora_bsm.sh "${datasets_string}" "$lr"
-        sleep 1
-        sbatch sbatch_run_ub_full.sh "${datasets_string}" "$lr"
-        sleep 1
-        sbatch sbatch_run_ub_full_bsm.sh "${datasets_string}" "$lr"
+        # sbatch sbatch_run_ub_lora.sh "${datasets_string}" "$lr"
+        # sleep 1
+        # sbatch sbatch_run_ub_lora_bsm.sh "${datasets_string}" "$lr"
+        # sbatch sbatch_run_zs.sh "${datasets_string}" "$lr"
+        # sleep 1
+        # sbatch sbatch_run_accu_full.sh "${datasets_string}" "$lr"
+        # sbatch sbatch_run_ub_lora_bsm_ALOE.sh "${datasets_string}" "$lr"
+        # sbatch sbatch_run_ub_lora_bsm_ALKMS.sh "${datasets_string}" "$lr"
+        # sbatch sbatch_run_ub_lora_bsm_ALMSP.sh "${datasets_string}" "$lr"
+        # sbatch sbatch_run_accum_lora_bsm_ALMSP.sh "${datasets_string}" "$lr"
+        # sbatch sbatch_run_accum_lora_bsm_ALKMS.sh "${datasets_string}" "$lr"
+        # sbatch sbatch_run_accum_lora_bsm_ALOE.sh "${datasets_string}" "$lr"
+        sbatch script/sbatch_run_accu_full_bsm_ML.sh "${datasets_string}" "$lr"
+        sbatch script/sbatch_run_accu_full_ce_ML.sh "${datasets_string}" "$lr"
+        sbatch script/sbatch_run_accu_lora_ce_ML.sh "${datasets_string}" "$lr"
+        sbatch script/sbatch_run_accu_lora_bsm_ML.sh "${datasets_string}" "$lr"
+        # sbatch script/sbatch_run_oracle_full_bsm_ML.sh "${datasets_string}" "$lr"
+        # sbatch script/sbatch_run_oracle_full_ce_ML.sh "${datasets_string}" "$lr"
+        # sbatch script/sbatch_run_oracle_lora_ce_ML.sh "${datasets_string}" "$lr"
+        # sbatch script/sbatch_run_oracle_lora_bsm_ML.sh "${datasets_string}" "$lr"
+        # sleep 1
+        # sbatch sbatch_run_accum_lora_bsm_ALClsRand.sh "${datasets_string}" "$lr"
+        # sbatch script/sbatch_run_accum_lora_bsm_ALRand.sh "${datasets_string}" "$lr"
+        # sbatch script/sbatch_run_zs.sh "${datasets_string}" "$lr"
+        # sbatch script/sbatch_run_ub_full.sh "${datasets_string}" "$lr"
+        # sbatch script/sbatch_run_ub_full_bsm.sh "${datasets_string}" "$lr"
+        # sbatch script/sbatch_run_ub_lora_ce.sh "${datasets_string}" "$lr"
+        # sbatch script/sbatch_run_ub_full_ce_msp.sh "${datasets_string}" "$lr"
+        # sbatch script/sbatch_run_ub_full_ce_kms.sh "${datasets_string}" "$lr"
+        # sbatch script/sbatch_run_ub_full_ce_ALOE.sh "${datasets_string}" "$lr"
+        # sbatch script/sbatch_run_ub_lora_bsm_ALKMS.sh "${datasets_string}" "$lr"
+        # sbatch script/sbatch_run_ub_lora_bsm_ALMSP.sh "${datasets_string}" "$lr"
+        # sbatch script/sbatch_run_ub_lora_bsm_ALOE.sh "${datasets_string}" "$lr"
+        # sleep 1
+        # sbatch script/sbatch_run_ub_full_ce_ALKMS.sh "${datasets_string}" "$lr"
+
+        # sleep 1
+        # sbatch sbatch_run_ub_full_bsm.sh "${datasets_string}" "$lr"
+        # sbatch sbatch_run_ub_lora_bsm.sh "${datasets_string}" "$lr"
+        # sleep 1
+        # sbatch sbatch_run_ub_full_bsm.sh "${datasets_string}" "$lr"
         
         # Optional: Add a small delay between submissions to avoid overwhelming the scheduler
     done

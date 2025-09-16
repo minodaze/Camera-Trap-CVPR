@@ -69,7 +69,7 @@ class SamplesDataset(Dataset):
         is_buf = sample.is_buf
         image = Image.open(file_path).convert("RGB")
         image = self.transform(image)
-        return image, label, logits, is_buf
+        return image, label, file_path, logits, is_buf
 
 class BufferDataset(SamplesDataset):
     def __init__(self, samples):
@@ -222,7 +222,7 @@ class CkpDataset(Dataset):
             image = [self.transform(image), self.transform(image)]
         else:
             image = self.transform(image)
-        return image, label, logits, is_buf
+        return image, label, file_path, logits, is_buf
 
     def get_ckp_list(self):
         ckp_keys = list(self.ckp_samples.keys())

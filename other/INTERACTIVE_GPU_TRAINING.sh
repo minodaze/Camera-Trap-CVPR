@@ -27,12 +27,12 @@ fi
 # ===================================================================
 # HARDCODED CONFIGURATION
 # ===================================================================
-DATASET_INPUT_1="MAD/MAD01"
-DATASET_INPUT_2="MAD/MAD01"
-DATASET_INPUT_3="MAD/MAD01"
-DATASET_INPUT_4="MAD/MAD01"
-CONDA_ENV="icicle"
-WORKSPACE_ROOT="/fs/ess/PAS2099/sooyoung/ICICLE-Benchmark"
+DATASET_INPUT_1="nz/nz_EFH_HCAMG12"
+DATASET_INPUT_2="nz/nz_EFH_HCAMG12"
+DATASET_INPUT_3="nz/nz_EFH_HCAMG12"
+# DATASET_INPUT_4="MAD/MAD01"
+CONDA_ENV="ICICLE"
+WORKSPACE_ROOT="/fs/scratch/PAS2099/mino/ICICLE"
 CONFIG_ROOT="/fs/scratch/PAS2099/camera-trap-final/configs"
 # ===================================================================
 

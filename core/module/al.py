@@ -41,7 +41,7 @@ def extract_logits_features(classifier, dset, device, batch_size=64):
         loader = DataLoader(dset, batch_size=batch_size, shuffle=False, num_workers=4)
         features, logits = [], []
         
-        for inputs, _, _, _ in loader:
+        for inputs, _, _, _, _ in loader:
             inputs = inputs.to(device)
             _logits, feature = classifier.forward(inputs, return_feats=True)
             
@@ -126,7 +126,7 @@ class ALClsRandom(ALModule):
     """Random AL selection based on class labels, where a random subset of samples from each class is selected for training.
     """
     def process(self, classifier, train_dset, eval_dset, train_mask, ckp):
-        np.random.seed(self.al_config.get('random_seed', 42))
+        # np.random.seed(self.al_config.get('random_seed', 42))
         num_classes = len(self.class_names)
         
         # Only consider samples that are marked as available in train_mask
@@ -401,7 +401,7 @@ class ALFeatureResonance(ALModule):
 
     def _make_random_target(self, feat_dim, seed=42):
         g = torch.Generator(device=self.device)
-        g.manual_seed(int(self.al_config.get('fr_seed', seed)))
+        # g.manual_seed(int(self.al_config.get('fr_seed', seed)))
         v = torch.randn(feat_dim, generator=g, device=self.device)
         v = v / (v.norm(p=2) + 1e-12)
         return v

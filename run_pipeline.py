@@ -9,6 +9,7 @@ import re
 import random
 
 from datetime import datetime
+from collections import defaultdict
 import numpy as np
 import ruamel.yaml as yaml
 import torch
@@ -27,6 +28,7 @@ from core.calibration import (
     get_training_classes_for_checkpoint,
     convert_numpy_types
 )
+
 from utils.misc import method_name
 from utils.gpu_monitor import get_gpu_monitor, log_gpu_memory, monitor_model_memory
 from utils.log_formatter import (
@@ -35,6 +37,8 @@ from utils.log_formatter import (
     log_checkpoint, log_final_result, log_metric, create_info_box, Colors,
     configure_colors_for_wandb
 )
+from plot.plot_features import plot_features
+from plot.plot_text_F import plot_text_F
 
 # Global worker init function for deterministic DataLoader behavior
 def worker_init_fn(worker_id):
@@ -84,7 +88,7 @@ def setup_logging(log_path, debug, params):
         log_path = os.path.join(log_path, 'debug')
 
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    
+
     # Log to stdout
     ch = logging.StreamHandler()
     ch.setLevel(logging.INFO)
@@ -225,7 +229,61 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
             val_class_counts[sample.label] += 1
         for sample in dataset.samples:
             train_class_counts[sample.label] += 1
-        
+
+        AL_summary = None
+        if np.any(train_mask == 0):
+            label_to_cls = {v: k for k, v in dataset.class_name_idx.items()}
+            AL_summary = {
+                'train_class_counts': {label_to_cls[k]: v for k, v in train_class_counts.items()},
+                'total_val_samples': len(val_samples),
+                'total_train_samples': len(dataset),
+                'selected_stats': defaultdict(),
+                'filtered_stats': defaultdict(),
+                'selected_samples': defaultdict(list),
+                'filtered_samples': defaultdict(list)
+            }
+            selected_cls = set()
+            selected_cls_count = defaultdict(int)
+            filtered_cls = set()
+            filtered_cls_count = defaultdict(int)
+            selected_n_samples_at_night = 0
+            filtered_n_samples_at_night = 0
+            for m, sample in zip(train_mask, dataset.samples):
+                if m == 1:
+                    # Convert datetime to string for JSON serialization
+                    timestamp_str = sample.timestamp.isoformat() if sample.timestamp is not None else None
+                    AL_summary['selected_samples'][label_to_cls[sample.label]].append((sample.file_path, timestamp_str))
+                    if sample.timestamp is not None and (sample.timestamp.hour < 6 or sample.timestamp.hour > 20):
+                        selected_n_samples_at_night += 1
+                    selected_cls.add(label_to_cls[sample.label])
+                    selected_cls_count[label_to_cls[sample.label]] += 1
+                else:
+                    # Convert datetime to string for JSON serialization
+                    timestamp_str = sample.timestamp.isoformat() if sample.timestamp is not None else None
+                    AL_summary['filtered_samples'][label_to_cls[sample.label]].append((sample.file_path, timestamp_str))
+                    filtered_cls.add(label_to_cls[sample.label])
+                    filtered_cls_count[label_to_cls[sample.label]] += 1
+            total_selected = sum(len(samples) for samples in AL_summary['selected_samples'].values())
+            total_filtered = sum(len(samples) for samples in AL_summary['filtered_samples'].values())
+            AL_summary['selected_stats'] = {
+                'num_selected': total_selected,
+                'selected_cls': list(selected_cls),
+                'selected_cls_count': selected_cls_count,
+                'selected_n_samples_at_night': selected_n_samples_at_night
+            }
+            AL_summary['filtered_stats'] = {
+                'num_filtered': total_filtered,
+                'filtered_cls': list(filtered_cls),
+                'filtered_cls_count': filtered_cls_count,
+                'filtered_n_samples_at_night': filtered_n_samples_at_night
+            }
+
+        AL_summary_path = os.path.join(args.save_dir, 'active_learning_summary.json')
+        if AL_summary is not None:
+            with open(AL_summary_path, 'w') as f:
+                json.dump(AL_summary, f, indent=2)
+            log_success(f"Active Learning summary saved to {AL_summary_path}")
+
         # Create validation split summary with our theme
         log_subsection_start("📊 Validation Split Distribution", Colors.BRIGHT_CYAN)
         
@@ -362,7 +420,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
             logging.info(f'Interpolating head with alpha {interpolation_alpha}. ')
             classifier.interpolate_head(_classifier, alpha=interpolation_alpha)
     del _classifier  # Clear the temporary classifier to free memory
-    return classifier
+    return classifier, AL_summary
 
 def run(args):
     """Main execution workflow for the adaptive learning pipeline.
@@ -494,12 +552,29 @@ def run(args):
     
     log_section_start("🎯 PRETRAINING PHASE", Colors.BRIGHT_GREEN)
     
+    AL_summary = None
+
+    if args.plot_features and pretrain_config['pretrain']:
+        try:
+            result = plot_features(classifier, eval_dset, args, prefix='zs_before_pretrain_evalset_')
+            if result[0] is None:
+                log_warning("Feature plotting skipped for zero-shot eval dataset due to insufficient data")
+        except Exception as e:
+            log_warning(f"Feature plotting failed for zero-shot eval dataset: {str(e)}")
+        
+        try:
+            result = plot_features(classifier, train_dset, args, prefix='zs_before_pretrain_trainset_')
+            if result[0] is None:
+                log_warning("Feature plotting skipped for zero-shot train dataset due to insufficient data")
+        except Exception as e:
+            log_warning(f"Feature plotting failed for zero-shot train dataset: {str(e)}")
+
     # Pretrain
     if pretrain_config['pretrain']:
         log_info(f"Pretraining enabled with {pretrain_config['epochs']} epochs")
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("pretrain", "before")
-        classifier = pretrain(classifier, 
+        classifier, AL_summary = pretrain(classifier, 
                               class_names, 
                               pretrain_config, 
                               common_config, 
@@ -515,6 +590,20 @@ def run(args):
                               eval_dset=eval_dset,
                               al_config=al_config,
                               ood_config=ood_config)
+        if args.plot_features:
+            try:
+                result = plot_features(classifier, eval_dset, args, prefix='after_pretrain_evalset_')
+                if result[0] is None:
+                    log_warning("Feature plotting skipped for post-pretrain eval dataset due to insufficient data")
+            except Exception as e:
+                log_warning(f"Feature plotting failed for post-pretrain eval dataset: {str(e)}")
+            
+            try:
+                result = plot_features(classifier, train_dset, args, prefix='after_pretrain_trainset_')
+                if result[0] is None:
+                    log_warning("Feature plotting skipped for post-pretrain train dataset due to insufficient data")
+            except Exception as e:
+                log_warning(f"Feature plotting failed for post-pretrain train dataset: {str(e)}")
 
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("pretrain", "after")
@@ -524,6 +613,10 @@ def run(args):
         log_warning("Pretraining skipped (disabled in configuration)")
     
     log_step(5, "Initializing pipeline modules")
+    if args.plot_text_F:
+        plot_text_F(classifier, class_names, args, prefix='text_feature_')
+        # Note: Continue with normal execution after plotting
+    
     # Initialize modules
     ood_module = get_ood_module(ood_config, common_config, class_names, args, args.device)
     al_module = get_al_module(al_config, common_config, class_names, args, args.device)
@@ -542,11 +635,19 @@ def run(args):
     # FR mask
     FR_mask = None
 
+    preds_image = {}
+    idx_to_class = {i: name for i, name in enumerate(class_names)}
+    preds_image['stats'] = {
+        "num_cls": len(class_names),
+        "class_dist": {c: 0 for c in class_names},
+    }
+    AL_summary = {}
     # Main loop
     for i in range(len(ckp_list)):
         # Get checkpoint
         ckp_prev = ckp_list[i - 1] if i > 0 else None
         ckp = ckp_list[i]
+        preds_image[ckp] = {}
         
         log_subsection_start(f"📝 Processing Checkpoint {ckp} ({i+1}/{len(ckp_list)})", Colors.CYAN)
         
@@ -555,6 +656,8 @@ def run(args):
             gpu_monitor.log_memory_usage("checkpoint", f"start_{ckp}")
         
         # Get training and evaluation dataset
+        # For accumulative training: use all previous checkpoints (ckp_1 to ckp_(i-1))
+        # prev_ckp_list = ckp_list[:i] if i > 0 else []
         ckp_train_dset = train_dset.get_subset(is_train=True, ckp_list=ckp_prev)
         ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp)
         logging.info(f'Training dataset size: {len(ckp_train_dset)}. ')
@@ -573,8 +676,7 @@ def run(args):
             cls_name = class_names[cls_idx] if cls_idx < len(class_names) else f"class_{cls_idx}"
             logging.info(f'  Class {cls_name} (idx {cls_idx}): {count} samples {count / sum_count:.2%}')
 
-        logging.info(f'Evaluation dataset size: {len(ckp_eval_dset)}. ')
-
+        # Log evaluation dataset class distribution
         eval_cls_count = {}
         for sample in ckp_eval_dset.samples:
             label = sample.label
@@ -605,6 +707,22 @@ def run(args):
         # Initialize mask
         train_dset_mask = np.ones(len(ckp_train_dset), dtype=bool)
         
+        if args.plot_features and not pretrain_config['pretrain']:
+            try:
+                result = plot_features(classifier, ckp_eval_dset, args, prefix=f'before_train_evalset{ckp}_')
+                if result[0] is None:
+                    log_warning(f"Feature plotting skipped for eval dataset {ckp} due to insufficient data")
+            except Exception as e:
+                log_warning(f"Feature plotting failed for eval dataset {ckp}: {str(e)}")
+            
+            if i != 0:  # Skip for first checkpoint to save time
+                try:
+                    result = plot_features(classifier, ckp_train_dset, args, prefix=f'before_train_trainset{ckp_prev}_')
+                    if result[0] is None:
+                        log_warning(f"Feature plotting skipped for train dataset {ckp_prev} due to insufficient data")
+                except Exception as e:
+                    log_warning(f"Feature plotting failed for train dataset {ckp_prev}: {str(e)}")
+
         # Run OOD detection
         # Check if first checkpoint
         is_first_ckp = (i == 0)
@@ -663,6 +781,57 @@ def run(args):
 
         # Prepare evaluation dataloader
         cl_eval_loader = DataLoader(ckp_eval_dset, batch_size=common_config['eval_batch_size'], shuffle=False, worker_init_fn=worker_init_fn)
+
+        # Generate AL summary if active learning was applied
+        if not pretrain_config['pretrain'] and 'al_mask' in locals():
+            label_to_cls = {v: k for k, v in ckp_train_dset.class_name_idx.items()}
+            train_class_counts = {label_to_cls[s.label]: 0 for s in ckp_train_dset.samples}
+            for sample in ckp_train_dset.samples:
+                train_class_counts[label_to_cls[sample.label]] += 1
+            
+            AL_summary[ckp] = {
+                'train_class_counts': {k: v for k, v in train_class_counts.items()},
+                'total_train_samples': len(ckp_train_dset.samples),
+                'selected_stats': {},
+                'filtered_stats': {},
+                'selected_samples': defaultdict(list),
+                'filtered_samples': defaultdict(list)
+            }
+            selected_cls = set()
+            selected_cls_count = defaultdict(int)
+            filtered_cls = set()
+            filtered_cls_count = defaultdict(int)
+            selected_n_samples_at_night = 0
+            filtered_n_samples_at_night = 0
+            for m, sample in zip(al_mask, ckp_train_dset.samples):
+                if m == 1:
+                    # Convert datetime to string for JSON serialization
+                    timestamp_str = sample.timestamp.isoformat() if sample.timestamp is not None else None
+                    AL_summary[ckp]['selected_samples'][label_to_cls[sample.label]].append((sample.file_path, timestamp_str))
+                    if sample.timestamp is not None and (sample.timestamp.hour < 6 or sample.timestamp.hour > 20):
+                        selected_n_samples_at_night += 1
+                    selected_cls.add(label_to_cls[sample.label])
+                    selected_cls_count[label_to_cls[sample.label]] += 1
+                else:
+                    # Convert datetime to string for JSON serialization
+                    timestamp_str = sample.timestamp.isoformat() if sample.timestamp is not None else None
+                    AL_summary[ckp]['filtered_samples'][label_to_cls[sample.label]].append((sample.file_path, timestamp_str))
+                    filtered_cls.add(label_to_cls[sample.label])
+                    filtered_cls_count[label_to_cls[sample.label]] += 1
+            total_selected = sum(len(samples) for samples in AL_summary[ckp]['selected_samples'].values())
+            total_filtered = sum(len(samples) for samples in AL_summary[ckp]['filtered_samples'].values())
+            AL_summary[ckp]['selected_stats'] = {
+                'num_selected': total_selected,
+                'selected_cls': list(selected_cls),
+                'selected_cls_count': selected_cls_count,
+                'selected_n_samples_at_night': selected_n_samples_at_night
+            }
+            AL_summary[ckp]['filtered_stats'] = {
+                'num_filtered': total_filtered,
+                'filtered_cls': list(filtered_cls),
+                'filtered_cls_count': filtered_cls_count,
+                'filtered_n_samples_at_night': filtered_n_samples_at_night
+            }
 
         # Prepare validation loader for continual learning
         cl_validation_loader = None
@@ -727,7 +896,23 @@ def run(args):
             )
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("continual_learning", f"after_{ckp}")
+        
+        if args.plot_features and not pretrain_config['pretrain'] and i != 0:
+            try:
+                result = plot_features(classifier, ckp_eval_dset, args, prefix=f'after_trainon{ckp_prev}_evalset{ckp}_')
+                if result[0] is None:
+                    log_warning(f"Feature plotting skipped for post-training eval dataset {ckp} due to insufficient data")
+            except Exception as e:
+                log_warning(f"Feature plotting failed for post-training eval dataset {ckp}: {str(e)}")
             
+            if i != 0:
+                try:
+                    result = plot_features(classifier, ckp_train_dset, args, prefix=f'after_trainon{ckp_prev}_trainset{ckp_prev}_')
+                    if result[0] is None:
+                        log_warning(f"Feature plotting skipped for post-training train dataset {ckp_prev} due to insufficient data")
+                except Exception as e:
+                    log_warning(f"Feature plotting failed for post-training train dataset {ckp_prev}: {str(e)}")
+
         # Force memory cleanup after continual learning
         import gc
         gc.collect()
@@ -763,7 +948,7 @@ def run(args):
                 cl_eval_loader = DataLoader(ckp_eval_dset, batch_size=common_config['eval_batch_size'], shuffle=False, worker_init_fn=worker_init_fn)
                 if args.gpu_memory_monitor:
                     gpu_monitor.log_memory_usage("evaluation", f"before_{eval_ckp}")
-                loss_arr, preds_arr, labels_arr = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'])
+                loss_arr, preds_arr, labels_arr, _, _ = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'])
                 if args.gpu_memory_monitor:
                     gpu_monitor.log_memory_usage("evaluation", f"after_{eval_ckp}")
                 a, b = print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"📊 Accu-eval {ckp_list[i]} → {eval_ckp}: ")
@@ -788,13 +973,13 @@ def run(args):
                 log_info(f"Evaluating on current training checkpoint {ckp_prev}")
                 current_ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp_prev)
                 current_cl_eval_loader = DataLoader(current_ckp_eval_dset, batch_size=common_config['eval_batch_size'], shuffle=False)
-                loss_arr, preds_arr, labels_arr = eval(classifier, current_cl_eval_loader, args.device, chop_head=common_config['chop_head'])
+                loss_arr, preds_arr, labels_arr, _, _ = eval(classifier, current_cl_eval_loader, args.device, chop_head=common_config['chop_head'])
                 print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"📊 Current ckp {ckp_prev}: ")
             
             log_info(f"Evaluating on target checkpoint {ckp}")
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
-            loss_arr, preds_arr, labels_arr = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'])
+            loss_arr, preds_arr, labels_arr, pred_true, pred_false = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'])
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("evaluation", f"after_{ckp}")
             acc, balanced_acc = print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"📊 Target ckp {ckp}: ")
@@ -815,13 +1000,45 @@ def run(args):
                 "checkpoint": ckp
             }, step=i)
 
-        # Store final evaluation results for summary
+        # Update final evaluation results
+        for sample in ckp_eval_dset.samples:
+            label = sample.label
+            preds_image[ckp].setdefault('class_count', {})
+            preds_image[ckp]['class_count'][idx_to_class[label]] = preds_image[ckp]['class_count'].get(idx_to_class[label], 0) + 1
         final_eval_results[ckp] = {
+            'num_samples': len(preds_arr),
             'accuracy': float(acc),
             'balanced_accuracy': float(balanced_acc),
             'loss': float(eval_loss),
             'num_samples': len(preds_arr)
         }
+
+        preds_image[ckp]['balanced_accuracy'] = balanced_acc
+        preds_image[ckp]['accuracy'] = acc
+        
+        cls_split_true = {}
+        cls_split_false = {}
+        ckp_true_confidence = 0.0
+        ckp_false_confidence = 0.0
+        cls_dist = {c: 0 for c in class_names}
+
+        for idx, (file_path, label, pred, confidence) in enumerate(pred_true):
+            ckp_true_confidence += confidence
+            cls_split_true.setdefault("True label: " + idx_to_class[label], []).append({"file_path": file_path, "confidence": confidence})
+            cls_dist[idx_to_class[label]] += 1
+        for idx, (file_path, label, pred, confidence) in enumerate(pred_false):
+            ckp_false_confidence += confidence
+            cls_split_false.setdefault("True label: " + idx_to_class[label], []).append({"file_path": file_path, "prediction": idx_to_class[pred], "confidence": confidence})
+            cls_dist[idx_to_class[label]] += 1
+
+        preds_image[ckp]['true_confidence'] = ckp_true_confidence / max(1, len(pred_true))
+        preds_image[ckp]['false_confidence'] = ckp_false_confidence / max(1, len(pred_false))
+        preds_image[ckp]['avg_confidence'] = (ckp_true_confidence + ckp_false_confidence) / max(1, len(pred_true) + len(pred_false))
+        preds_image[ckp]['class_count'] = cls_dist
+        preds_image[ckp]['correct'] = cls_split_true
+        preds_image[ckp]['incorrect'] = cls_split_false
+        for c, count in cls_dist.items():
+            preds_image['stats']['class_dist'][c] += count
 
         log_step(5, "Saving Results", Colors.MAGENTA)
         if args.is_save:
@@ -845,6 +1062,15 @@ def run(args):
             gpu_monitor.clear_cache_and_log(f"checkpoint_end_{ckp}")
         
         log_subsection_start(f"✅ Checkpoint {ckp} Complete", Colors.BRIGHT_GREEN)
+
+    # Save AL_summary after main loop completion
+    AL_summary_path = os.path.join(args.save_dir, 'active_learning_summary.json')
+    if AL_summary:
+        with open(AL_summary_path, 'w') as f:
+            json.dump(AL_summary, f, indent=2)
+        log_success(f"Active Learning summary saved to {AL_summary_path}")
+    else:
+        logging.info("No active learning summary to save (AL not used or accumulative-scratch mode)")
 
     # Calculate and report final average balanced accuracy across all checkpoints
     if final_eval_results:
@@ -892,10 +1118,23 @@ def run(args):
             'total_checkpoints': len(final_eval_results),
             'total_samples': int(total_samples)
         }
+        average_confidence = sum(preds_image[ckp]['avg_confidence'] for ckp in final_eval_results) / len(final_eval_results)
+        preds_image['stats']['total_samples'] = total_samples
+        preds_image['stats']['total_checkpoints'] = len(final_eval_results)
+        preds_image['stats']['average'] = {
+                'accuracy': float(avg_accuracy),
+                'balanced_accuracy': float(avg_balanced_accuracy),
+                'average_confidence': float(average_confidence),
+                'loss': float(avg_loss)
+            }
         
         summary_path = os.path.join(args.save_dir, 'final_training_summary.json')
+        preds_image_path = os.path.join(args.save_dir, 'final_image_level_predictions.json')
+        
         with open(summary_path, 'w') as f:
             json.dump(final_summary, f, indent=2)
+        with open(preds_image_path, 'w') as f:
+            json.dump(preds_image, f, indent=2)
         log_success(f"Final summary saved to {summary_path}")
 
     # Final completion logs
@@ -1899,12 +2138,15 @@ def run_eval_only(args):
         _classifier = copy.deepcopy(classifier)
         _classifier = _classifier.to(args.device)
 
+    preds = {}
     for i, ckp in enumerate(ckp_list):
         log_subsection_start(f"📊 Evaluating Checkpoint {ckp} ({i+1}/{len(ckp_list)})", Colors.CYAN)
         
         log_step(1, f"Loading model weights", Colors.BLUE)
         # Load model weights for this checkpoint
         model_path = model_file_mapping[ckp]
+
+        preds[ckp] = {}
         
         try:
 
@@ -1962,13 +2204,18 @@ def run_eval_only(args):
                 if args.gpu_memory_monitor:
                     gpu_monitor.log_memory_usage("evaluation", f"before_{accu_ckp}")
                     
-                loss_arr, preds_arr, labels_arr = eval(
+                loss_arr, preds_arr, labels_arr, pred_true, pred_false = eval(
                     classifier, 
                     eval_loader, 
                     args.device, 
                     chop_head=common_config['chop_head']
                 )
                 
+                preds[ckp][accu_ckp] = {
+                    'preds_true': pred_true,
+                    'preds_false': pred_false
+                }
+
                 if args.gpu_memory_monitor:
                     gpu_monitor.log_memory_usage("evaluation", f"after_{accu_ckp}")
                 
@@ -2047,13 +2294,18 @@ def run_eval_only(args):
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
                 
-            loss_arr, preds_arr, labels_arr = eval(
+            loss_arr, preds_arr, labels_arr, pred_true, pred_false = eval(
                 classifier, 
                 eval_loader, 
                 args.device, 
                 chop_head=common_config['chop_head']
             )
-            
+
+            preds[ckp] = {
+                'preds_true': pred_true,
+                'preds_false': pred_false
+            }
+
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("evaluation", f"after_{ckp}")
             
@@ -2113,6 +2365,8 @@ def run_eval_only(args):
     summary_path = os.path.join(args.save_dir, 'eval_only_summary.json')
     with open(summary_path, 'w') as f:
         json.dump(eval_results, f, indent=2)
+    with open(summary_path, 'w') as f:
+        json.dump(preds, f, indent=2)
     log_success(f"Summary saved to {summary_path}")
     
     # Calculate average metrics
@@ -2232,6 +2486,8 @@ def parse_args():
     parser.add_argument('--eval_only', action='store_true', help='Evaluate only mode - loads trained model checkpoints and evaluates them')
     parser.add_argument('--eval_accu', action='store_true', help='Perform calibration analysis during eval_only mode')
     parser.add_argument('--model_dir', type=str, help='Directory containing trained model checkpoints (.pth files) for eval_only mode')
+    parser.add_argument('--plot_features', action='store_true', help='Plot feature distributions')
+    parser.add_argument('--plot_text_F', action='store_true', help='Plot text features')
     parser.add_argument('--checkpoint_list', type=str, nargs='+', default=None, help='Specific checkpoint numbers to evaluate (for eval_only mode). If not provided, evaluates all available checkpoints')
     parser.add_argument('--save_predictions', action='store_true', help='Save prediction arrays for each checkpoint (for eval_only mode)')
     parser.add_argument('--gpu_id', type=int, default=0, help='GPU ID')
@@ -2461,6 +2717,7 @@ if __name__ == '__main__':
         yml.dump(vars(args), f)
 
     # Run
+    
     start_time = time.time()
     if args.eval_only:
         run_eval_only(args)

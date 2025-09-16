@@ -55,7 +55,7 @@ class CLModule(ABC):
         else:
             logging.info(f'Training classifier with {len(cl_train_dset)} samples. ')
             
-            cl_train_loader = DataLoader(cl_train_dset, batch_size=self.common_config['train_batch_size'], shuffle=True, num_workers=12)
+            cl_train_loader = DataLoader(cl_train_dset, batch_size=self.common_config['train_batch_size'], shuffle=True, num_workers=8)
             
             optimizer = get_optimizer(classifier, self.common_config['optimizer_name'], self.common_config['optimizer_params'])
             
@@ -166,7 +166,9 @@ class CLAccumulative(CLModule):
         # Train
         self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True)
         # Process buffer
-        self.buffer.extend(train_dset.samples)
+        for msk, sample in zip(train_mask, train_dset.samples):
+            if msk:
+                self.buffer.append(sample)
         
         # Memory cleanup
         del cl_train_dset
@@ -224,6 +226,56 @@ class CLAccumulativeScratch(CLModule):
     
     def _after_train(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
         pass
+
+class CLAccumWithALFR(CLModule):
+    """Accumulative training with scratch. Fine-tune the classifier on all samples seen so far, but use a new classifier each time.
+    """
+    def process(self, _, train_dset, eval_dset, train_mask, eval_per_epoch=True, eval_loader=None, ckp=None, gpu_monitor=None):
+        # global idx
+        classifier = copy.deepcopy(self._classifier)
+        
+        # VRAM check after classifier copy
+        check_vram_and_clean(context="after classifier copy")
+        
+        # Process data
+        cl_train_dset = copy.deepcopy(train_dset)
+
+        # AL-FR masking
+        if len(self.buffer) > 0: # only do FR if we have some buffer
+            from core.module.al import ALFeatureReasonance
+            al_module = ALFeatureReasonance(self._classifier, self.cl_config, self.common_config, self.class_names, self.args, self.device)
+            classifier, train_mask = al_module.process(classifier, train_dset, eval_dset, train_mask, ckp=None)
+            logging.info(f'After Feature Resonance, selected {np.sum(train_mask)} samples for training. ')
+        
+        cl_train_dset.apply_mask(train_mask)
+        cl_train_dset.add_samples(self.buffer)
+        
+        # Train
+        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True)
+        
+        # Process buffer
+        for msk, sample in zip(train_mask, train_dset.samples):
+            if msk:
+                self.buffer.append(sample)
+
+        # Memory cleanup
+        del cl_train_dset
+        conditional_cache_clear()
+        
+        # Silent maintenance cleanup - keep memory fresh
+        conditional_cache_clear(threshold=20.0)
+        
+        return classifier
+    
+    def refresh_buffer(self, new_samples):
+        pass
+
+    def incremental_step(self, model):
+        pass
+    
+    def _after_train(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
+        pass
+
 
 class CLAccumulativeScratchLWF(CLModule):
     """Accumulative training with scratch. Fine-tune the classifier on all samples seen so far, but use a new classifier each time.

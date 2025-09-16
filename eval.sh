@@ -43,7 +43,7 @@ fi
 # LEARNING_RATES=(0.000001 0.0000025 0.000005 0.00001 0.000025 0.00005 0.0001 0.00025 0.0005 )
 LEARNING_RATES=(0.000025)
 # Number of datasets to process per sbatch job
-DATASETS_PER_JOB=5
+DATASETS_PER_JOB=3
 
 # Calculate total number of jobs needed
 TOTAL_DATASETS=${#ALL_DATASETS[@]}

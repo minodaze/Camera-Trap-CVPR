@@ -257,7 +257,7 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
         # Set up maintenance VRAM checker
         maintenance_check = maintenance_vram_check(batch_interval=25, threshold=30.0)
         
-        for batch_idx, (inputs, labels, old_logits, is_buf) in enumerate(loader):
+        for batch_idx, (inputs, labels, file_paths, old_logits, is_buf) in enumerate(loader):
             # Silent optimized cache clearing and critical warnings only
             if batch_idx % 5 == 0 or batch_idx < 3:
                 check_vram_and_clean(context=f"batch {batch_idx}")
@@ -407,9 +407,9 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             # Log memory before evaluation
             if gpu_monitor:
                 gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_before_eval")
-                
-            loss_arr, preds_arr, labels_arr = eval(classifier, eval_loader, device)
-            
+
+            loss_arr, preds_arr, labels_arr, _, _ = eval(classifier, eval_loader, device)
+
             # Log memory after evaluation
             if gpu_monitor:
                 gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_after_eval", {
@@ -645,14 +645,23 @@ def eval(classifier, loader, device, chop_head=False, return_logits=False):
         chop_mask = np.zeros(n_classes, dtype=bool)
 
     classifier.eval()
+    pred_false = []
+    pred_true = []
     with torch.no_grad():
-        for inputs, labels, _, _ in loader:
+        for inputs, labels, file_paths, _, _ in loader:
             # Forward
             inputs, labels = inputs.to(device), labels.to(device)
             logits = classifier(inputs)
             loss = F.cross_entropy(logits, labels, reduction='none')
             logits[:, chop_mask] = -np.inf
+            confidences = F.softmax(logits, dim=1)
             preds = logits.argmax(dim=1)
+            # Collect false/true predictions for analysis
+            for i in range(len(labels)):
+                if preds[i] == labels[i]:
+                    pred_true.append((file_paths[i], labels[i].item(), preds[i].item(), confidences[i].max().item()))
+                else:
+                    pred_false.append((file_paths[i], labels[i].item(), preds[i].item(), confidences[i].max().item()))
             # Append
             loss_arr.append(loss.cpu().numpy())
             preds_arr.append(preds.cpu().numpy())
@@ -664,9 +673,9 @@ def eval(classifier, loader, device, chop_head=False, return_logits=False):
     labels_arr = np.concatenate(labels_arr, axis=0)
     if return_logits:
         logits_arr = np.concatenate(logits_arr, axis=0)
-        return loss_arr, preds_arr, labels_arr, logits_arr
+        return loss_arr, preds_arr, labels_arr, logits_arr, pred_true, pred_false
     else:
-        return loss_arr, preds_arr, labels_arr
+        return loss_arr, preds_arr, labels_arr, pred_true, pred_false
 
 
 def load_classifier(classifier, path):

@@ -44,7 +44,7 @@ srun --pty --account=PAS2099 --job-name=bash --time=24:00:00 --ntasks=1 --nodes=
 
 **LoRA**
 
- srun --pty --account=PAS2099 --job-name=bash --time=24:00:00 --ntasks=1 --nodes=1 --gpus-per-task=1 --cpus-per-task=12 --mem=100G python run_pipeline.py --c '<.yaml>' --lora_bottleneck 8 
+ srun --pty --account=PAS2099 --job-name=bash --time=4:00:00 --ntasks=1 --nodes=1 --gpus-per-task=1 --cpus-per-task=8 --mem=64G python run_pipeline.py --c 'config/pipeline/ENO_C05/bsm/accumALFR.yaml' --eval_per_epoch --lora_bottleneck 8 
 
 
 **ReAdapterv**
@@ -53,4 +53,4 @@ srun --pty --account=PAS2099 --job-name=bash --time=24:00:00 --ntasks=1 --nodes=
 
 **Full Tuning**
 
- srun --pty --account=PAS2099 --job-name=bash --time=24:00:00 --ntasks=1 --nodes=1 --gpus-per-task=1 --cpus-per-task=12 --mem=100G python run_pipeline.py --c '<.yaml>' --wandb --full  
+ srun --pty --account=PAS2099 --job-name=bash --time=2:00:00 --ntasks=1 --nodes=1 --gpus-per-task=1 --cpus-per-task=8 --mem=100G python run_pipeline.py --c 'config/pipeline/ENO_C05/ce/accumulative-scratch.yaml' --plot_features --eval_per_epoch --full  

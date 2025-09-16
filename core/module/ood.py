@@ -71,7 +71,113 @@ class OODOracle(OODModule):
         mask_copy = copy.deepcopy(train_mask)
         mask_copy[correct_mask] = 0
         return classifier, mask_copy
-    
+
+class OODRandom(OODModule):
+    """Random OOD detection, where a random subset of samples is selected as out-of-distribution.
+    """
+    def process(self, classifier, train_dset, eval_dset, train_mask, is_first_ckp=False, is_zs=False):
+        np.random.seed(self.ood_config.get('random_seed', 42))
+        num_samples = len(train_dset)
+        random_indices = np.random.choice(num_samples, size=int(num_samples * self.ood_config.get('random_fraction', 0.1)), replace=False)
+        mask_copy = np.zeros_like(train_mask)
+        mask_copy[random_indices] = 1
+        return classifier, mask_copy
+
+class OODClsRandom(OODModule):
+    """Random OOD detection based on class labels, where a random subset of samples from each class is selected as out-of-distribution.
+    """
+    def process(self, classifier, train_dset, eval_dset, train_mask, is_first_ckp=False, is_zs=False):
+        np.random.seed(self.ood_config.get('random_seed', 42))
+        num_classes = len(self.class_names)
+        labels = np.array([s.label for s in train_dset.samples])
+        class_indices = {i: np.where(labels == i)[0] for i in range(num_classes)}
+        mask_copy = np.zeros_like(train_mask)
+        for i, indices in class_indices.items():
+            random_indices = np.random.choice(indices, size=int(len(indices) * self.ood_config.get('random_fraction', 0.5)), replace=False)
+            mask_copy[random_indices] = 1
+        
+        return classifier, mask_copy
+
+class OODMCMEval(OODModule):
+    """
+    MCM-based OOD detection: Computes image features, compares with text features,
+    calculates max softmax score (MCM). Flags samples with low MCM as OOD.
+    """
+
+    def process(self, classifier, curr_eval_dset, last_eval_dset, train_mask, is_first_ckp=False, is_zs=False, is_train=False):
+        classifier.eval()
+        curr_eval_loader = torch.utils.data.DataLoader(
+                curr_eval_dset,
+                batch_size=self.common_config['eval_batch_size'],
+                shuffle=False,
+            )
+        if last_eval_dset is not None:
+            last_eval_loader = torch.utils.data.DataLoader(
+                    last_eval_dset,
+                    batch_size=self.common_config['eval_batch_size'],
+                    shuffle=False,
+                )
+
+        all_scores = []
+        all_gap_scores = []
+
+        # Get text embeddings (head) — normalize
+        text_features = classifier.head.weight.to(self.device)
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+
+        # Score each sample
+        for batch_idx, (inputs, labels, _, _, _) in tqdm(enumerate(curr_eval_loader), total=len(curr_eval_loader)):
+            inputs = inputs.to(self.device)
+
+            with torch.no_grad():
+                # Extract image features
+                image_features = classifier.visual_model(inputs)
+                image_features = image_features.float()
+                image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+
+                # Similarity -> logits
+                logits = image_features @ text_features.T
+                logits = logits / self.ood_config.get("temperature", 1)
+
+                # Softmax -> MCM score
+                smax = F.softmax(logits, dim=-1)
+                mcm = torch.max(smax, dim=-1).values  # Shape: (batch_size,)
+
+                all_scores.append(mcm.cpu().numpy())
+
+                # Confidence gap = top1 - top2
+                top2 = torch.topk(smax, 2, dim=-1).values
+                gap = (top2[:, 0] - top2[:, 1])
+                all_gap_scores.append(gap.cpu().numpy())
+
+        if len(all_scores) == 0:
+            logging.warning("[OODMCM] No MCM scores computed. Skipping OOD detection for this checkpoint.")
+            return classifier, np.zeros_like(train_mask)
+
+        # Assume: all_scores = list of np arrays, one per batch
+        ckp_scores = np.concatenate(all_scores, axis=0)
+        gap_scores = np.concatenate(all_gap_scores, axis=0)
+
+        # First checkpoint only: set the threshold
+        if is_first_ckp:
+            self.lambda_thresh = np.percentile(ckp_scores, 5)
+            logging.info(f"[OOD] λ threshold (5th percentile) set to: {self.lambda_thresh:.4f}")
+
+        # Compute mean score for logging
+        ckp_mean = np.mean(ckp_scores)
+        ood_pct = np.sum(ckp_scores < self.lambda_thresh) / len(ckp_scores) * 100
+        gap_mean = np.mean(gap_scores)
+
+        logging.info(f"[OOD] Checkpoint mean: {ckp_mean:.4f}")
+        logging.info(f"[OOD] {ood_pct:.2f}% samples flagged as OOD")
+        logging.info(f"[OOD] Mean softmax gap (Top-1 - Top-2): {gap_mean:.4f}")
+
+        # # Make mask
+        # mask_copy = copy.deepcopy(train_mask)
+        # mask_copy[:] = ckp_scores < lambda_thresh
+
+        # return classifier, mask_copy
+        return classifier, np.zeros_like(train_mask)
 
 class OODMCM(OODModule):
     """
@@ -96,7 +202,7 @@ class OODMCM(OODModule):
         text_features = text_features / text_features.norm(dim=-1, keepdim=True)
 
         # Score each sample
-        for batch_idx, (inputs, labels, _, _) in tqdm(enumerate(loader), total=len(loader)):
+        for batch_idx, (inputs, labels, _, _, _) in tqdm(enumerate(loader), total=len(loader)):
             inputs = inputs.to(self.device)
 
             with torch.no_grad():
@@ -181,7 +287,7 @@ class OODPastMahalanobis(OODModule):
 
         new_features = [[] for _ in range(len(self.class_names))]
 
-        for inputs, labels, _, _ in tqdm(loader, desc="[PastMahalanobis] Extract train features"):
+        for inputs, labels, _, _, _ in tqdm(loader, desc="[PastMahalanobis] Extract train features"):
             inputs = inputs.to(self.device)
             with torch.no_grad():
                 feat = classifier.visual_model(inputs) 
@@ -265,7 +371,7 @@ class OODPastMahalanobis(OODModule):
 
         future_scores = []
 
-        for inputs, _, _, _ in tqdm(eval_loader, desc="[PastMahalanobis] Calculate Mahalanobis scores"):
+        for inputs, _, _, _, _ in tqdm(eval_loader, desc="[PastMahalanobis] Calculate Mahalanobis scores"):
             inputs = inputs.to(self.device)
             with torch.no_grad():
                 feat = classifier.visual_model(inputs)
@@ -311,6 +417,8 @@ OOD_METHODS = {
     'all': OODAll,
     'none': OODNone,
     'oracle': OODOracle,
+    'random': OODRandom,
+    'cls_random': OODClsRandom,
     'mcm': OODMCM,
     'past_mahalanobis': OODPastMahalanobis,
 }
