@@ -384,9 +384,10 @@ def build_classifier(params, class_name_idx, device):
         tokenizer = AutoTokenizer.from_pretrained('pretrained_weights/bioclip')
     elif params.pretrained_weights == 'bioclip2':
         logging.info("Using Bioclip-2 model. ")
+        weight_path = 'pretrained_weights/bioclip-2/open_clip_pytorch_model.bin'
         bioclip_model, preprocess_train, preprocess_val = create_model_and_transforms(
             'ViT-L-14',
-            'pretrained_weights/bioclip-2/open_clip_pytorch_model.bin',
+            weight_path,
             precision='amp',
             device=device,
             jit=False,

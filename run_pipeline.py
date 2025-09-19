@@ -542,7 +542,6 @@ def run(args):
     # Load model
     classifier = build_classifier(args, class_names, args.device)
     log_success(f"Classifier built successfully")
-    
     # Monitor model memory usage if enabled
     if args.gpu_memory_monitor:
         gpu_monitor.log_memory_usage("model_load", "after_build")
@@ -666,6 +665,8 @@ def run(args):
         "class_dist": {c: 0 for c in class_names},
     }
     AL_summary = {}
+    if args.lora_interpolate:
+        lora_inter_json = {ckp: {} for ckp in ckp_list}
     # Main loop
     for i in range(len(ckp_list)):
         # Get checkpoint
@@ -1008,6 +1009,20 @@ def run(args):
                 gpu_monitor.log_memory_usage("evaluation", f"after_{ckp}")
             acc, balanced_acc = print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"📊 Target ckp {ckp}: ")
             eval_loss = np.mean(loss_arr)
+            if args.lora_interpolate and lora_inter_json is not None:
+                log_info(f"Evaluating LoRA-interpolated model on target checkpoint {ckp} with different alpha values", Colors.MAGENTA)
+                alphas = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+                for alpha in alphas:
+                    classifier.interpolate_lora(alpha)
+                    loss_arr, preds_arr, labels_arr, _, _ = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'])
+                    a, b = print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"   🔄 LoRA alpha {alpha:.1f}: ")
+                    lora_inter_json[ckp][f'alpha_{alpha:.1f}'] = {
+                        'accuracy': float(a),
+                        'balanced_accuracy': float(b),
+                        'loss': float(np.mean(loss_arr))
+                    }
+            else:
+                log_info(f"LoRA interpolation disabled or not configured; skipping LoRA-interpolated evaluations", Colors.MAGENTA)
 
         # Log metrics with colors
         log_metric("Accuracy", acc, ".4f", Colors.BRIGHT_GREEN)
@@ -1095,6 +1110,12 @@ def run(args):
         log_success(f"Active Learning summary saved to {AL_summary_path}")
     else:
         logging.info("No active learning summary to save (AL not used or accumulative-scratch mode)")
+
+    if args.lora_interpolate and lora_inter_json is not None:
+        lora_inter_path = os.path.join(args.save_dir, 'lora_interpolation_results.json')
+        with open(lora_inter_path, 'w') as f:
+            json.dump(lora_inter_json, f, indent=2)
+        log_success(f"LoRA interpolation results saved to {lora_inter_path}")
 
     # Calculate and report final average balanced accuracy across all checkpoints
     if final_eval_results:
@@ -1687,7 +1708,7 @@ def run_eval_only(args):
     
     log_step(4, "Building classifier model")
     # Build classifier architecture (same as training)
-    classifier = build_classifier(args, class_names, args.device)
+    classifier = build_classifier(args, class_names, args.device, other_weight=False)
     log_success("Classifier built successfully")
     
     if args.gpu_memory_monitor:
@@ -2380,6 +2401,10 @@ def parse_args():
                         help='domain generalization test set for imagenet')
     parser.add_argument('--merge_factor', default=1, type=float,
                         help='merge factor')
+    parser.add_argument('--lora_interpolate', action='store_true',
+                        help='whether to use LoRA interpolation')
+    # parser.add_argument('--lora_interpolate', default=1, type=float,
+    #                     help='shift factor')
 
     ########################calibration#########################
     parser.add_argument('--calibration', action='store_true', 
