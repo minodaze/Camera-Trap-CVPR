@@ -156,6 +156,9 @@ class CkpDataset(Dataset):
                 continue
             for data in v:
                 file_path = data.get("image_path")
+                parts = file_path.split('camera-trap-benchmark', 1)
+                file_path = parts[0] + 'camera-trap-benchmark/dataset' + parts[1]
+
                 if not file_path:
                     raise ValueError(f"image_path not found in {data}")
                 class_name = data.get(self.label_type)

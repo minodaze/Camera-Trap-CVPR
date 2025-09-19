@@ -44,7 +44,7 @@ srun --pty --account=PAS2099 --job-name=bash --time=24:00:00 --ntasks=1 --nodes=
 
 **LoRA**
 
- srun --pty --account=PAS2099 --job-name=bash --time=4:00:00 --ntasks=1 --nodes=1 --gpus-per-task=1 --cpus-per-task=8 --mem=64G python run_pipeline.py --c 'config/pipeline/ENO_C05/bsm/accumALFR.yaml' --eval_per_epoch --lora_bottleneck 8 
+ srun --pty --account=PAS2099 --job-name=bash --time=4:00:00 --ntasks=1 --nodes=1 --gpus-per-task=1 --cpus-per-task=8 --mem=64G python run_pipeline.py --c 'config/pipeline/KGA_KHOLA03/rare_best_a.yaml' --eval_only --model_dir /fs/scratch/PAS2099/camera-trap-final/best_accum_logs/KGA_KGA_KHOLA03/accum_lora_bsm_loss/bioclip2/lora_8_text_head/all/log --eval_per_epoch --lora_bottleneck 8 
 
 
 **ReAdapterv**
@@ -53,4 +53,7 @@ srun --pty --account=PAS2099 --job-name=bash --time=24:00:00 --ntasks=1 --nodes=
 
 **Full Tuning**
 
- srun --pty --account=PAS2099 --job-name=bash --time=2:00:00 --ntasks=1 --nodes=1 --gpus-per-task=1 --cpus-per-task=8 --mem=100G python run_pipeline.py --c 'config/pipeline/ENO_C05/ce/accumulative-scratch.yaml' --plot_features --eval_per_epoch --full  
+ srun --pty --account=PAS2099 --job-name=bash --time=2:00:00 --ntasks=1 --nodes=1 --gpus-per-task=1 --cpus-per-task=8 --mem=100G python run_pipeline.py --c 'config/pipeline/MAD_A05/rare_zs.yaml' --eval_per_epoch --full  
+
+
+ srun --pty --account=PAS2099 --job-name=bash --time=4:00:00 --ntasks=1 --nodes=1 --gpus-per-task=1 --cpus-per-task=8 --mem=64G python run_pipeline.py --c 'config/pipeline/KGA_KHOGB07/best_o.yaml' --eval_only --model_dir /fs/scratch/PAS2099/camera-trap-final/best_oracle_logs/KGA_KGA_KHOGB07/oracle_lora_bsm_loss/bioclip2/lora_8_text_head/log --eval_per_epoch --lora_bottleneck 8

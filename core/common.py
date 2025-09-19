@@ -623,9 +623,9 @@ def eval(classifier, loader, device, chop_head=False, return_logits=False):
     dset = loader.dataset
     if len(dset) == 0:
         if return_logits:
-            return np.array([]), np.array([]), np.array([]), np.array([])
+            return np.array([]), np.array([]), np.array([]), np.array([]), [], []
         else:
-            return np.array([]), np.array([]), np.array([])
+            return np.array([]), np.array([]), np.array([]), [], []
     loss_arr = []
     preds_arr = []
     labels_arr = []

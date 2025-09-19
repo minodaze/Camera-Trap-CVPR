@@ -3,11 +3,11 @@
 #SBATCH --job-name=bioclip2_upper_bound
 #SBATCH --output=logs/bioclip2_%j.out
 #SBATCH --error=logs/bioclip2_%j.err
-#SBATCH --time=2:00:00
+#SBATCH --time=20:00:00
 #SBATCH --nodes=1                 # Request 4 nodes
 #SBATCH --ntasks-per-node=1       # One task per node
 #SBATCH --gpus-per-node=1         # One GPU per node
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=12
 
 USER_NAME="mino"
 CONDA_ENV="ICICLE"
@@ -30,7 +30,7 @@ interpolation_alpha=(
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate ${CONDA_ENV}
 
-DATA_ROOT="/fs/scratch/PAS2099/camera-trap-benchmark"
+DATA_ROOT="/fs/scratch/PAS2099/camera-trap-benchmark/dataset"
 CONFIG_ROOT="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/configs/generated_common"
 # CSV_PATH="/fs/ess/PAS2099/${USER_NAME}/Documents/ICICLE/ICICLE-Benchmark/balanced_accuracy_common.csv"
 
@@ -75,11 +75,9 @@ for DATASET in "${BIG_FOLDERS[@]}"; do
 
     CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}_eval_interpolation_lr${LEARNING_RATE}.yaml"
 
-    mkdir -p /fs/scratch/PAS2099/camera-trap-final/round2_eval_logs/${DATASET//\//_}/eval_full_ce_ub_interpolation/
-
     cat <<EOF > $CONFIG_FILE
 module_name: eval_full_interpolation
-log_path: /fs/scratch/PAS2099/camera-trap-final/round2_eval_logs/${DATASET//\//_}/eval_full_ce_ub_interpolation/
+log_path: /fs/scratch/PAS2099/camera-trap-final/round2_eval_logs/${DATASET//\//_}/eval_full_lora_accum_interpolation/
 
 common_config:
   model: bioclip2
@@ -111,6 +109,6 @@ EOF
     # Run pipeline for each interpolation alpha value
     for alpha in "${interpolation_alpha[@]}"; do
         echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE} and alpha=${alpha}"
-        python run_pipeline.py --c $CONFIG_FILE --eval_only --model_dir "${MODEL_DIR}" --pretrained_weights bioclip2 --interpolation_model --interpolation_alpha ${alpha} --full
+        python run_pipeline.py --c $CONFIG_FILE --eval_only --model_dir "${MODEL_DIR}" --pretrained_weights bioclip2 --lora_bottleneck 8 --merge_factor 0.8
     done
 done

@@ -3,34 +3,21 @@
 #SBATCH --job-name=bioclip2_upper_bound
 #SBATCH --output=logs/bioclip2_%j.out
 #SBATCH --error=logs/bioclip2_%j.err
-#SBATCH --time=2:00:00
-#SBATCH --nodes=1                 # Request 4 nodes
+#SBATCH --time=12:00:00
+#SBATCH --nodes=1                 # Request 1 node
 #SBATCH --ntasks-per-node=1       # One task per node
 #SBATCH --gpus-per-node=1         # One GPU per node
 #SBATCH --cpus-per-task=8
+#SBATCH --mem=80G                 # Request 128GB total memory per node
 
 USER_NAME="mino"
 CONDA_ENV="ICICLE"
-
-interpolation_alpha=(
-    0.0
-    0.1
-    0.2
-    0.3
-    0.4
-    0.5
-    0.6
-    0.7
-    0.8
-    0.9
-    1.0
-)
 
 # Load your env
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate ${CONDA_ENV}
 
-DATA_ROOT="/fs/scratch/PAS2099/camera-trap-benchmark"
+DATA_ROOT="/fs/scratch/PAS2099/camera-trap-benchmark/dataset"
 CONFIG_ROOT="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/configs/generated_common"
 # CSV_PATH="/fs/ess/PAS2099/${USER_NAME}/Documents/ICICLE/ICICLE-Benchmark/balanced_accuracy_common.csv"
 
@@ -48,11 +35,10 @@ fi
 IFS=' ' read -ra BIG_FOLDERS <<< "$1"
 # Get learning rate from the second argument
 LEARNING_RATE="$2"
-MODEL_DIR="$3"
 
 echo "Processing ${#BIG_FOLDERS[@]} datasets: ${BIG_FOLDERS[*]}"
 echo "Using learning rate: ${LEARNING_RATE}"
-echo "Using model directory: ${MODEL_DIR}"
+
 
 for DATASET in "${BIG_FOLDERS[@]}"; do
     echo "=== Processing ${DATASET} ==="
@@ -73,13 +59,14 @@ for DATASET in "${BIG_FOLDERS[@]}"; do
 # print('\n'.join(['  - ' + s for s in common]))
 # ")
 
-    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}_eval_interpolation_lr${LEARNING_RATE}.yaml"
+    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}/accumulative-scratch_lr${LEARNING_RATE}.yaml"
 
-    mkdir -p /fs/scratch/PAS2099/camera-trap-final/round2_eval_logs/${DATASET//\//_}/eval_full_ce_ub_interpolation/
+    mkdir -p "${CONFIG_ROOT}/${DATASET//\//_}"
+    mkdir -p "/fs/scratch/PAS2099/camera-trap-final/allClass_log/${DATASET//\//_}/accum_lora_bsm_loss/"
 
     cat <<EOF > $CONFIG_FILE
-module_name: eval_full_interpolation
-log_path: /fs/scratch/PAS2099/camera-trap-final/round2_eval_logs/${DATASET//\//_}/eval_full_ce_ub_interpolation/
+module_name: accumulative-scratch
+log_path: /fs/scratch/PAS2099/camera-trap-final/allClass_log/${DATASET//\//_}/accum_lora_bsm_loss/
 
 common_config:
   model: bioclip2
@@ -101,16 +88,40 @@ common_config:
 pretrain_config:
   pretrain: false
 ood_config:
-  method: none
+  method: all
 al_config:
-  method: none
+  method: all
 cl_config:
-  method: none
+  method: accumulative-scratch
+  epochs: 30
+  loss_type: bsm
+
 EOF
 
-    # Run pipeline for each interpolation alpha value
-    for alpha in "${interpolation_alpha[@]}"; do
-        echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE} and alpha=${alpha}"
-        python run_pipeline.py --c $CONFIG_FILE --eval_only --model_dir "${MODEL_DIR}" --pretrained_weights bioclip2 --interpolation_model --interpolation_alpha ${alpha} --full
-    done
+    echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
+    python run_pipeline.py --c $CONFIG_FILE --expand_head unique_species.txt --wandb --eval_per_epoch --save_best_model --pretrained_weights bioclip2 --lora_bottleneck 8
+
+#     # === Robust log path discovery ===
+#     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/zs_common/"
+
+#     echo "Searching for nested logs in: ${BASE_LOG_DIR}"
+#     echo "Contents:"
+#     ls -lah ${BASE_LOG_DIR}
+
+#     # Find the latest nested bioclip2/full_text_head/*/
+#     SUB_TS=$(ls -td ${BASE_LOG_DIR}bioclip2/full_text_head/*/ | head -n1)
+
+#     LOG_PATH="${SUB_TS}log/log.txt"
+
+#     echo "Latest log path: ${LOG_PATH}"
+
+#     if [ ! -f "$LOG_PATH" ]; then
+#       echo "Log file does not exist: ${LOG_PATH}"
+#       continue
+#     fi
+
+#     echo "Parsing and appending for ${DATASET}"
+#     python parse_and_append.py --dataset "${DATASET}" --log_path "${LOG_PATH}" --csv_path "${CSV_PATH}"
+
+#   done
 done

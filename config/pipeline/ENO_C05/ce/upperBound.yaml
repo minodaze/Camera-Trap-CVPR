@@ -18,7 +18,7 @@ common_config:
 pretrain_config:
   pretrain: true
   pretrain_data_config_path: config/data/ENO_C05/30/train-all.json
-  epochs: 1
+  epochs: 30
   loss_type: ce
 ood_config:
   method: none

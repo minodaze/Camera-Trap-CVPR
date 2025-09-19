@@ -71,7 +71,8 @@ for lr in "${LEARNING_RATES[@]}"; do
         echo "Job $job_counter/$TOTAL_SUBMISSIONS: LR=$lr, Processing datasets ${start_index}-${end_index}"
         echo "  Datasets: ${datasets_string}"
         
-        sbatch script/sbatch_run_accu_lora_bsm.sh "${datasets_string}" "$lr"
+        # sbatch script/sbatch_run_accu_lora_bsm.sh "${datasets_string}" "$lr"
+        sbatch script/sbatch_run_accu_lora_bsm_1000.sh "${datasets_string}" "$lr"
     done
 done
 

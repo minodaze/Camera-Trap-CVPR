@@ -17,7 +17,7 @@ CONDA_ENV="ICICLE"
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate ${CONDA_ENV}
 
-DATA_ROOT="/fs/scratch/PAS2099/camera-trap-benchmark"
+DATA_ROOT="/fs/scratch/PAS2099/camera-trap-benchmark/dataset"
 CONFIG_ROOT="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/configs/generated_common"
 # CSV_PATH="/fs/ess/PAS2099/${USER_NAME}/Documents/ICICLE/ICICLE-Benchmark/balanced_accuracy_common.csv"
 
@@ -88,7 +88,7 @@ common_config:
 pretrain_config:
   pretrain: false
 ood_config:
-  method: mcm
+  method: all
 al_config:
   method: all
 cl_config:
@@ -99,7 +99,7 @@ cl_config:
 EOF
 
     echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
-    python run_pipeline.py --c $CONFIG_FILE --plot_features --wandb --eval_per_epoch --save_best_model --pretrained_weights bioclip2 --lora_bottleneck 8
+    python run_pipeline.py --c $CONFIG_FILE --wandb --eval_per_epoch --save_best_model --pretrained_weights bioclip2 --lora_bottleneck 8
 
 #     # === Robust log path discovery ===
 #     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/zs_common/"

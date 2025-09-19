@@ -101,7 +101,15 @@ for lr in "${LEARNING_RATES[@]}"; do
         for i in "${!job_datasets[@]}"; do
             dataset="${job_datasets[$i]}"
             model_dir="${job_model_dirs[$i]}"
-            sbatch sbatch_eval_full_accu.sh "${dataset}" "$lr" "${model_dir}"
+            json_path="${model_dir}/final_training_summary.json"
+            # Check if model directory exists
+            if [ -f "$json_path" ]; then
+                echo "  ✓ Model directory exists: $json_path"
+                sbatch script/sbatch_eval_lora_interpolation.sh "${dataset}" "$lr" "${model_dir}"
+            else
+                echo "  ✗ Skipping ${dataset}: Model directory not found: $model_dir"
+                continue
+            fi
         done
         # Optional: Add a small delay between submissions to avoid overwhelming the scheduler
     done

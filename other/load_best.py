@@ -8,8 +8,8 @@ def load_oracle_results():
     Load oracle results from the best_oracle_logs folder and update the CSV file.
     """
     # Path to the CSV file
-    csv_file_path = "other/CL + Animal Trap - Oracle _= ZS.csv"
-    base_oracle_path = "/fs/scratch/PAS2099/camera-trap-final/best_accum_logs"
+    csv_file_path = "other/CL + Animal Trap - Oracle < ZS_updated.csv"
+    base_oracle_path = "/fs/scratch/PAS2099/camera-trap-final/best_oracle_logs"
     
     # Read the existing CSV
     rows = []
@@ -20,7 +20,7 @@ def load_oracle_results():
         header = next(reader)  # Get the header
         for row in reader:
             rows.append(row)
-    
+    # /fs/scratch/PAS2099/camera-trap-final/best_oracle_logs/APN_APN_13U/oracle_lora_bsm_loss/bioclip2/lora_8_text_head/log/final_training_summary.json
     print(f"Loaded {len(rows)} rows from CSV file")
     print(f"Header: {header}")
     
@@ -36,7 +36,8 @@ def load_oracle_results():
     # Process each dataset
     updated_count = 0
     missing_files = []
-    
+    missing_datasets = []
+
     for i, row in enumerate(rows):
         if len(row) <= dataset_col:
             continue
@@ -81,19 +82,23 @@ def load_oracle_results():
                 else:
                     print(f"⚠️  No balanced_accuracy found in averages for {dataset_name}")
                     missing_files.append(f"{dataset_name} (no balanced_accuracy in averages)")
+                    missing_datasets.append(dataset_name)
             else:
                 print(f"❌ File not found: {json_path}")
                 missing_files.append(f"{dataset_name} (file not found)")
+                missing_datasets.append(dataset_name)
                 
         except json.JSONDecodeError as e:
             print(f"❌ JSON decode error for {dataset_name}: {e}")
             missing_files.append(f"{dataset_name} (JSON decode error)")
+            missing_datasets.append(dataset_name)
         except Exception as e:
             print(f"❌ Error processing {dataset_name}: {e}")
             missing_files.append(f"{dataset_name} (error: {str(e)})")
+            missing_datasets.append(dataset_name)
     
     # Write the updated CSV
-    output_file = "other/CL + Animal Trap - Oracle > ZS_updated.csv"
+    output_file = "other/CL + Animal Trap - Oracle < ZS_updated.csv"
     with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(header)  # Write header
@@ -110,6 +115,10 @@ def load_oracle_results():
             print(f"  - {missing}")
         if len(missing_files) > 10:
             print(f"  ... and {len(missing_files) - 10} more")
+    
+    print("missing dataset: ")
+    for dataset in missing_datasets:
+        print(dataset)
     
     # Show some statistics
     if oracle_results:

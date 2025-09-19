@@ -513,6 +513,27 @@ def run(args):
             if v[label_type] not in class_names:
                 class_names.append(v[label_type])
     del data, data_test  # Clear data to free memory
+
+    rare_path = common_config.get('rare_data_config_path', None)
+    if rare_path:
+        with open(rare_path, 'r') as fin:
+            data_rare = json.load(fin)
+        for key, value in data_rare.items():
+            for v in value:
+                if v[label_type] not in class_names:
+                    class_names.append(v[label_type])
+        del data_rare  # Clear data to free memory
+        log_info(f"Including rare classes from {rare_path}", Colors.CYAN)
+
+    logging.info(f"Extracted {len(class_names)} unique classes from datasets using label type '{label_type}'")
+
+    if args.expand_head:
+        # Expand classes to include all classes from 0 to max class index
+        with open(args.expand_head, 'r') as fin:
+            expand_classes = fin.read().splitlines()  # Read lines from .txt file instead of json.load()
+        class_names.extend([cls for cls in expand_classes if cls not in class_names])
+        log_info(f"Expanded classes (total {len(class_names)} classes)", Colors.CYAN)
+
     is_crop = True if cl_config['method'] == 'co2l' else False
     
     log_success(f"Loaded {len(class_names)} classes using '{label_type}' labels")
@@ -532,7 +553,10 @@ def run(args):
     
     # Prepare dataset
     train_dset = CkpDataset(common_config["train_data_config_path"], class_names, is_crop=is_crop, label_type=label_type)
-    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type)
+    if rare_path:
+        eval_dset = CkpDataset(rare_path, class_names, label_type=label_type)
+    else:
+        eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type)
     
     # Monitor dataset memory usage if enabled
     if args.gpu_memory_monitor:
@@ -1075,9 +1099,9 @@ def run(args):
     # Calculate and report final average balanced accuracy across all checkpoints
     if final_eval_results:
         # Calculate average metrics
-        avg_accuracy = sum(result['accuracy'] for result in final_eval_results.values()) / len(final_eval_results)
-        avg_balanced_accuracy = sum(result['balanced_accuracy'] for result in final_eval_results.values()) / len(final_eval_results)
-        avg_loss = sum(result['loss'] for result in final_eval_results.values()) / len(final_eval_results)
+        avg_accuracy = sum(0 if np.isnan(result['accuracy']) else result['accuracy'] for result in final_eval_results.values()) / len(final_eval_results)
+        avg_balanced_accuracy = sum(0 if np.isnan(result['balanced_accuracy']) else result['balanced_accuracy'] for result in final_eval_results.values()) / len(final_eval_results)
+        avg_loss = sum(0 if np.isnan(result['loss']) else result['loss'] for result in final_eval_results.values()) / len(final_eval_results)
         total_samples = sum(result['num_samples'] for result in final_eval_results.values())
         
         # Log final summary
@@ -1549,25 +1573,22 @@ def eval_with_logits(classifier, loader, device, chop_head=False):
             inputs = inputs.to(device)
             labels = labels.to(device)
             
-            if chop_head:
-                _ = classifier(inputs)
-            else:
-                logits = classifier(inputs)
-                
-                # Compute loss
-                loss = torch.nn.functional.cross_entropy(logits, labels, reduction='none')
-                
-                # Apply chop mask
-                logits[:, chop_mask] = -np.inf
-                
-                # Get predictions
-                preds = torch.argmax(logits, dim=1)
-                
-                # Store results
-                loss_arr.extend(loss.detach().cpu().numpy())
-                preds_arr.extend(preds.detach().cpu().numpy())
-                labels_arr.extend(labels.detach().cpu().numpy())
-                logits_arr.extend(logits.detach().cpu().numpy())
+            logits = classifier(inputs)
+            
+            # Compute loss
+            loss = torch.nn.functional.cross_entropy(logits, labels, reduction='none')
+            
+            # Apply chop mask
+            logits[:, chop_mask] = -np.inf
+            
+            # Get predictions
+            preds = torch.argmax(logits, dim=1)
+            
+            # Store results
+            loss_arr.extend(loss.detach().cpu().numpy())
+            preds_arr.extend(preds.detach().cpu().numpy())
+            labels_arr.extend(labels.detach().cpu().numpy())
+            logits_arr.extend(logits.detach().cpu().numpy())
     
     return np.array(loss_arr), np.array(preds_arr), np.array(labels_arr), np.array(logits_arr)
 
@@ -1627,11 +1648,10 @@ def run_eval_only(args):
     log_success(f"Model directory found: {args.model_dir}")
     
     log_step(3, "Loading data configuration")
-    # Load configuration
+    
     common_config = args.common_config
     train_path = common_config['train_data_config_path']
     test_path = common_config['eval_data_config_path']
-    
     with open(train_path, 'r') as fin:
         data = json.load(fin)
     with open(test_path, 'r') as fin:
@@ -1644,8 +1664,25 @@ def run_eval_only(args):
         for v in value:
             if v[label_type] not in class_names:
                 class_names.append(v[label_type])
-    del data, data_test
-    
+    del data, data_test  # Clear data to free memory
+
+    rare_path = common_config.get('rare_data_config_path', None)
+    if rare_path:
+        with open(rare_path, 'r') as fin:
+            data_rare = json.load(fin)
+        for key, value in data_rare.items():
+            for v in value:
+                if v[label_type] not in class_names:
+                    class_names.append(v[label_type])
+        del data_rare  # Clear data to free memory
+        log_info(f"Including rare classes from {rare_path}", Colors.CYAN)
+
+    if args.expand_head:
+        with open(args.expand_head, 'r') as fin:
+            expand_classes = fin.read().splitlines()
+        class_names.extend([c for c in expand_classes if c not in class_names])
+        log_info(f"Expanded head with new classes: {expand_classes}", Colors.YELLOW)
+
     log_success(f"Loaded {len(class_names)} classes using '{label_type}' labels")
     
     log_step(4, "Building classifier model")
@@ -1659,384 +1696,10 @@ def run_eval_only(args):
     
     log_section_start("📊 DATASET PREPARATION", Colors.BRIGHT_YELLOW)
     # Prepare dataset
-    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, is_train=False, label_type=label_type)
-
-    # Get checkpoint list
-    ckp_list = eval_dset.get_ckp_list()
-    log_info(f"Available checkpoints in dataset: {ckp_list}", Colors.CYAN)
-    
-    # Simplified checkpoint selection for this implementation
-    if args.checkpoint_list:
-        target_checkpoints = [f"ckp_{ckp_str}" for ckp_str in args.checkpoint_list if f"ckp_{ckp_str}" in ckp_list]
-        if target_checkpoints:
-            ckp_list = target_checkpoints
-            log_success(f"Will evaluate specified checkpoints: {ckp_list}")
-        else:
-            log_warning("No valid checkpoints found, using all available")
-    
-    # Create output directory if not exists
-    if not os.path.exists(args.save_dir):
-        os.makedirs(args.save_dir, exist_ok=True)
-        log_success(f"Created output directory: {args.save_dir}")
-    
-    log_section_start("🎯 CHECKPOINT EVALUATION", Colors.BRIGHT_MAGENTA)
-    # Run evaluation for each checkpoint
-    eval_results = {}
-    
-    for i, ckp in enumerate(ckp_list):
-        log_subsection_start(f"📊 Evaluating Checkpoint {ckp} ({i+1}/{len(ckp_list)})", Colors.CYAN)
-        
-        log_step(1, f"Loading model weights", Colors.BLUE)
-        # Load model weights for this checkpoint
-        model_path = os.path.join(args.model_dir, f'ckp_{ckp}_best_model.pth')
-        
-        try:
-            if os.path.exists(model_path):
-                classifier.load_state_dict(torch.load(model_path, map_location=args.device))
-                log_success(f"Loaded model weights from {model_path}")
-            else:
-                log_warning(f"Model file not found: {model_path}, using current model state")
-        except Exception as e:
-            log_error(f"Failed to load model for {ckp}: {e}")
-            continue
-        
-        log_step(2, f"Preparing evaluation dataset", Colors.YELLOW)
-        # Get evaluation dataset for this checkpoint
-        ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp)
-        log_info(f"Evaluation dataset size for {ckp}: {len(ckp_eval_dset)}", Colors.CYAN)
-        
-        if len(ckp_eval_dset) == 0:
-            log_warning(f"No evaluation data found for checkpoint {ckp}")
-            continue
-        
-        # Create data loader
-        eval_loader = DataLoader(
-            ckp_eval_dset, 
-            batch_size=common_config['eval_batch_size'], 
-            shuffle=False, 
-            num_workers=4
-        )
-        
-        log_step(3, f"Running model evaluation", Colors.GREEN)
-        # Run evaluation with logits for calibration
-        if args.calibration:
-            loss_arr, preds_arr, labels_arr, logits_arr = eval_with_logits(
-                classifier, eval_loader, args.device, chop_head=common_config['chop_head']
-            )
-        else:
-            loss_arr, preds_arr, labels_arr = eval(
-                classifier, eval_loader, args.device, chop_head=common_config['chop_head']
-            )
-            logits_arr = None
-        
-        # Calculate and log metrics
-        acc, balanced_acc = print_metrics(
-            loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"📊 {ckp}: "
-        )
-        eval_loss = np.mean(loss_arr)
-        
-        # Initialize calibration results
-        calibration_results = {}
-        
-        if args.calibration and logits_arr is not None:
-            log_subsection_start("🎯 PAPER CALIBRATION ANALYSIS", Colors.BRIGHT_CYAN)
-            
-            # Determine training classes for paper's method
-            if ckp == 'ckp_1':
-                log_warning("ckp_1 uses zero-shot model - no training classes available")
-                training_classes = []
-            else:
-                # For ckp_N, get training classes from ckp_(N-1) training data
-                try:
-                    train_dset = CkpDataset(common_config["train_data_config_path"], class_names, label_type=label_type)
-                    training_classes = get_training_classes_for_checkpoint(ckp, train_dset, label_type)
-                    log_info(f"📋 Training classes for {ckp}: {len(training_classes)} classes -> {training_classes[:10]}{'...' if len(training_classes) > 10 else ''}", Colors.GREEN)
-                except Exception as e:
-                    log_warning(f"Could not determine training classes: {e}")
-                    training_classes = list(set(labels_arr.tolist()))
-                    log_info(f"Fallback: using eval classes as training classes: {len(training_classes)} classes", Colors.YELLOW)
-            
-            # Show test data class distribution for comparison
-            unique_test_classes = np.unique(labels_arr)
-            log_info(f"📋 Test classes for {ckp}: {len(unique_test_classes)} classes -> {unique_test_classes[:10].tolist()}{'...' if len(unique_test_classes) > 10 else ''}", Colors.CYAN)
-            
-            # Get training logits for proper calibration
-            log_step("4a", "Collecting training data for calibration", Colors.BLUE)
-            try:
-                train_dset = CkpDataset(common_config["train_data_config_path"], class_names, label_type=label_type)
-                train_logits, train_labels = get_training_logits(classifier, train_dset, ckp, args.device, 
-                                                               common_config.get('eval_batch_size', 32))
-            except Exception as e:
-                log_warning(f"Could not get training logits: {e}")
-                train_logits, train_labels = None, None
-            
-            # Run paper calibration analysis
-            log_step("4b", "Running paper calibration analysis", Colors.BLUE)
-            
-            calib_results = comprehensive_paper_calibration(
-                logits_arr,  # test logits
-                labels_arr,  # test labels
-                class_names, 
-                training_classes=training_classes,
-                train_logits=train_logits,  # training logits (proper method)
-                train_labels=train_labels,  # training labels (proper method)
-                verbose=True
-            )
-            
-            # Generate AUC curve for calibration analysis
-            log_step("4c", "Generating calibration AUC curve", Colors.MAGENTA)
-            auc_curve_data = generate_calibration_auc_curve(
-                logits_arr, labels_arr, train_logits, train_labels,
-                training_classes, class_names, ckp, args.save_dir
-            )
-            
-            # Store calibration results
-            calibration_results = {
-                'checkpoint': ckp,
-                'training_classes': training_classes,
-                'original_accuracy': float(acc),
-                'original_balanced_accuracy': float(balanced_acc),
-                'auc_curve': auc_curve_data  # Add AUC curve data
-            }
-            
-            # Add paper calibration results  
-            if calib_results.get('paper_calibration') is not None:
-                paper_results = calib_results['paper_calibration']
-                calibration_results.update({
-                    'paper_calibration': {
-                        'gamma': float(paper_results['gamma']),
-                        'accuracy': float(paper_results['corrected_accuracy']),
-                        'balanced_accuracy': float(paper_results['balanced_accuracy']),
-                        'accuracy_improvement': float(paper_results['accuracy_improvement']),
-                        'balanced_accuracy_improvement': float(paper_results['balanced_accuracy_change']),
-                        'absent_classes': paper_results['absent_classes'],
-                        'absent_accuracy_improvement': float(paper_results['absent_accuracy_improvement']),
-                        'seen_accuracy_improvement': float(paper_results['seen_accuracy_improvement'])
-                    }
-                })
-                
-                log_success(f"📄 Paper Method: γ={paper_results['gamma']:.3f}, Acc Δ={paper_results['accuracy_improvement']:+.4f}, Bal_Acc Δ={paper_results['balanced_accuracy_change']:+.4f}")
-                log_success(f"   Absent Class Improvement: Δ={paper_results['absent_accuracy_improvement']:+.4f}")
-                
-                # Update metrics if calibration improved them
-                if paper_results['balanced_accuracy_change'] > 0:
-                    log_success(f"🎯 Calibration improved balanced accuracy by {paper_results['balanced_accuracy_change']:.4f}!")
-                    acc = paper_results['corrected_accuracy']
-                    balanced_acc = paper_results['balanced_accuracy']
-                else:
-                    log_info("📊 Calibration did not improve balanced accuracy", Colors.CYAN)
-            
-            # Save detailed calibration results
-            calib_path = os.path.join(args.save_dir, f'{ckp}_calibration_analysis.json')
-            with open(calib_path, 'w') as f:
-                json.dump(convert_numpy_types(calibration_results), f, indent=2)
-            log_success(f"Detailed calibration results saved to {calib_path}")
-            
-            # Log to wandb if enabled
-            if args.wandb:
-                wandb_metrics = {
-                    f"eval_calibration/original_accuracy": acc,
-                    f"eval_calibration/original_balanced_accuracy": balanced_acc,
-                    f"eval_calibration/checkpoint": ckp
-                }
-                
-                if calib_results.get('paper_calibration'):
-                    pc = calib_results['paper_calibration']
-                    wandb_metrics.update({
-                        f"eval_calibration/paper_accuracy": pc['corrected_accuracy'],
-                        f"eval_calibration/paper_balanced_accuracy": pc['balanced_accuracy'],
-                        f"eval_calibration/paper_accuracy_improvement": pc['accuracy_improvement'],
-                        f"eval_calibration/paper_balanced_accuracy_improvement": pc['balanced_accuracy_change'],
-                        f"eval_calibration/gamma": pc['gamma'],
-                        f"eval_calibration/absent_accuracy_improvement": pc['absent_accuracy_improvement'],
-                        f"eval_calibration/absent_classes_count": len(pc['absent_classes'])
-                    })
-                
-                # Add AUC curve metrics if available
-                if auc_curve_data:
-                    wandb_metrics.update({
-                        f"eval_calibration/auc_seen_improvement": auc_curve_data['seen_improvement'],
-                        f"eval_calibration/auc_absent_improvement": auc_curve_data['absent_improvement'],
-                        f"eval_calibration/auc_original_seen_acc": auc_curve_data['original_seen_acc'],
-                        f"eval_calibration/auc_original_absent_acc": auc_curve_data['original_absent_acc'],
-                        f"eval_calibration/auc_calibrated_seen_acc": auc_curve_data['calibrated_seen_acc'],
-                        f"eval_calibration/auc_calibrated_absent_acc": auc_curve_data['calibrated_absent_acc']
-                    })
-                    
-                    # Log the plot to wandb
-                    if os.path.exists(auc_curve_data['plot_path']):
-                        wandb.log({f"eval_calibration/auc_curve_{ckp}": wandb.Image(auc_curve_data['plot_path'])}, step=i)
-                
-                wandb.log(wandb_metrics, step=i)
-                log_success("Calibration metrics and AUC curve logged to wandb")
-        else:
-            if args.calibration:
-                log_warning("Calibration requested but logits not available - skipping calibration analysis")
-            calibration_results = {'skipped': True, 'reason': 'Calibration not requested or logits not available'}
-        
-        # Log metrics with colors
-        log_metric("Accuracy", acc, ".4f", Colors.BRIGHT_GREEN)
-        log_metric("Balanced Accuracy", balanced_acc, ".4f", Colors.BRIGHT_GREEN)
-        log_metric("Evaluation Loss", eval_loss, ".4f", Colors.BRIGHT_BLUE)
-        
-        # Store results (convert numpy types to Python types for JSON serialization)
-        eval_results[ckp] = {
-            'accuracy': float(acc),
-            'balanced_accuracy': float(balanced_acc),
-            'loss': float(eval_loss),
-            'num_samples': int(len(ckp_eval_dset)),
-            'calibration': calibration_results
-        }
-        
-        # Log to wandb if enabled
-        if args.wandb:
-            wandb.log({
-                "test/accuracy": acc,
-                "test/balanced_accuracy": balanced_acc,
-                "test/loss": eval_loss,
-                "checkpoint": ckp
-            }, step=i)
-        
-        # Save predictions if requested
-        if args.save_predictions:
-            pred_path = os.path.join(args.save_dir, f'{ckp}_preds.pkl')
-            with open(pred_path, 'wb') as f:
-                pickle.dump((preds_arr, labels_arr), f)
-            log_success(f"Predictions saved to {pred_path}")
-        
-        log_subsection_start(f"✅ Checkpoint {ckp} Complete", Colors.BRIGHT_GREEN)
-    
-    log_section_start("📊 FINAL EVALUATION SUMMARY", Colors.BRIGHT_YELLOW)
-    # Save summary results
-    summary_path = os.path.join(args.save_dir, 'eval_only_summary.json')
-    with open(summary_path, 'w') as f:
-        json.dump(convert_numpy_types(eval_results), f, indent=2)
-    log_success(f"Summary saved to {summary_path}")
-    
-    # Calculate average metrics
-    if eval_results:
-        avg_accuracy = sum(result['accuracy'] for result in eval_results.values()) / len(eval_results)
-        avg_balanced_accuracy = sum(result['balanced_accuracy'] for result in eval_results.values()) / len(eval_results)
-        avg_loss = sum(result['loss'] for result in eval_results.values()) / len(eval_results)
-        total_samples = sum(result['num_samples'] for result in eval_results.values())
+    if rare_path:
+        eval_dset = CkpDataset(rare_path, class_names, is_train=False, label_type=label_type)
     else:
-        avg_accuracy = avg_balanced_accuracy = avg_loss = 0.0
-        total_samples = 0
-    
-    # Log summary with beautiful formatting
-    logging.info("=== CHECKPOINT RESULTS SUMMARY ===")
-    for ckp, results in eval_results.items():
-        base_info = f"{ckp}: acc={results['accuracy']:.4f}, balanced_acc={results['balanced_accuracy']:.4f}, loss={results['loss']:.4f}, samples={results['num_samples']}"
-        
-        # Add calibration info if available
-        if 'calibration' in results and results['calibration'].get('paper_calibration'):
-            pc = results['calibration']['paper_calibration']
-            calib_info = f" | calib: γ={pc['gamma']:.3f}, acc_Δ={pc['accuracy_improvement']:+.4f}, bal_acc_Δ={pc['balanced_accuracy_improvement']:+.4f}"
-            base_info += calib_info
-        elif 'calibration' in results and results['calibration'].get('skipped', False):
-            base_info += f" | calib: {results['calibration']['reason']}"
-        
-        logging.info(base_info)
-    
-    logging.info("=" * 60)
-    logging.info(f"🎯 FINAL AVERAGE ACROSS ALL CHECKPOINTS:")
-    log_metric("Average Accuracy", avg_accuracy, ".4f", Colors.BRIGHT_GREEN)
-    log_metric("Average Balanced Accuracy", avg_balanced_accuracy, ".4f", Colors.BRIGHT_GREEN)
-    log_metric("Average Loss", avg_loss, ".4f", Colors.BRIGHT_BLUE)
-    logging.info(f"  📊 Total Checkpoints: {len(eval_results)}")
-    logging.info(f"  📊 Total Samples: {total_samples}")
-    
-    # Calculate and display calibration improvements if calibration was used
-    if args.calibration:
-        calibration_improvements = []
-        paper_improvements = []
-        absent_improvements = []
-        checkpoints_with_calibration = 0
-        
-        for ckp, results in eval_results.items():
-            if ('calibration' in results and 
-                results['calibration'].get('paper_calibration') is not None and
-                not results['calibration'].get('skipped', False)):
-                
-                checkpoints_with_calibration += 1
-                paper_calib = results['calibration']['paper_calibration']
-                
-                calibration_improvements.append(paper_calib['balanced_accuracy_improvement'])
-                paper_improvements.append(paper_calib['accuracy_improvement'])
-                absent_improvements.append(paper_calib['absent_accuracy_improvement'])
-        
-        if checkpoints_with_calibration > 0:
-            avg_bal_acc_improvement = np.mean(calibration_improvements)
-            avg_acc_improvement = np.mean(paper_improvements)
-            avg_absent_improvement = np.mean(absent_improvements)
-            
-            logging.info("")
-            log_subsection_start("📄 PAPER CALIBRATION IMPACT SUMMARY", Colors.BRIGHT_YELLOW)
-            log_metric("Average Accuracy Improvement", avg_acc_improvement, "+.4f", 
-                     Colors.BRIGHT_GREEN if avg_acc_improvement >= 0 else Colors.BRIGHT_RED)
-            log_metric("Average Balanced Accuracy Improvement", avg_bal_acc_improvement, "+.4f",
-                     Colors.BRIGHT_GREEN if avg_bal_acc_improvement >= 0 else Colors.BRIGHT_RED)
-            log_metric("Average Absent Class Accuracy Improvement", avg_absent_improvement, "+.4f",
-                     Colors.BRIGHT_GREEN if avg_absent_improvement >= 0 else Colors.BRIGHT_RED)
-            logging.info(f"  📊 Checkpoints with Calibration: {checkpoints_with_calibration}/{len(eval_results)}")
-            
-            if avg_bal_acc_improvement > 0:
-                log_success(f"🎯 Paper calibration method improved balanced accuracy across checkpoints!")
-            else:
-                log_info("📊 Paper calibration method had minimal impact on balanced accuracy", Colors.CYAN)
-        else:
-            log_warning("No calibration improvements recorded (calibration may have been skipped)")
-    
-    logging.info("=" * 60)
-    
-    # Finalize wandb if enabled
-    if args.wandb:
-        wandb.finish()
-        log_success("✅ W&B run finished")
-    
-    # Final completion logs
-    print(Colors.BOLD + "=" * 80 + Colors.RESET)
-    log_final_result("🎉 EVALUATION-ONLY MODE COMPLETED SUCCESSFULLY!")
-    print(Colors.BOLD + "=" * 80 + Colors.RESET)
-    
-    # Final summary with colors
-    log_info(f"📊 Total checkpoints evaluated: {len(eval_results)}")
-    log_info(f"💾 Results saved to: {args.save_dir}")
-    print(Colors.BOLD + "=" * 80 + Colors.RESET)
-    print()
-    common_config = args.common_config
-    train_path = common_config['train_data_config_path']
-    test_path = common_config['eval_data_config_path']
-    
-    with open(train_path, 'r') as fin:
-        data = json.load(fin)
-    with open(test_path, 'r') as fin:
-        data_test = json.load(fin)
-        data.update(data_test)
-    
-    class_names = []
-    label_type = args.label_type
-    for key, value in data.items():
-        for v in value:
-            if v[label_type] not in class_names:
-                class_names.append(v[label_type])
-    del data, data_test
-    
-    log_success(f"Loaded {len(class_names)} classes using '{label_type}' labels")
-    
-    log_step(4, "Building classifier model")
-    # Build classifier architecture (same as training)
-    classifier = build_classifier(args, class_names, args.device)
-    log_success("Classifier built successfully")
-    
-    if args.gpu_memory_monitor:
-        gpu_monitor.log_memory_usage("model_load", "after_build")
-        monitor_model_memory(classifier, "classifier", args.device, args.wandb)
-    
-    log_section_start("📊 DATASET PREPARATION", Colors.BRIGHT_YELLOW)
-    # Prepare dataset
-    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, is_train=False, label_type=label_type)
-
+        eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, is_train=False, label_type=label_type)
     # Get checkpoint list
     ckp_list = eval_dset.get_ckp_list()
     log_info(f"Available checkpoints in dataset: {ckp_list}", Colors.CYAN)
@@ -2159,7 +1822,56 @@ def run_eval_only(args):
             else:
                 log_info(f"Loading model from {model_path}", Colors.GREEN)
                 state_dict = torch.load(model_path, map_location=args.device)
-                classifier.load_state_dict(state_dict)
+                log_success(f"Loaded model weights from {model_path}")
+                # Handle expanded head case with shape mismatch protection
+                # current_state_dict = classifier.state_dict()
+                    
+                # # Filter out head parameters that have shape mismatches
+                # filtered_state_dict = {}
+                # for key, value in state_dict.items():
+                #     if key in current_state_dict:
+                #         current_shape = current_state_dict[key].shape
+                #         saved_shape = value.shape
+                        
+                #         if current_shape == saved_shape:
+                #             # Shapes match, safe to load
+                #             filtered_state_dict[key] = value
+                #         elif 'head' in key:
+                #             # Head parameter with shape mismatch - handle carefully
+                #             if key == 'head.weight':
+                #                 # Copy only the overlapping classes
+                #                 min_classes = min(current_shape[0], saved_shape[0])
+                #                 current_state_dict[key][:min_classes] = value[:min_classes]
+                #                 log_info(f"Copied {min_classes} class weights for head.weight", Colors.YELLOW)
+                #             elif key == 'head.bias':
+                #                 # Copy only the overlapping classes
+                #                 min_classes = min(current_shape[0], saved_shape[0])
+                #                 current_state_dict[key][:min_classes] = value[:min_classes]
+                #                 log_info(f"Copied {min_classes} class biases for head.bias", Colors.YELLOW)
+                #             else:
+                #                 log_warning(f"Skipping head parameter {key} due to shape mismatch: {saved_shape} vs {current_shape}")
+                #         else:
+                #             log_warning(f"Skipping parameter {key} due to shape mismatch: {saved_shape} vs {current_shape}")
+                #     else:
+                #         log_warning(f"Unexpected key in checkpoint: {key}")
+                    
+                # Load the filtered state dict
+                missing_keys, unexpected_keys = classifier.load_state_dict(state_dict, strict=True)
+                
+                # Log what happened during loading
+                if missing_keys:
+                    head_missing = [k for k in missing_keys if 'head' in k]
+                    other_missing = [k for k in missing_keys if 'head' not in k]
+                        
+                    if head_missing:
+                        log_info(f"Expected missing head parameters for expanded classes: {len(head_missing)} keys", Colors.YELLOW)
+                    if other_missing:
+                        log_warning(f"Unexpected missing parameters: {other_missing}")
+                    
+                if unexpected_keys:
+                    log_warning(f"Unexpected keys in checkpoint: {unexpected_keys}")
+                        
+                log_success("Model loaded successfully with expanded head handling")
                 classifier.to(args.device)
                 classifier.eval()
 
@@ -2359,22 +2071,20 @@ def run_eval_only(args):
                 gpu_monitor.clear_cache_and_log(f"eval_checkpoint_{ckp}")
             
             log_subsection_start(f"✅ Checkpoint {ckp} Complete", Colors.BRIGHT_GREEN)
-    
+
     log_section_start("📊 FINAL EVALUATION SUMMARY", Colors.BRIGHT_YELLOW)
-    # Save summary results
-    summary_path = os.path.join(args.save_dir, 'eval_only_summary.json')
-    with open(summary_path, 'w') as f:
-        json.dump(eval_results, f, indent=2)
-    with open(summary_path, 'w') as f:
-        json.dump(preds, f, indent=2)
-    log_success(f"Summary saved to {summary_path}")
     
     # Calculate average metrics
     if eval_results:
         if not args.accu_eval:
-            avg_accuracy = sum(result['accuracy'] for result in eval_results.values()) / len(eval_results)
-            avg_balanced_accuracy = sum(result['balanced_accuracy'] for result in eval_results.values()) / len(eval_results)
-            avg_loss = sum(result['loss'] for result in eval_results.values()) / len(eval_results)
+            # Filter out NaN values when calculating averages
+            valid_accuracies = [result['accuracy'] for result in eval_results.values() if not np.isnan(result['accuracy'])]
+            valid_balanced_accuracies = [result['balanced_accuracy'] for result in eval_results.values() if not np.isnan(result['balanced_accuracy'])]
+            valid_losses = [result['loss'] for result in eval_results.values() if not np.isnan(result['loss'])]
+            
+            avg_accuracy = sum(valid_accuracies) / len(valid_accuracies) if valid_accuracies else 0.0
+            avg_balanced_accuracy = sum(valid_balanced_accuracies) / len(valid_balanced_accuracies) if valid_balanced_accuracies else 0.0
+            avg_loss = sum(valid_losses) / len(valid_losses) if valid_losses else 0.0
             total_samples = sum(result['num_samples'] for result in eval_results.values())
         else:
             # For eval_accu mode, average over all accumulated results
@@ -2397,8 +2107,12 @@ def run_eval_only(args):
     # Log summary with beautiful formatting
     logging.info("=== CHECKPOINT RESULTS SUMMARY ===")
     for ckp, results in eval_results.items():
-        logging.info(f"{ckp}: acc={results[ckp]['accuracy']:.4f}, balanced_acc={results[ckp]['balanced_accuracy']:.4f}, "
+        if args.accu_eval:
+            logging.info(f"{ckp}: acc={results[ckp]['accuracy']:.4f}, balanced_acc={results[ckp]['balanced_accuracy']:.4f}, "
                     f"loss={results[ckp]['loss']:.4f}, samples={results[ckp]['num_samples']}")
+        else:
+            logging.info(f"{ckp}: acc={results['accuracy']:.4f}, balanced_acc={results['balanced_accuracy']:.4f}, "
+                    f"loss={results['loss']:.4f}, samples={results['num_samples']}")
     logging.info("=" * 60)
     logging.info(f"🎯 FINAL AVERAGE ACROSS ALL CHECKPOINTS:")
     log_metric("Average Accuracy", avg_accuracy, ".4f", Colors.BRIGHT_GREEN)
@@ -2408,6 +2122,20 @@ def run_eval_only(args):
     logging.info(f"  📊 Total Samples: {total_samples}")
     logging.info("=" * 60)
     
+    eval_results['average'] = {}
+    eval_results['average']['accuracy'] = float(avg_accuracy)
+    eval_results['average']['balanced_accuracy'] = float(avg_balanced_accuracy)
+    eval_results['average']['loss'] = float(avg_loss)
+
+    # Save summary results
+    summary_path = os.path.join(args.save_dir, 'eval_only_summary.json')
+    preds_path = os.path.join(args.save_dir, 'eval_only_predictions.json')
+    with open(summary_path, 'w') as f:
+        json.dump(eval_results, f, indent=2)
+    with open(preds_path, 'w') as f:
+        json.dump(preds, f, indent=2)
+    log_success(f"Summary saved to {summary_path}")
+
     # Final GPU memory summary
     if args.gpu_memory_monitor:
         summary = gpu_monitor.get_memory_summary()
@@ -2486,6 +2214,7 @@ def parse_args():
     parser.add_argument('--eval_only', action='store_true', help='Evaluate only mode - loads trained model checkpoints and evaluates them')
     parser.add_argument('--eval_accu', action='store_true', help='Perform calibration analysis during eval_only mode')
     parser.add_argument('--model_dir', type=str, help='Directory containing trained model checkpoints (.pth files) for eval_only mode')
+    parser.add_argument('--expand_head', type=str, default=None, help='Expand classifier head to include unseen classes during eval_only mode')
     parser.add_argument('--plot_features', action='store_true', help='Plot feature distributions')
     parser.add_argument('--plot_text_F', action='store_true', help='Plot text features')
     parser.add_argument('--checkpoint_list', type=str, nargs='+', default=None, help='Specific checkpoint numbers to evaluate (for eval_only mode). If not provided, evaluates all available checkpoints')
