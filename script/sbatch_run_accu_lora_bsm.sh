@@ -3,12 +3,12 @@
 #SBATCH --job-name=bioclip2_upper_bound
 #SBATCH --output=logs/bioclip2_%j.out
 #SBATCH --error=logs/bioclip2_%j.err
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --nodes=1                 # Request 1 node
 #SBATCH --ntasks-per-node=1       # One task per node
 #SBATCH --gpus-per-node=1         # One GPU per node
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=80G                 # Request 128GB total memory per node
+#SBATCH --mem=128G                 # Request 128GB total memory per node
 
 USER_NAME="mino"
 CONDA_ENV="ICICLE"
@@ -62,11 +62,11 @@ for DATASET in "${BIG_FOLDERS[@]}"; do
     CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}/accumulative-scratch_lr${LEARNING_RATE}.yaml"
 
     mkdir -p "${CONFIG_ROOT}/${DATASET//\//_}"
-    mkdir -p "/fs/scratch/PAS2099/camera-trap-final/best_accum_logs/${DATASET//\//_}/accum_lora_bsm_loss/"
+    mkdir -p "/fs/scratch/PAS2099/camera-trap-final/camera_ready/${DATASET//\//_}/best_accum/"
 
     cat <<EOF > $CONFIG_FILE
 module_name: accumulative-scratch
-log_path: /fs/scratch/PAS2099/camera-trap-final/best_accum_logs/${DATASET//\//_}/accum_lora_bsm_loss/
+log_path: /fs/scratch/PAS2099/camera-trap-final/camera_ready/${DATASET//\//_}/best_accum/
 
 common_config:
   model: bioclip2

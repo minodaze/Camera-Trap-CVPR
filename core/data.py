@@ -156,8 +156,9 @@ class CkpDataset(Dataset):
                 continue
             for data in v:
                 file_path = data.get("image_path")
-                parts = file_path.split('camera-trap-benchmark', 1)
-                file_path = parts[0] + 'camera-trap-benchmark/dataset' + parts[1]
+                if 'dataset' not in file_path:
+                    parts = file_path.split('camera-trap-benchmark', 1)
+                    file_path = parts[0] + 'camera-trap-benchmark/dataset' + parts[1]
 
                 if not file_path:
                     raise ValueError(f"image_path not found in {data}")
@@ -216,11 +217,11 @@ class CkpDataset(Dataset):
         label = sample.label
         logits = sample.logits
         is_buf = sample.is_buf
-        if file_path in self.cache:
-            image = self.cache[file_path]
-        else:
-            image = Image.open(file_path).convert("RGB")
-            self.cache[file_path] = image
+        image = Image.open(file_path).convert("RGB")
+        # if file_path in self.cache:
+        #     image = self.cache[file_path]
+        # else:
+        #     self.cache[file_path] = image
         if self.is_crop and self.is_train:
             image = [self.transform(image), self.transform(image)]
         else:

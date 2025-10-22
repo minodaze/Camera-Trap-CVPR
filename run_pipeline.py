@@ -1708,7 +1708,7 @@ def run_eval_only(args):
     
     log_step(4, "Building classifier model")
     # Build classifier architecture (same as training)
-    classifier = build_classifier(args, class_names, args.device, other_weight=False)
+    classifier = build_classifier(args, class_names, args.device)
     log_success("Classifier built successfully")
     
     if args.gpu_memory_monitor:
@@ -1751,7 +1751,6 @@ def run_eval_only(args):
     dataset_summary += f"Number of checkpoints: {len(ckp_list)}\n"
     dataset_summary += f"Checkpoints: {', '.join(ckp_list)}"
     logging.info(create_info_box("Dataset Information", dataset_summary))
-    
     log_section_start("🔍 TRAINING MODE DETECTION", Colors.BRIGHT_GREEN)
     # Detect training mode by checking what model files exist
     model_file_mapping = {}
@@ -1833,7 +1832,6 @@ def run_eval_only(args):
         preds[ckp] = {}
         
         try:
-
             if model_path == 'pretrained_model':
                 # For ckp_1, use the original pretrained model (already loaded in classifier)
                 log_info(f"Using original pretrained model for {ckp} (zero-shot)", Colors.GREEN)
@@ -1845,45 +1843,45 @@ def run_eval_only(args):
                 state_dict = torch.load(model_path, map_location=args.device)
                 log_success(f"Loaded model weights from {model_path}")
                 # Handle expanded head case with shape mismatch protection
-                # current_state_dict = classifier.state_dict()
+                current_state_dict = classifier.state_dict()
                     
-                # # Filter out head parameters that have shape mismatches
-                # filtered_state_dict = {}
-                # for key, value in state_dict.items():
-                #     if key in current_state_dict:
-                #         current_shape = current_state_dict[key].shape
-                #         saved_shape = value.shape
+                # Filter out head parameters that have shape mismatches
+                filtered_state_dict = {}
+                for key, value in state_dict.items():
+                    if key in current_state_dict:
+                        current_shape = current_state_dict[key].shape
+                        saved_shape = value.shape
                         
-                #         if current_shape == saved_shape:
-                #             # Shapes match, safe to load
-                #             filtered_state_dict[key] = value
-                #         elif 'head' in key:
-                #             # Head parameter with shape mismatch - handle carefully
-                #             if key == 'head.weight':
-                #                 # Copy only the overlapping classes
-                #                 min_classes = min(current_shape[0], saved_shape[0])
-                #                 current_state_dict[key][:min_classes] = value[:min_classes]
-                #                 log_info(f"Copied {min_classes} class weights for head.weight", Colors.YELLOW)
-                #             elif key == 'head.bias':
-                #                 # Copy only the overlapping classes
-                #                 min_classes = min(current_shape[0], saved_shape[0])
-                #                 current_state_dict[key][:min_classes] = value[:min_classes]
-                #                 log_info(f"Copied {min_classes} class biases for head.bias", Colors.YELLOW)
-                #             else:
-                #                 log_warning(f"Skipping head parameter {key} due to shape mismatch: {saved_shape} vs {current_shape}")
-                #         else:
-                #             log_warning(f"Skipping parameter {key} due to shape mismatch: {saved_shape} vs {current_shape}")
-                #     else:
-                #         log_warning(f"Unexpected key in checkpoint: {key}")
-                    
+                        if current_shape == saved_shape:
+                            # Shapes match, safe to load
+                            filtered_state_dict[key] = value
+                        elif 'head' in key:
+                            # Head parameter with shape mismatch - handle carefully
+                            if key == 'head.weight':
+                                # Copy only the overlapping classes
+                                min_classes = min(current_shape[0], saved_shape[0])
+                                current_state_dict[key][:min_classes] = value[:min_classes]
+                                log_info(f"Copied {min_classes} class weights for head.weight", Colors.YELLOW)
+                            elif key == 'head.bias':
+                                # Copy only the overlapping classes
+                                min_classes = min(current_shape[0], saved_shape[0])
+                                current_state_dict[key][:min_classes] = value[:min_classes]
+                                log_info(f"Copied {min_classes} class biases for head.bias", Colors.YELLOW)
+                            else:
+                                log_warning(f"Skipping head parameter {key} due to shape mismatch: {saved_shape} vs {current_shape}")
+                        else:
+                            log_warning(f"Skipping parameter {key} due to shape mismatch: {saved_shape} vs {current_shape}")
+                    else:
+                        log_warning(f"Unexpected key in checkpoint: {key}")
+                
                 # Load the filtered state dict
-                missing_keys, unexpected_keys = classifier.load_state_dict(state_dict, strict=True)
+                missing_keys, unexpected_keys = classifier.load_state_dict(filtered_state_dict, strict=False)
                 
                 # Log what happened during loading
                 if missing_keys:
                     head_missing = [k for k in missing_keys if 'head' in k]
                     other_missing = [k for k in missing_keys if 'head' not in k]
-                        
+                    
                     if head_missing:
                         log_info(f"Expected missing head parameters for expanded classes: {len(head_missing)} keys", Colors.YELLOW)
                     if other_missing:
@@ -1891,7 +1889,7 @@ def run_eval_only(args):
                     
                 if unexpected_keys:
                     log_warning(f"Unexpected keys in checkpoint: {unexpected_keys}")
-                        
+                    
                 log_success("Model loaded successfully with expanded head handling")
                 classifier.to(args.device)
                 classifier.eval()

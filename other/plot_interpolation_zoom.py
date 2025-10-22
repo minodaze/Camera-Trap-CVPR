@@ -21,7 +21,10 @@ def plot_interpolation_curves(csv_path, out_path="other/interpolation_zoomed_plo
     plt.figure(figsize=(14, 8))
     for _, row in plot_df.iterrows():
         y = row[coef_cols].to_numpy(dtype=float)
-        plt.plot(alphas, y, marker='o', linewidth=2, markersize=6, label=row['dataset'])
+        label = row['dataset']
+        label = label.replace('/', '_')
+        label = label.split('_')[0] + '_' + label.split('_')[-1]
+        plt.plot(alphas, y, marker='o', linewidth=2, markersize=6, label=label)
 
     plt.title(title, fontsize=14, fontweight='bold')
     plt.xlabel("Interpolation coefficient (α)", fontsize=12)
@@ -43,7 +46,7 @@ def plot_interpolation_curves(csv_path, out_path="other/interpolation_zoomed_plo
     print(f"Saved figure to: {out_path}")
 
 def plot_interpolation_curves_auto_zoom(csv_path, out_path="other/interpolation_auto_zoomed_plot.png",
-                                       zoom_padding=0.05, title="Upper-bound → Interpolated → Zero-shot (Auto-Zoomed)"):
+                                       zoom_padding=0.05, title="Oracle → Interpolated → Zero-shot"):
     """
     Plot with automatic zoom that finds the optimal range based on data.
     
@@ -84,7 +87,10 @@ def plot_interpolation_curves_auto_zoom(csv_path, out_path="other/interpolation_
     plt.figure(figsize=(14, 8))
     for _, row in plot_df.iterrows():
         y = row[coef_cols].to_numpy(dtype=float)
-        plt.plot(alphas, y, marker='o', linewidth=2, markersize=6, label=row['dataset'])
+        label = row['dataset']
+        label = label.replace('/', '_')
+        label = label.split('_')[0] + '_' + label.split('_')[-1]
+        plt.plot(alphas, y, marker='o', linewidth=2, markersize=6, label=label)
 
     plt.title(title, fontsize=14, fontweight='bold')
     plt.xlabel("Interpolation coefficient (α)", fontsize=12)
@@ -132,7 +138,10 @@ def plot_interpolation_curves_focus_region(csv_path, out_path="other/interpolati
     plt.figure(figsize=(14, 8))
     for _, row in focus_df.iterrows():
         y = row[coef_cols].to_numpy(dtype=float)
-        plt.plot(alphas, y, marker='o', linewidth=2.5, markersize=7, label=row['dataset'])
+        label = row['dataset']
+        label = label.replace('/', '_')
+        label = label.split('_')[0] + '_' + label.split('_')[-1]
+        plt.plot(alphas, y, marker='o', linewidth=2.5, markersize=7, label=label)
 
     plt.title(title, fontsize=14, fontweight='bold')
     plt.xlabel("Interpolation coefficient (α)", fontsize=12)

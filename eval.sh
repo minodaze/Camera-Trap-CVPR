@@ -105,7 +105,7 @@ for lr in "${LEARNING_RATES[@]}"; do
             # Check if model directory exists
             if [ -f "$json_path" ]; then
                 echo "  ✓ Model directory exists: $json_path"
-                sbatch script/sbatch_eval_lora_interpolation.sh "${dataset}" "$lr" "${model_dir}"
+                sbatch script/sbatch_accu_eval_lora_bsm_accu.sh "${dataset}" "$lr" "${model_dir}"
             else
                 echo "  ✗ Skipping ${dataset}: Model directory not found: $model_dir"
                 continue

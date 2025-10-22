@@ -8,8 +8,8 @@ def load_oracle_results():
     Load oracle results from the best_oracle_logs folder and update the CSV file.
     """
     # Path to the CSV file
-    csv_file_path = "other/CL + Animal Trap - Oracle < ZS_updated.csv"
-    base_oracle_path = "/fs/scratch/PAS2099/camera-trap-final/best_oracle_logs"
+    csv_file_path = "other/CL + Animal Trap - SY of Oracle _= ZS.csv"
+    base_oracle_path = "/fs/scratch/PAS2099/camera-trap-final/best_oracle_logs_4"
     
     # Read the existing CSV
     rows = []
@@ -26,7 +26,7 @@ def load_oracle_results():
     
     # Find the column indices
     dataset_col = 0  # First column is dataset
-    oracle_col = header.index('best_oracle') if 'best_oracle' in header else 9  # Default to column 5
+    oracle_col = header.index('best oracle') if 'best oracle' in header else 9  # Default to column 5
     
     print(f"Dataset column: {dataset_col}, Oracle column: {oracle_col}")
     
@@ -98,7 +98,7 @@ def load_oracle_results():
             missing_datasets.append(dataset_name)
     
     # Write the updated CSV
-    output_file = "other/CL + Animal Trap - Oracle < ZS_updated.csv"
+    output_file = "other/CL + Animal Trap - Oracle larger ZS_updated.csv"
     with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(header)  # Write header

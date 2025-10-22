@@ -8,7 +8,7 @@ def load_oracle_results():
     Load oracle results from the best_oracle_logs folder and update the CSV file.
     """
     # Path to the CSV file
-    csv_file_path = "other/CL + Animal Trap - Oracle _= ZS.csv"
+    csv_file_path = "other/CL + Animal Trap - Oracle _= ZS_updated.csv"
     base_oracle_path = "/fs/scratch/PAS2099/camera-trap-final/best_accum_logs"
     
     # Read the existing CSV

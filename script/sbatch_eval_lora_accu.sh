@@ -94,5 +94,5 @@ EOF
 
     # Run pipeline for each interpolation alpha value
     echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
-    python run_pipeline.py --c $CONFIG_FILE --eval_only --accu_eval --model_dir "${MODEL_DIR}" --pretrained_weights bioclip2 --lora_bottleneck 8
+    python run_pipeline.py --c $CONFIG_FILE --eval_only --model_dir "${MODEL_DIR}" --pretrained_weights bioclip2 --lora_bottleneck 8
 done
