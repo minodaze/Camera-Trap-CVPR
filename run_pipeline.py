@@ -1226,6 +1226,35 @@ def run_eval_only(args):
         raise FileNotFoundError(f"Model directory not found: {args.model_dir}")
     
     log_success(f"Model directory found: {args.model_dir}")
+
+    # Optional: load weight sanity reference results
+    weight_sanity_enabled = getattr(args, 'weight_sanity', False)
+    sanity_expected = {}
+    sanity_offset = 0.03
+    sanity_mismatches = []
+    sanity_total = 0
+    if weight_sanity_enabled:
+        ref_path = os.path.join(args.model_dir, 'final_training_summary.json')
+        if not os.path.exists(ref_path):
+            log_warning(f"Weight sanity requested, but reference file not found: {ref_path}")
+            weight_sanity_enabled = False
+        else:
+            try:
+                with open(ref_path, 'r') as rf:
+                    ref_data = json.load(rf)
+                # Build expected balanced_accuracy map per checkpoint
+                ckps = ref_data.get('checkpoint_results', {})
+                for k, v in ckps.items():
+                    if isinstance(v, dict) and 'balanced_accuracy' in v:
+                        sanity_expected[k] = float(v['balanced_accuracy'])
+                if sanity_expected:
+                    log_info(f"Weight sanity enabled. Loaded {len(sanity_expected)} checkpoint references from {ref_path}", Colors.CYAN)
+                else:
+                    log_warning("Weight sanity enabled but no checkpoint results found in reference file; disabling")
+                    weight_sanity_enabled = False
+            except Exception as e:
+                log_warning(f"Failed to load weight sanity reference: {e}; disabling sanity check")
+                weight_sanity_enabled = False
     
     log_step(3, "Loading data configuration")
     
@@ -1531,6 +1560,25 @@ def run_eval_only(args):
                     'num_samples': int(len(ckp_eval_dset))
                 }
 
+                # Weight sanity: compare per-ckp on its own eval set
+                if weight_sanity_enabled and accu_ckp == ckp:
+                    sanity_total += 1
+                    expected = sanity_expected.get(ckp)
+                    if expected is None:
+                        log_warning(f"[Sanity] No reference balanced_accuracy for {ckp} in final_training_summary.json")
+                    else:
+                        diff = abs(float(balanced_acc) - float(expected))
+                        if diff <= sanity_offset:
+                            log_success(f"[Sanity] {ckp} balanced_accuracy matches within {sanity_offset:.2f} (diff={diff:.4f})")
+                        else:
+                            log_warning(f"[Sanity] {ckp} mismatch: eval={balanced_acc:.4f}, ref={expected:.4f}, diff={diff:.4f} > {sanity_offset:.2f}")
+                            sanity_mismatches.append({
+                                'checkpoint': ckp,
+                                'eval_balanced_accuracy': float(balanced_acc),
+                                'ref_balanced_accuracy': float(expected),
+                                'diff': float(diff)
+                            })
+
                 # Compare with previous checkpoints that were also evaluated on the same data (accu_ckp)
                 # Only compare if we're evaluating on the current checkpoint data (accu_ckp == ckp)
                 if accu_ckp == ckp:
@@ -1624,6 +1672,25 @@ def run_eval_only(args):
                 'loss': float(eval_loss),
                 'num_samples': int(len(ckp_eval_dset))
             }
+
+            # Weight sanity: compare per-ckp on its own eval set
+            if weight_sanity_enabled:
+                sanity_total += 1
+                expected = sanity_expected.get(ckp)
+                if expected is None:
+                    log_warning(f"[Sanity] No reference balanced_accuracy for {ckp} in final_training_summary.json")
+                else:
+                    diff = abs(float(balanced_acc) - float(expected))
+                    if diff <= sanity_offset:
+                        log_success(f"[Sanity] {ckp} balanced_accuracy matches within {sanity_offset:.2f} (diff={diff:.4f})")
+                    else:
+                        log_warning(f"[Sanity] {ckp} mismatch: eval={balanced_acc:.4f}, ref={expected:.4f}, diff={diff:.4f} > {sanity_offset:.2f}")
+                        sanity_mismatches.append({
+                            'checkpoint': ckp,
+                            'eval_balanced_accuracy': float(balanced_acc),
+                            'ref_balanced_accuracy': float(expected),
+                            'diff': float(diff)
+                        })
             
             # Log to wandb if enabled
             if args.wandb:
@@ -1699,6 +1766,20 @@ def run_eval_only(args):
     logging.info(f"  📊 Total Checkpoints: {len(eval_results)}")
     logging.info(f"  📊 Total Samples: {total_samples}")
     logging.info("=" * 60)
+
+    # Final weight sanity summary
+    if weight_sanity_enabled:
+        log_section_start("🧪 WEIGHT SANITY CHECK SUMMARY", Colors.BRIGHT_CYAN)
+        mism_cnt = len(sanity_mismatches)
+        ok_cnt = max(0, sanity_total - mism_cnt)
+        status = "PASS" if mism_cnt == 0 else "FAIL"
+        log_info(f"Offset: ±{sanity_offset:.2f}")
+        log_info(f"Compared checkpoints: {sanity_total}")
+        log_info(f"Matches: {ok_cnt} | Mismatches: {mism_cnt}")
+        if mism_cnt > 0:
+            for item in sanity_mismatches:
+                logging.info(f" - {item['checkpoint']}: eval={item['eval_balanced_accuracy']:.4f}, ref={item['ref_balanced_accuracy']:.4f}, diff={item['diff']:.4f}")
+        log_final_result(f"Weight Sanity: {status}")
     
     eval_results['average'] = {}
     eval_results['average']['accuracy'] = float(avg_accuracy)
@@ -1792,6 +1873,7 @@ def parse_args():
     parser.add_argument('--eval_only', action='store_true', help='Evaluate only mode - loads trained model checkpoints and evaluates them')
     parser.add_argument('--eval_accu', action='store_true', help='Perform calibration analysis during eval_only mode')
     parser.add_argument('--model_dir', type=str, help='Directory containing trained model checkpoints (.pth files) for eval_only mode')
+    parser.add_argument('--weight_sanity', action='store_true', help="Compare eval-only balanced_accuracy to reference in model_dir/final_training_summary.json with ±0.03 tolerance")
     parser.add_argument('--expand_head', type=str, default=None, help='Expand classifier head to include unseen classes during eval_only mode')
     parser.add_argument('--plot_features', action='store_true', help='Plot feature distributions')
     parser.add_argument('--plot_text_F', action='store_true', help='Plot text features')
