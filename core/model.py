@@ -108,7 +108,9 @@ OPENAI_IMAGENET_TEMPLATE = [
 BIOCLIP_TEMPLATE = [
     'a photo of {CLZ_NAME}.',
 ]
-
+CAMERA_TRAP_TEMPLATE = [
+    'a camera trap photo of {CLZ_NAME}.',
+]
 class CLIPClassifier(nn.Module):
     def __init__(self, visual_model, hidden_size, device):
         super(CLIPClassifier, self).__init__()
@@ -486,7 +488,10 @@ def get_texts(c, text_template='openai'):
     #     for n in names:
     #         texts += [template.format(CLZ_NAME=n) for template in BIOCLIP_TEMPLATE]
     # else:
-    texts = [template.format(CLZ_NAME=c) for template in OPENAI_IMAGENET_TEMPLATE]
+    if text_template == 'customized':
+        texts = [template.format(CLZ_NAME=c) for template in CAMERA_TRAP_TEMPLATE]
+    else:
+        texts = [template.format(CLZ_NAME=c) for template in OPENAI_IMAGENET_TEMPLATE]
     return texts
 
 

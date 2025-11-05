@@ -299,7 +299,7 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                 logits = classifier(inputs)
                 if debug_memory:
                     gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after_forward")
-                    
+            
             preds = logits.argmax(dim=1)
             correct = preds == labels
             proj_features = None
@@ -472,7 +472,7 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                     total_samples = 0
                     
                     for ckp_name, test_loader in next_test_loader.items():
-                        ckp_test_loss_arr, ckp_test_preds_arr, ckp_test_labels_arr = eval(classifier, test_loader, device)
+                        ckp_test_loss_arr, ckp_test_preds_arr, ckp_test_labels_arr, _, _ = eval(classifier, test_loader, device)
                         ckp_test_acc, ckp_test_balanced_acc, ckp_test_loss = compute_metrics(
                             ckp_test_loss_arr, ckp_test_preds_arr, ckp_test_labels_arr, 
                             len(test_loader.dataset.class_names)
@@ -496,7 +496,7 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                         log_epoch_test(epoch, avg_test_loss, avg_test_acc, avg_test_balanced_acc, total_samples, "UB_AVG")
                 else:
                     # Single test loader mode (accumulative or other modes)
-                    next_test_loss_arr, next_test_preds_arr, next_test_labels_arr = eval(classifier, next_test_loader, device)
+                    next_test_loss_arr, next_test_preds_arr, next_test_labels_arr, _, _ = eval(classifier, next_test_loader, device)
                     next_test_acc, next_test_balanced_acc, next_test_loss = compute_metrics(
                         next_test_loss_arr, next_test_preds_arr, next_test_labels_arr, 
                         len(next_test_loader.dataset.class_names)
