@@ -23,11 +23,7 @@ from matplotlib.colors import LinearSegmentedColormap
 
 from core import *
 from core.module import get_al_module, get_cl_module, get_ood_module
-from core.calibration import (
-    comprehensive_paper_calibration, 
-    get_training_classes_for_checkpoint,
-    convert_numpy_types
-)
+from core.calibration_new.calibration_new import run_alg_calibration
 
 from utils.misc import method_name
 from utils.gpu_monitor import get_gpu_monitor, log_gpu_memory, monitor_model_memory
@@ -1309,6 +1305,42 @@ def run_eval_only(args):
         eval_dset = CkpDataset(rare_path, class_names, is_train=False, label_type=label_type)
     else:
         eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, is_train=False, label_type=label_type)
+    
+    # Prepare train dset for calibration
+    train_dset = None
+    checkpoint_analysis = None
+    if args.calibration:
+        
+        train_dset = CkpDataset(common_config["train_data_config_path"], class_names, is_train=True, label_type=label_type)
+        
+        # Analyze checkpoint classes for seen/unseen
+        with open(common_config["train_data_config_path"], 'r') as f:
+            data = json.load(f)
+        
+        # Get all unique classes
+        all_classes = set()
+        for checkpoint, entries in data.items():
+            for entry in entries:
+                all_classes.add(entry[label_type])
+        all_classes = sorted(list(all_classes))
+        
+        # Sort checkpoints by number
+        checkpoints = sorted(data.keys(), key=lambda x: int(x.split('_')[1]))
+        
+        # Build cumulative seen classes
+        cumulative_seen = set()
+        checkpoint_analysis = {}
+        
+        for checkpoint in checkpoints:
+            checkpoint_classes = set()
+            for entry in data[checkpoint]:
+                checkpoint_classes.add(entry[label_type])
+            cumulative_seen.update(checkpoint_classes)
+            seen = sorted(list(cumulative_seen))
+            unseen = sorted(list(set(all_classes) - cumulative_seen))
+            checkpoint_analysis[checkpoint] = {'seen': seen, 'unseen': unseen}\
+        
+
     # Get checkpoint list
     ckp_list = eval_dset.get_ckp_list()
     log_info(f"Available checkpoints in dataset: {ckp_list}", Colors.CYAN)
@@ -1672,6 +1704,75 @@ def run_eval_only(args):
                 'loss': float(eval_loss),
                 'num_samples': int(len(ckp_eval_dset))
             }
+            
+            # Calibration
+            if args.calibration and ckp != 'ckp_1':
+                # Parse the number from ckp and create train_ckp list up to one before
+                ckp_num = int(ckp.split('_')[1])
+                train_ckp = [f"ckp_{i}" for i in range(1, ckp_num)]
+                log_info(f"[CALIBRATION] Calibrating model trained with checkpoints: {train_ckp}", Colors.CYAN)
+                
+                ckp_train_dset = train_dset.get_subset(is_train=True, ckp_list=train_ckp)
+                
+                # Create data loader
+                train_loader = DataLoader(
+                    ckp_train_dset, 
+                    batch_size=common_config['train_batch_size'],  
+                    shuffle=False, 
+                    num_workers=4
+                )
+                seen_classes = checkpoint_analysis[ckp]['seen'] if checkpoint_analysis and ckp in checkpoint_analysis else None
+                unseen_classes = checkpoint_analysis[ckp]['unseen'] if checkpoint_analysis and ckp in checkpoint_analysis else None
+                
+                calibration_factor = run_alg_calibration(ckp_train_dset,
+                                    train_loader,
+                                    classifier,
+                                    seen_classes,
+                                    unseen_classes,
+                                    args.device)
+                log_success(f"Calibration Factor Retrieval Done: {calibration_factor:.4f}")
+                
+                unseen_classes = torch.tensor([ckp_train_dset.class_name_idx[name] 
+                                               for name in unseen_classes], 
+                                              dtype=torch.long) if unseen_classes else torch.tensor([], dtype=torch.long)
+                loss_arr, preds_arr, labels_arr, pred_true, pred_false = eval(
+                    classifier, 
+                    eval_loader, 
+                    args.device, 
+                    chop_head=common_config['chop_head'],
+                    calibration_factor=calibration_factor,
+                    unseen_classes=unseen_classes
+                )
+
+                preds[ckp] = {
+                    'preds_true': pred_true,
+                    'preds_false': pred_false
+                }
+
+                log_success("Calibrated Model evaluation completed")
+
+                # Calculate and log metrics
+                acc, balanced_acc = print_metrics(
+                    loss_arr, 
+                    preds_arr, 
+                    labels_arr, 
+                    len(class_names),
+                    log_predix=f"📊 {ckp}: "
+                )
+                eval_loss = np.mean(loss_arr)
+                
+                # Log metrics with colors
+                log_metric("Accuracy", acc, ".4f", Colors.BRIGHT_GREEN)
+                log_metric("Balanced Accuracy", balanced_acc, ".4f", Colors.BRIGHT_GREEN)
+                log_metric("Evaluation Loss", eval_loss, ".4f", Colors.BRIGHT_BLUE)
+                
+                # Store results (convert numpy types to Python types for JSON serialization)
+                eval_results[ckp] = {
+                    'accuracy': float(acc),
+                    'balanced_accuracy': float(balanced_acc),
+                    'loss': float(eval_loss),
+                    'num_samples': int(len(ckp_eval_dset))
+                }
 
             # Weight sanity: compare per-ckp on its own eval set
             if weight_sanity_enabled:
@@ -1808,38 +1909,16 @@ def run_eval_only(args):
         wandb.finish()
         log_success("✅ W&B run finished")
     
-    # Generate AUC curve summary if calibration was used
-    if args.calibration and not args.accu_eval:
-        log_section_start("📊 CALIBRATION AUC CURVE SUMMARY", Colors.BRIGHT_MAGENTA)
+    # ALG Calibration 
+    # if args.calibration and not args.accu_eval:
+    #     log_section_start("📊 CALIBRATION AUC CURVE SUMMARY", Colors.BRIGHT_MAGENTA)
         
-        auc_curves_generated = 0
-        calibration_improvements = []
+    #     # Train Dataset
         
-        for ckp, results in eval_results.items():
-            if 'calibration' in results and results['calibration'].get('auc_curve'):
-                auc_data = results['calibration']['auc_curve']
-                auc_curves_generated += 1
-                
-                absent_improvement = auc_data['absent_improvement']
-                calibration_improvements.append(absent_improvement)
-                
-                log_info(f"📈 {ckp}: AUC curve generated", Colors.GREEN)
-                log_info(f"   Plot: {os.path.basename(auc_data['plot_path'])}", Colors.CYAN)
-                log_info(f"   Absent class improvement: {absent_improvement:+.2f}%", 
-                        Colors.GREEN if absent_improvement > 0 else Colors.RED)
         
-        if auc_curves_generated > 0:
-            avg_absent_improvement = sum(calibration_improvements) / len(calibration_improvements)
-            
-            curve_summary = f"AUC curves generated: {auc_curves_generated}/{len(eval_results)}\n"
-            curve_summary += f"Average absent class improvement: {avg_absent_improvement:+.2f}%\n"
-            curve_summary += f"Best absent class improvement: {max(calibration_improvements):+.2f}%\n"
-            curve_summary += f"Worst absent class improvement: {min(calibration_improvements):+.2f}%"
-            
-            logging.info(create_info_box("AUC Curve Summary", curve_summary))
-            log_info(f"📁 All AUC curves saved to: {args.save_dir}", Colors.CYAN)
-        else:
-            log_warning("No AUC curves were generated (possibly due to missing seen/absent classes)")
+    #     # Seen / Unseen
+    #     # Class Counts
+       
 
     # Final completion logs
     print(Colors.BOLD + "=" * 80 + Colors.RESET)

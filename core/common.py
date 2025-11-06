@@ -619,7 +619,7 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
     
     return classifier
 
-def eval(classifier, loader, device, chop_head=False, return_logits=False):
+def eval(classifier, loader, device, chop_head=False, return_logits=False, calibration_factor=None, unseen_classes=None):
     dset = loader.dataset
     if len(dset) == 0:
         if return_logits:
@@ -652,6 +652,11 @@ def eval(classifier, loader, device, chop_head=False, return_logits=False):
             # Forward
             inputs, labels = inputs.to(device), labels.to(device)
             logits = classifier(inputs)
+            
+            # Apply calibration factor if provided
+            if calibration_factor is not None and unseen_classes is not None:
+                logits[:, unseen_classes] += calibration_factor
+            
             loss = F.cross_entropy(logits, labels, reduction='none')
             logits[:, chop_mask] = -np.inf
             confidences = F.softmax(logits, dim=1)
