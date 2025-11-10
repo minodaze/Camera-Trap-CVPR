@@ -17,6 +17,12 @@ import os
 import timm
 from .petl_model.vision_transformer import VisionTransformerPETL
 from .open_clip import create_model_and_transforms, get_cast_dtype, get_tokenizer
+from .open_clip_new import get_tokenizer as get_tokenizer_new
+from .open_clip_new import create_model_from_pretrained as create_model_from_pretrained_new
+
+SIGLIP_TEMPLATE = [
+    'a {CLZ_NAME}.',
+]
 
 TUNE_MODULES = ['ft_attn_module', 'ft_mlp_module', 'head', 'vpt', 'ssf_scale', 'ssf_shift', 'lora', 'fact', 'vqt',
                 'difffit']
@@ -270,6 +276,8 @@ class CLIPClassifier(nn.Module):
 
     def get_texts(self, c, text_template='openai'):
         texts = [template.format(CLZ_NAME=c) for template in OPENAI_IMAGENET_TEMPLATE]
+        if text_template == 'siglip2':
+            texts = [template.format(CLZ_NAME=c) for template in SIGLIP_TEMPLATE]
         return texts
     
     def interpolate_head(self, model, alpha=0.5):
@@ -352,6 +360,8 @@ class CLIPClassifier(nn.Module):
 
     def get_texts(self, c, text_template='openai'):
         texts = [template.format(CLZ_NAME=c) for template in OPENAI_IMAGENET_TEMPLATE]
+        if text_template == 'siglip2':
+            texts = [template.format(CLZ_NAME=c) for template in SIGLIP_TEMPLATE]
         return texts
 
 def build_classifier(params, class_name_idx, device): 
@@ -405,6 +415,25 @@ def build_classifier(params, class_name_idx, device):
             params=params
         )
         tokenizer = AutoTokenizer.from_pretrained('pretrained_weights/bioclip-2')
+    elif params.pretrained_weights == 'siglip2':
+        logging.info("Using Siglip-2 model. ")
+        bioclip_model, preprocess = create_model_from_pretrained_new(
+            model_name='hf-hub:timm/ViT-SO400M-16-SigLIP2-256',
+            precision='amp',
+            device=device,
+            jit=False,
+            force_quick_gelu=False,
+            force_custom_text=False,
+            force_patch_dropout=None,
+            force_image_size=None,
+            pretrained_image=False,
+            image_mean=None,
+            image_std=None,
+            output_dict=True,
+            params=params
+        )
+        tokenizer = get_tokenizer_new('hf-hub:timm/ViT-SO400M-16-SigLIP2-256')
+        is_siglip = True
     else:
         raise NotImplementedError(f"Pretrained weights {params.pretrained_weights} not supported. ")
     
@@ -490,6 +519,8 @@ def get_texts(c, text_template='openai'):
     # else:
     if text_template == 'customized':
         texts = [template.format(CLZ_NAME=c) for template in CAMERA_TRAP_TEMPLATE]
+    elif text_template == 'siglip2':
+        texts = [template.format(CLZ_NAME=c) for template in SIGLIP_TEMPLATE]
     else:
         texts = [template.format(CLZ_NAME=c) for template in OPENAI_IMAGENET_TEMPLATE]
     return texts

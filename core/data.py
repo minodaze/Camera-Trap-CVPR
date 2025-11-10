@@ -15,7 +15,32 @@ from typing import Optional
 _IMAGENET_DEFAULT_MEAN = [0.485, 0.456, 0.406]
 _IMAGENET_DEFAULT_STD = [0.229, 0.224, 0.225]
 
+# SIGLIP 256
+_SIGLIP_SIZE = 256
+_TRAIN_TRANSFORM_SIGLIP2 = Compose([
+    Resize((_SIGLIP_SIZE, _SIGLIP_SIZE), interpolation=InterpolationMode.BICUBIC),
+    RandomHorizontalFlip(p=0.5),
+    ToTensor(),
+    Normalize(mean=_IMAGENET_DEFAULT_MEAN, std=_IMAGENET_DEFAULT_STD),
+])
+_CROP_TRAIN_TRANSFORM_SIGLIP2 = Compose([
+    RandomResizedCrop(_SIGLIP_SIZE,                     # final H × W
+                      scale=(0.7, 1.0),        # crop covers 70 – 100 % of image area
+                      ratio=(3/4, 4/3),        # aspect-ratio range
+                      interpolation=InterpolationMode.BICUBIC),
+    RandomHorizontalFlip(p=0.5),
+    ToTensor(),
+    Normalize(mean=_IMAGENET_DEFAULT_MEAN,
+              std=_IMAGENET_DEFAULT_STD),
+])
 
+_VAL_TRANSFORM_SIGLIP2 = Compose([
+    Resize((_SIGLIP_SIZE, _SIGLIP_SIZE), interpolation=InterpolationMode.BICUBIC),
+    ToTensor(),
+    Normalize(mean=_IMAGENET_DEFAULT_MEAN, std=_IMAGENET_DEFAULT_STD),
+])
+
+# BIOCLIP 224
 _TRAIN_TRANSFORM = Compose([
     Resize((224, 224), interpolation=InterpolationMode.BICUBIC),
     RandomHorizontalFlip(p=0.5),
@@ -100,17 +125,23 @@ class ClassBalancedSampler(Sampler):
 class CkpDataset(Dataset):
     _global_cache = {}
 
-    def __init__(self, json_path, class_names, is_train=True, is_speciesnet=False, is_crop=False, label_type='common'):
+    def __init__(self, json_path, class_names, is_train=True, is_speciesnet=False, is_crop=False, label_type='common', is_siglip2=False):
         self.cache = CkpDataset._global_cache
         self.json_path = json_path
         self.class_names = class_names
         self.is_train = is_train
         self.is_crop = is_crop
         self.label_type = label_type
-        self.crop_train_transform = _CROP_TRAIN_TRANSFORM
-        self.train_transform = _TRAIN_TRANSFORM
+        if is_siglip2:
+            self.crop_train_transform = _CROP_TRAIN_TRANSFORM_SIGLIP2
+            self.train_transform = _TRAIN_TRANSFORM_SIGLIP2
+        else:
+            self.crop_train_transform = _CROP_TRAIN_TRANSFORM
+            self.train_transform = _TRAIN_TRANSFORM
         if is_speciesnet:
             self.val_transform = _VAL_TRANSFORM_SPECIESNET
+        elif is_siglip2:
+            self.val_transform = _VAL_TRANSFORM_SIGLIP2
         else:
             self.val_transform = _VAL_TRANSFORM
         if is_train:

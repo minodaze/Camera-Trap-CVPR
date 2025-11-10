@@ -86,6 +86,7 @@ def setup_logging(log_path, debug, params):
     else:
         logger.setLevel(logging.DEBUG)
         log_path = os.path.join(log_path, 'debug')
+
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
     # Log to stdout
@@ -110,7 +111,7 @@ def setup_logging(log_path, debug, params):
     return log_path
 
 
-def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None, interpolation_model=False, interpolation_head=False, interpolation_alpha=0.5, eval_per_epoch=False, save_dir=None, args=None, test_per_epoch=False, eval_dset=None, ood_config=None, al_config=None):
+def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None, interpolation_model=False, interpolation_head=False, interpolation_alpha=0.5, eval_per_epoch=False, save_dir=None, args=None, test_per_epoch=False, eval_dset=None, ood_config=None, al_config=None, is_siglip2=False):
     """
     Pretrain the classifier on the pretraining dataset.
     """
@@ -137,7 +138,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
         scheduler = None
 
     # Get dataset
-    dataset = CkpDataset(pretrain_data_config_path, class_names)
+    dataset = CkpDataset(pretrain_data_config_path, class_names, is_siglip2=is_siglip2)
     dataset = dataset.get_subset(is_train=True, ckp_list=["ckp_-1", "ckp_1"])
     logging.info(f'Pretrain dataset size: {len(dataset)}. ')
     
@@ -146,7 +147,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
     if eval_per_epoch:
         # For pretraining, use 2 randomly selected images from each class across all checkpoint data
         # Load all training data (across all checkpoints)
-        full_dataset = CkpDataset(pretrain_data_config_path, class_names)
+        full_dataset = CkpDataset(pretrain_data_config_path, class_names, is_siglip2=is_siglip2)
         full_dataset = full_dataset.get_subset(is_train=True, ckp_list=["ckp_-1", "ckp_1"])
         
         from collections import defaultdict
@@ -392,6 +393,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
             log_info(f"TEST* computes average performance across {len(available_ckps)} individual test checkpoints", Colors.RED)
         else:
             log_info("Upper bound test per epoch: no test data available", Colors.YELLOW)
+    
     # Train
     train(classifier, optimizer, loader, epochs, device, f_loss, 
           scheduler=scheduler, 
@@ -438,6 +440,8 @@ def run(args):
     log_section_start("🚀 ICICLE BENCHMARK PIPELINE INITIALIZATION", Colors.BRIGHT_CYAN)
     
     # Initialize GPU memory monitoring if enabled
+    is_siglip2 = args.pretrained_weights == 'siglip2'
+
     gpu_monitor = None
     if args.gpu_memory_monitor:
         log_step(1, "Setting up GPU memory monitoring")
@@ -540,6 +544,7 @@ def run(args):
     # Load model
     classifier = build_classifier(args, class_names, args.device)
     log_success(f"Classifier built successfully")
+    
     # Monitor model memory usage if enabled
     if args.gpu_memory_monitor:
         gpu_monitor.log_memory_usage("model_load", "after_build")
@@ -610,7 +615,8 @@ def run(args):
                               test_per_epoch=args.test_per_epoch,
                               eval_dset=eval_dset,
                               al_config=al_config,
-                              ood_config=ood_config)
+                              ood_config=ood_config,
+                              is_siglip2=is_siglip2)
         if args.plot_features:
             try:
                 result = plot_features(classifier, eval_dset, args, prefix='after_pretrain_evalset_')
@@ -1261,6 +1267,7 @@ def run_eval_only(args):
     common_config = args.common_config
     train_path = common_config['train_data_config_path']
     test_path = common_config['eval_data_config_path']
+    
     with open(train_path, 'r') as fin:
         data = json.load(fin)
     with open(test_path, 'r') as fin:
@@ -1339,6 +1346,7 @@ def run_eval_only(args):
     dataset_summary += f"Number of checkpoints: {len(ckp_list)}\n"
     dataset_summary += f"Checkpoints: {', '.join(ckp_list)}"
     logging.info(create_info_box("Dataset Information", dataset_summary))
+    
     log_section_start("🔍 TRAINING MODE DETECTION", Colors.BRIGHT_GREEN)
     # Detect training mode by checking what model files exist
     model_file_mapping = {}
@@ -1420,6 +1428,7 @@ def run_eval_only(args):
         preds[ckp] = {}
         
         try:
+
             if model_path == 'pretrained_model':
                 # For ckp_1, use the original pretrained model (already loaded in classifier)
                 log_info(f"Using original pretrained model for {ckp} (zero-shot)", Colors.GREEN)
@@ -1890,7 +1899,7 @@ def parse_args():
 
     ###########################Model Configurations#########################
     parser.add_argument('--pretrained_weights', type=str, default='bioclip2',
-                        choices=['bioclip', 'bioclip2'],
+                        choices=['bioclip', 'bioclip2', 'siglip2'],
                         help='pretrained weights name')
 
     parser.add_argument('--class_type', type=str, default='common_name',
@@ -1912,7 +1921,7 @@ def parse_args():
                         choices=['head', 'full', 'lora'],
                         help='text encoder type, head for head only, full for full text encoder')
     parser.add_argument('--text_template', type=str, default='openai',
-                        choices=['bioclip', 'openai', 'customized'],
+                        choices=['bioclip', 'openai', 'siglip2'],
                         help='text template type')
 
     ########################PETL#########################
@@ -2113,7 +2122,7 @@ if __name__ == '__main__':
     
     start_time = time.time()
     if args.eval_only:
-        run_eval_only(args)
+        run_eval_only(args, is_siglip2=(args.pretrained_weights=='siglip2'))
     else:
         run(args)
     end_time = time.time()
