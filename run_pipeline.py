@@ -23,8 +23,8 @@ from matplotlib.colors import LinearSegmentedColormap
 
 from core import *
 from core.module import get_al_module, get_cl_module, get_ood_module
-from core.calibration_new.calibration_new import run_alg_calibration
-
+from core.calibration_new.calibration_new import run_calibration, _compute_accuracy, extract_seen_unseen
+from core.calibration_new.simple_calibration import simple_calibration, verify_calibration_inputs, evaluate_calibrated_logits, run_simple_calibration
 from utils.misc import method_name
 from utils.gpu_monitor import get_gpu_monitor, log_gpu_memory, monitor_model_memory
 from utils.log_formatter import (
@@ -457,7 +457,7 @@ def run(args):
 
         module_name = getattr(args, 'module_name', 'default_module')  # Fallback if module_name is not in args
         wandb.init(
-            project="ICICLE Camera Trap CVPR",  # Replace with your project name
+            project="Camera Trap CVPR - Best Accum Calib",  # Replace with your project name
             name=wandb_run_name,  # Set run name using args.c and module_name
             config=vars(args)  # Log all arguments to wandb
         )
@@ -1187,18 +1187,19 @@ def run_eval_only(args):
         gpu_monitor.log_memory_usage("startup", "initial")
     
     # Initialize wandb if enabled
+    args.wandb = True
     if args.wandb:
         log_step(2, "Initializing Weights & Biases logging")
         import re
         match = re.search(r"pipeline/([^/]+)/([^/]+)/([^/]+)", args.save_dir)
-        wandb_run_name = "Eval Only Run"
+        wandb_run_name = f"EVAL | {args.camera_name}"
         if match:
             dataset = match.group(1)
             setting = match.group(2)
-            wandb_run_name = f"EVAL | {dataset} | {setting}"
+            wandb_run_name = f"EVAL | {args.camera_name} | {dataset} | {setting}"
 
         wandb.init(
-            project="Camera Trap Benchmark - EVAL ONLY",
+            project="Camera Trap CVPR - Calib",
             name=wandb_run_name,
             config=vars(args)
         )
@@ -1310,36 +1311,18 @@ def run_eval_only(args):
     train_dset = None
     checkpoint_analysis = None
     if args.calibration:
-        
+        checkpoint_analysis = {}
         train_dset = CkpDataset(common_config["train_data_config_path"], class_names, is_train=True, label_type=label_type)
         
-        # Analyze checkpoint classes for seen/unseen
-        with open(common_config["train_data_config_path"], 'r') as f:
-            data = json.load(f)
+        checkpoint_analysis = extract_seen_unseen(is_train=True, 
+                                                  common_config=common_config, 
+                                                  label_type=label_type, 
+                                                  checkpoint_analysis=checkpoint_analysis)
         
-        # Get all unique classes
-        all_classes = set()
-        for checkpoint, entries in data.items():
-            for entry in entries:
-                all_classes.add(entry[label_type])
-        all_classes = sorted(list(all_classes))
-        
-        # Sort checkpoints by number
-        checkpoints = sorted(data.keys(), key=lambda x: int(x.split('_')[1]))
-        
-        # Build cumulative seen classes
-        cumulative_seen = set()
-        checkpoint_analysis = {}
-        
-        for checkpoint in checkpoints:
-            checkpoint_classes = set()
-            for entry in data[checkpoint]:
-                checkpoint_classes.add(entry[label_type])
-            cumulative_seen.update(checkpoint_classes)
-            seen = sorted(list(cumulative_seen))
-            unseen = sorted(list(set(all_classes) - cumulative_seen))
-            checkpoint_analysis[checkpoint] = {'seen': seen, 'unseen': unseen}\
-        
+        checkpoint_analysis = extract_seen_unseen(is_train=False, 
+                                                  common_config=common_config, 
+                                                  label_type=label_type, 
+                                                  checkpoint_analysis=checkpoint_analysis)
 
     # Get checkpoint list
     ckp_list = eval_dset.get_ckp_list()
@@ -1435,6 +1418,7 @@ def run_eval_only(args):
     log_section_start("🎯 CHECKPOINT EVALUATION", Colors.BRIGHT_MAGENTA)
     # Run evaluation for each checkpoint
     eval_results = {}
+    eval_results_calib = {}
     
     # Save zs backbone for interpolation if needed
     if args.interpolation_model or args.interpolation_head:
@@ -1664,11 +1648,12 @@ def run_eval_only(args):
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
                 
-            loss_arr, preds_arr, labels_arr, pred_true, pred_false = eval(
+            loss_arr, preds_arr, labels_arr, logits_arr, pred_true, pred_false = eval(
                 classifier, 
                 eval_loader, 
                 args.device, 
-                chop_head=common_config['chop_head']
+                chop_head=common_config['chop_head'],
+                return_logits=True
             )
 
             preds[ckp] = {
@@ -1692,6 +1677,16 @@ def run_eval_only(args):
             )
             eval_loss = np.mean(loss_arr)
             
+            # TODO: SOOYOUNG, Calibration Metric Sanity Check
+            # SANITY CHECK PASSED
+            
+            # calib_balanced_acc = _compute_accuracy(torch.tensor(logits_arr), torch.tensor(labels_arr), len(class_names))
+            
+            # if balanced_acc != calib_balanced_acc:
+            #     log_warning(f"[Calibration Check] Calib Metric is BAAAD: original={balanced_acc:.4f}, calib_check={calib_balanced_acc:.4f}")
+            # else:
+            #     log_success(f"[Calibration Check] Calib Metric is GOOOD: {balanced_acc:.4f}")
+            
             # Log metrics with colors
             log_metric("Accuracy", acc, ".4f", Colors.BRIGHT_GREEN)
             log_metric("Balanced Accuracy", balanced_acc, ".4f", Colors.BRIGHT_GREEN)
@@ -1704,75 +1699,190 @@ def run_eval_only(args):
                 'loss': float(eval_loss),
                 'num_samples': int(len(ckp_eval_dset))
             }
+            eval_results_calib[ckp] = eval_results[ckp].copy()
             
             # Calibration
             if args.calibration and ckp != 'ckp_1':
-                # Parse the number from ckp and create train_ckp list up to one before
-                ckp_num = int(ckp.split('_')[1])
-                train_ckp = [f"ckp_{i}" for i in range(1, ckp_num)]
-                log_info(f"[CALIBRATION] Calibrating model trained with checkpoints: {train_ckp}", Colors.CYAN)
-                
-                ckp_train_dset = train_dset.get_subset(is_train=True, ckp_list=train_ckp)
-                
-                # Create data loader
-                train_loader = DataLoader(
-                    ckp_train_dset, 
-                    batch_size=common_config['train_batch_size'],  
-                    shuffle=False, 
-                    num_workers=4
-                )
-                seen_classes = checkpoint_analysis[ckp]['seen'] if checkpoint_analysis and ckp in checkpoint_analysis else None
-                unseen_classes = checkpoint_analysis[ckp]['unseen'] if checkpoint_analysis and ckp in checkpoint_analysis else None
-                
-                calibration_factor = run_alg_calibration(ckp_train_dset,
-                                    train_loader,
-                                    classifier,
-                                    seen_classes,
-                                    unseen_classes,
-                                    args.device)
-                log_success(f"Calibration Factor Retrieval Done: {calibration_factor:.4f}")
-                
-                unseen_classes = torch.tensor([ckp_train_dset.class_name_idx[name] 
-                                               for name in unseen_classes], 
-                                              dtype=torch.long) if unseen_classes else torch.tensor([], dtype=torch.long)
-                loss_arr, preds_arr, labels_arr, pred_true, pred_false = eval(
-                    classifier, 
-                    eval_loader, 
-                    args.device, 
-                    chop_head=common_config['chop_head'],
-                    calibration_factor=calibration_factor,
-                    unseen_classes=unseen_classes
-                )
+                if len(checkpoint_analysis['train'][ckp]['unseen']) > 0:
+                    # Parse the number from ckp and create train_ckp list up to one before
+                    ckp_num = int(ckp.split('_')[1])
+                    train_ckp = [f"ckp_{i}" for i in range(1, ckp_num)]
+                    log_info(f"[CALIBRATION] Calibrating model trained with checkpoints: {train_ckp}", Colors.CYAN)
+                    
+                    ckp_train_dset = train_dset.get_subset(is_train=True, ckp_list=train_ckp)
+                    
+                    # Create data loader
+                    train_loader = DataLoader(
+                        ckp_train_dset, 
+                        batch_size=common_config['train_batch_size'],  
+                        shuffle=False, 
+                        num_workers=4
+                    )
+                    seen_classes = checkpoint_analysis['train'][ckp]['seen'] if checkpoint_analysis and ckp in checkpoint_analysis['train'] else None
+                    unseen_classes = checkpoint_analysis['train'][ckp]['unseen'] if checkpoint_analysis and ckp in checkpoint_analysis['train'] else None
+                    eval_seen_classes = checkpoint_analysis['eval'][ckp]['seen'] if checkpoint_analysis and ckp in checkpoint_analysis['eval'] else None
+                    eval_unseen_classes = checkpoint_analysis['eval'][ckp]['unseen'] if checkpoint_analysis and ckp in checkpoint_analysis['eval'] else None
 
-                preds[ckp] = {
-                    'preds_true': pred_true,
-                    'preds_false': pred_false
-                }
+                    calib_mean, calib_max, upper_bound_balanced_acc = run_calibration(ckp_train_dset,
+                                                                                        ckp_eval_dset,
+                                                                                        train_loader,
+                                                                                        eval_loader,
+                                                                                        classifier,
+                                                                                        seen_classes,
+                                                                                        unseen_classes,
+                                                                                        eval_seen_classes,
+                                                                                        eval_unseen_classes,
+                                                                                        args.device)
+                    
+                    # Create binary mask (length = total classes) where seen classes -> True
+                    num_classes = len(class_names)
+                    simple_calib_seen_classes = np.zeros(num_classes, dtype=bool)
 
-                log_success("Calibrated Model evaluation completed")
+                    if eval_seen_classes:
+                        # seen_classes might be indices or names; handle both
+                        if all(isinstance(x, (int, np.integer)) for x in eval_seen_classes):
+                            for idx in eval_seen_classes:
+                                if 0 <= idx < num_classes:
+                                    simple_calib_seen_classes[idx] = True
+                        else:
+                            # map names -> indices (prefer dataset mapping if available)
+                            name_to_idx = getattr(ckp_train_dset, 'class_name_idx', None) or {n: i for i, n in enumerate(class_names)}
+                            for name in eval_seen_classes:
+                                idx = name_to_idx.get(name)
+                                if idx is not None:
+                                    simple_calib_seen_classes[idx] = True
 
-                # Calculate and log metrics
-                acc, balanced_acc = print_metrics(
-                    loss_arr, 
-                    preds_arr, 
-                    labels_arr, 
-                    len(class_names),
-                    log_predix=f"📊 {ckp}: "
-                )
-                eval_loss = np.mean(loss_arr)
-                
-                # Log metrics with colors
-                log_metric("Accuracy", acc, ".4f", Colors.BRIGHT_GREEN)
-                log_metric("Balanced Accuracy", balanced_acc, ".4f", Colors.BRIGHT_GREEN)
-                log_metric("Evaluation Loss", eval_loss, ".4f", Colors.BRIGHT_BLUE)
-                
-                # Store results (convert numpy types to Python types for JSON serialization)
-                eval_results[ckp] = {
-                    'accuracy': float(acc),
-                    'balanced_accuracy': float(balanced_acc),
-                    'loss': float(eval_loss),
-                    'num_samples': int(len(ckp_eval_dset))
-                }
+                    # eval_dset, ckp_eval_dset, labels_arr_cal, logits_arr_cal, class_names
+                    best_calibration = run_simple_calibration(eval_dset, ckp_eval_dset, labels_arr, logits_arr, class_names)
+                    # best_calibration = None
+        
+                    # calibrated_logits_list = simple_calibration(simple_calib_seen_classes, logits_arr)
+                    # current_ckp_results = evaluate_calibrated_logits(
+                    #         calibrated_logits_list, labels_arr, class_names
+                    #     )
+                    
+                    # best_calibration = max(current_ckp_results, key=lambda x: x['balanced_accuracy'])
+
+                    # # Record best calibration into eval_results_calib for final summary
+                    # if ckp not in eval_results_calib:
+                    #     eval_results_calib[ckp] = {}
+                    # eval_results_calib[ckp]['cheating_best_calibration'] = {
+                    #     'matrix_index': int(best_calibration.get('matrix_index', -1)),
+                    #     'balanced_accuracy': float(best_calibration.get('balanced_accuracy', float('nan'))),
+                    #     'accuracy': float(best_calibration.get('accuracy', float('nan'))),
+                    #     'loss': float(best_calibration.get('loss', float('nan')))
+                    # }
+
+                    # Also save detailed calibration results (best + full matrix list) to a per-checkpoint JSON
+                    # calib_detail_path = os.path.join(args.save_dir, f'{ckp}_calibration_details.json')
+                    # try:
+                    #     with open(calib_detail_path, 'w') as f:
+                    #         json.dump({
+                    #             'best_calibration': best_calibration,
+                    #             'all_calibration_results': current_ckp_results
+                    #         }, f, indent=2)
+                    #     log_success(f"Calibration details saved to {calib_detail_path}")
+                    # except Exception as e:
+                    #     log_warning(f"Failed to save calibration details for {ckp}: {e}")
+                    best_matrix_idx = best_calibration['matrix_index']
+                    
+                    log_success(f"Calibration Factor (MEAN) Retrieval Done: {calib_mean:.4f}")
+                    log_success(f"Calibration Factor (MAX)  Retrieval Done: {calib_max:.4f}")
+                    log_success(f"Cheating Balanced Accuracy after Calibration: {best_calibration['balanced_accuracy']:.4f}")
+
+                    unseen_classes = torch.tensor([ckp_train_dset.class_name_idx[name] 
+                                                for name in unseen_classes], 
+                                                dtype=torch.long) if unseen_classes else torch.tensor([], dtype=torch.long)
+                    # Evaluate with Mean Calibration
+                    loss_arr_mean, preds_arr_mean, labels_arr_mean, pred_true_mean, pred_false_mean = eval(
+                        classifier, 
+                        eval_loader, 
+                        args.device, 
+                        chop_head=common_config['chop_head'],
+                        calibration_factor=calib_mean,
+                        unseen_classes=unseen_classes
+                    )
+
+                    # Calculate and log metrics
+                    acc_mean, balanced_acc_mean = print_metrics(
+                        loss_arr_mean, 
+                        preds_arr_mean, 
+                        labels_arr_mean, 
+                        len(class_names),
+                        log_predix=f"📊 {ckp} (Mean Calibration): "
+                    )
+                    eval_loss_mean = np.mean(loss_arr_mean)
+
+                    # Evaluate with Max Calibration
+                    # NOTE: Bug fix – previously used calibration_factor_mean for max calibration.
+                    # Use the correct calibration_factor_max here.
+                    loss_arr_max, preds_arr_max, labels_arr_max, pred_true_max, pred_false = eval(
+                        classifier, 
+                        eval_loader, 
+                        args.device, 
+                        chop_head=common_config['chop_head'],
+                        calibration_factor=calib_max,
+                        unseen_classes=unseen_classes
+                    )
+
+                    # Calculate and log metrics
+                    acc_max, balanced_acc_max = print_metrics(
+                        loss_arr_max, 
+                        preds_arr_max, 
+                        labels_arr_max, 
+                        len(class_names),
+                        log_predix=f"📊 {ckp} (Max Calibration): "
+                    )
+                    eval_loss_max = np.mean(loss_arr_max)
+
+                    log_success("Calibrated Model evaluation completed")
+                    
+                    # Log metrics with colors
+                    log_info(f"[Original] Ckp {ckp}:", Colors.CYAN)
+                    log_metric("    Accuracy", acc, ".4f", Colors.BRIGHT_GREEN)
+                    log_metric("    Balanced Accuracy", balanced_acc, ".4f", Colors.BRIGHT_GREEN)
+                    log_metric("    Evaluation Loss", eval_loss, ".4f", Colors.BRIGHT_BLUE)
+                    
+                    log_info(f"[CALIBRATION] Ckp {ckp} after MEAN calibration:", Colors.CYAN)
+                    log_metric("    Accuracy (Mean)", acc_mean, ".4f", Colors.BRIGHT_GREEN)
+                    log_metric("    Balanced Accuracy (Mean)", balanced_acc_mean, ".4f", Colors.BRIGHT_GREEN)
+                    log_metric("    Evaluation Loss (Mean)", eval_loss_mean, ".4f", Colors.BRIGHT_BLUE)
+                    log_info(f"[CALIBRATION] Ckp {ckp} after MAX calibration:", Colors.CYAN)
+                    log_metric("    Accuracy (Max)", acc_max, ".4f", Colors.BRIGHT_GREEN)
+                    log_metric("    Balanced Accuracy (Max)", balanced_acc_max, ".4f", Colors.BRIGHT_GREEN)
+                    log_metric("    Evaluation Loss (Max)", eval_loss_max, ".4f", Colors.BRIGHT_BLUE)
+                    log_info(f"[CALIBRATION] Ckp {ckp} Best Cheating Calib:", Colors.CYAN)
+                    log_metric("    Accuracy (Max)", best_calibration['accuracy'], ".4f", Colors.BRIGHT_GREEN)
+                    log_metric("    Balanced Accuracy (Max)", best_calibration['balanced_accuracy'], ".4f", Colors.BRIGHT_GREEN)
+                    
+                    # Store results (convert numpy types to Python types for JSON serialization)
+                    eval_results_calib[ckp] = {
+                        'original': {
+                            'accuracy': float(acc),
+                            'balanced_accuracy': float(balanced_acc),
+                            'loss': float(eval_loss)
+                        },
+                        'mean calibration': {
+                            'accuracy': float(acc_mean),
+                            'balanced_accuracy': float(balanced_acc_mean),
+                            'loss': float(eval_loss_mean)
+                        },
+                        'max calibration': {
+                            'accuracy': float(acc_max),
+                            'balanced_accuracy': float(balanced_acc_max),
+                            'loss': float(eval_loss_max)
+                        },
+                        'best calibration': {
+                            'accuracy': float(best_calibration['accuracy']),
+                            'balanced_accuracy': float(best_calibration['balanced_accuracy']),
+                        },
+                        'num_samples': int(len(ckp_eval_dset))
+                    }
+                else:
+                    log_info(f"[CALIBRATION] No unseen classes for checkpoint {ckp}; skipping calibration", Colors.YELLOW)
+
+            elif args.calibration and ckp == 'ckp_1':
+                log_info(f"[CALIBRATION] Testing with ckp 1; skipping calibration", Colors.YELLOW)
 
             # Weight sanity: compare per-ckp on its own eval set
             if weight_sanity_enabled:
@@ -1850,6 +1960,136 @@ def run_eval_only(args):
         avg_accuracy = avg_balanced_accuracy = avg_loss = 0.0
         total_samples = 0
     
+    # Calculate average metrics for calib results
+    def get_accuracy(result):
+        if 'accuracy' in result:
+            return result['accuracy']
+        elif 'max calibration' in result:
+            return result['max calibration']['accuracy']
+        else:
+            return np.nan
+
+    def get_balanced_accuracy(result):
+        if 'balanced_accuracy' in result:
+            return result['balanced_accuracy']
+        elif 'max calibration' in result:
+            return result['max calibration']['balanced_accuracy']
+        else:
+            return np.nan
+
+    def get_loss(result):
+        if 'loss' in result:
+            return result['loss']
+        elif 'max calibration' in result:
+            return result['max calibration']['loss']
+        else:
+            return np.nan
+
+    if eval_results_calib:
+        # Compute BOTH mean and max calibration averages (fallback to uncalibrated metrics if calibration missing)
+        mean_acc_list, max_acc_list = [], []
+        mean_bal_list, max_bal_list = [], []
+        mean_loss_list, max_loss_list = [], []
+        best_acc_list, best_bal_list, best_loss_list = [], [], []
+        total_samples_calib = 0
+
+        for ckp, result in eval_results_calib.items():
+            if ckp == 'average':  # skip previous average if re-running
+                continue
+            # Accumulative eval structure edge case
+            if args.accu_eval and isinstance(result, dict) and 'mean calibration' not in result and 'accuracy' not in result and ckp in result:
+                # Nested structure: result[ckp] holds metrics
+                nested = result.get(ckp, {})
+                acc_val = nested.get('accuracy', np.nan)
+                bal_val = nested.get('balanced_accuracy', np.nan)
+                loss_val = nested.get('loss', np.nan)
+                samples = nested.get('num_samples', 0)
+                # Treat uncalibrated as both mean and max for averaging consistency
+                if not np.isnan(acc_val):
+                    mean_acc_list.append(acc_val); max_acc_list.append(acc_val)
+                    # Fallback: include in best calibration aggregate so averages align in absence of explicit best calibration
+                    best_acc_list.append(acc_val)
+                if not np.isnan(bal_val):
+                    mean_bal_list.append(bal_val); max_bal_list.append(bal_val)
+                    best_bal_list.append(bal_val)
+                if not np.isnan(loss_val):
+                    mean_loss_list.append(loss_val); max_loss_list.append(loss_val)
+                    best_loss_list.append(loss_val)
+                total_samples_calib += samples
+                continue
+
+            if 'mean calibration' in result and 'max calibration' in result:
+                # Proper calibrated result
+                mean_blk = result['mean calibration']
+                max_blk = result['max calibration']
+                samples = result.get('num_samples', 0)
+                for blk, acc_list, bal_list, loss_list in [
+                    (mean_blk, mean_acc_list, mean_bal_list, mean_loss_list),
+                    (max_blk, max_acc_list, max_bal_list, max_loss_list)
+                ]:
+                    acc_v = blk.get('accuracy', np.nan)
+                    bal_v = blk.get('balanced_accuracy', np.nan)
+                    loss_v = blk.get('loss', np.nan)
+                    if not np.isnan(acc_v):
+                        acc_list.append(acc_v)
+                    if not np.isnan(bal_v):
+                        bal_list.append(bal_v)
+                    if not np.isnan(loss_v):
+                        loss_list.append(loss_v)
+
+                # Best/cheating calibration (if present)
+                best_blk = result.get('best calibration') or result.get('cheating_best_calibration')
+                if isinstance(best_blk, dict):
+                    b_acc = best_blk.get('accuracy', np.nan)
+                    b_bal = best_blk.get('balanced_accuracy', np.nan)
+                    # Some best calibration blocks don't have loss; fall back to original or max calibration loss
+                    b_loss = best_blk.get('loss', np.nan)
+                    if np.isnan(b_loss):
+                        # Prefer max calibration loss (same scaling), then mean, then original
+                        b_loss = max_blk.get('loss', mean_blk.get('loss', result.get('loss', np.nan)))
+                    if not np.isnan(b_acc):
+                        best_acc_list.append(b_acc)
+                    if not np.isnan(b_bal):
+                        best_bal_list.append(b_bal)
+                    if not np.isnan(b_loss):
+                        best_loss_list.append(b_loss)
+                total_samples_calib += samples
+            else:
+                # Uncalibrated (copy of eval_results) – use same values for both mean/max aggregates
+                acc_v = result.get('accuracy', np.nan)
+                bal_v = result.get('balanced_accuracy', np.nan)
+                loss_v = result.get('loss', np.nan)
+                samples = result.get('num_samples', 0)
+                if not np.isnan(acc_v):
+                    mean_acc_list.append(acc_v); max_acc_list.append(acc_v)
+                    best_acc_list.append(acc_v)  # Fallback include in best calibration aggregate
+                if not np.isnan(bal_v):
+                    mean_bal_list.append(bal_v); max_bal_list.append(bal_v)
+                    best_bal_list.append(bal_v)
+                if not np.isnan(loss_v):
+                    mean_loss_list.append(loss_v); max_loss_list.append(loss_v)
+                    best_loss_list.append(loss_v)
+                total_samples_calib += samples
+
+        # Safely compute averages
+        def _avg(vals):
+            return float(sum(vals) / len(vals)) if vals else 0.0
+
+        avg_mean_accuracy_calib = _avg(mean_acc_list)
+        avg_mean_balanced_accuracy_calib = _avg(mean_bal_list)
+        avg_mean_loss_calib = _avg(mean_loss_list)
+        avg_max_accuracy_calib = _avg(max_acc_list)
+        avg_max_balanced_accuracy_calib = _avg(max_bal_list)
+        avg_max_loss_calib = _avg(max_loss_list)
+        avg_best_accuracy_calib = _avg(best_acc_list)
+        avg_best_balanced_accuracy_calib = _avg(best_bal_list)
+        avg_best_loss_calib = _avg(best_loss_list)
+    else:
+        avg_mean_accuracy_calib = avg_mean_balanced_accuracy_calib = avg_mean_loss_calib = 0.0
+        avg_max_accuracy_calib = avg_max_balanced_accuracy_calib = avg_max_loss_calib = 0.0
+        avg_best_accuracy_calib = avg_best_balanced_accuracy_calib = avg_best_loss_calib = 0.0
+        total_samples_calib = 0
+    
     # Log summary with beautiful formatting
     logging.info("=== CHECKPOINT RESULTS SUMMARY ===")
     for ckp, results in eval_results.items():
@@ -1887,14 +2127,41 @@ def run_eval_only(args):
     eval_results['average']['balanced_accuracy'] = float(avg_balanced_accuracy)
     eval_results['average']['loss'] = float(avg_loss)
 
+    eval_results_calib['average'] = {
+        # Backward-compatible top-level (use MAX calibration aggregate as primary summary)
+        'accuracy': float(avg_max_accuracy_calib),
+        'balanced_accuracy': float(avg_max_balanced_accuracy_calib),
+        'loss': float(avg_max_loss_calib),
+        'mean_calibration': {
+            'accuracy': float(avg_mean_accuracy_calib),
+            'balanced_accuracy': float(avg_mean_balanced_accuracy_calib),
+            'loss': float(avg_mean_loss_calib)
+        },
+        'max_calibration': {
+            'accuracy': float(avg_max_accuracy_calib),
+            'balanced_accuracy': float(avg_max_balanced_accuracy_calib),
+            'loss': float(avg_max_loss_calib)
+        },
+        'best_calibration': {
+            'accuracy': float(avg_best_accuracy_calib),
+            'balanced_accuracy': float(avg_best_balanced_accuracy_calib),
+            'loss': float(avg_best_loss_calib)
+        },
+        'total_samples': int(total_samples_calib)
+    }
+
     # Save summary results
     summary_path = os.path.join(args.save_dir, 'eval_only_summary.json')
+    calib_summary_path = os.path.join(args.save_dir, 'eval_only_calib_summary.json')
     preds_path = os.path.join(args.save_dir, 'eval_only_predictions.json')
     with open(summary_path, 'w') as f:
         json.dump(eval_results, f, indent=2)
+    with open(calib_summary_path, 'w') as f:
+        json.dump(eval_results_calib, f, indent=2)
     with open(preds_path, 'w') as f:
         json.dump(preds, f, indent=2)
     log_success(f"Summary saved to {summary_path}")
+    log_success(f"Calib summary saved to {calib_summary_path}")
 
     # Final GPU memory summary
     if args.gpu_memory_monitor:
@@ -2132,12 +2399,45 @@ def parse_args():
 
     # Override configurations
     if args.c:
+        original_c = args.c
         with open(args.c, 'r') as f:
             yml = yaml.YAML(typ='rt')
             config = yml.load(f)
         for k, v in config.items():
             setattr(args, k, v)
     args.gpu_id = None
+    
+    # Smart Eval for Sooyoung's Calib Eval
+    # TODO: Make sure to remove this before train
+    args.model_dir = os.path.dirname(original_c)
+    args.eval_only = True
+    args.calibration = True
+    camera_name = (
+        original_c.split("best_accum/")[1].split("/")[0]
+        if "best_accum/" in original_c
+        else os.path.basename(os.path.dirname(original_c))
+    )
+    args.camera_name = camera_name
+    args.log_path = f"/fs/ess/PAS2099/sooyoung/camera-trap-CVPR-logs/accum_80/best_accum_calib/{camera_name}"
+
+    with open(original_c, 'r') as f:
+        yml = yaml.YAML(typ='rt')
+        config = yml.load(f)
+
+    if "/dataset/" not in config["common_config"]["train_data_config_path"]:
+        base = "/fs/scratch/PAS2099/camera-trap-benchmark"
+        # insert "/dataset" right after the base path
+        args.common_config['train_data_config_path'] = config["common_config"]["train_data_config_path"].replace(base, base + "/dataset", 1)
+
+    if "/dataset/" not in config["common_config"]["eval_data_config_path"]:
+        base = "/fs/scratch/PAS2099/camera-trap-benchmark"
+        # insert "/dataset" right after the base path
+        args.common_config['eval_data_config_path'] = config["common_config"]["eval_data_config_path"].replace(base, base + "/dataset", 1)
+
+    if "/dataset/" not in config["common_config"]["all_data_config_path"]:
+        base = "/fs/scratch/PAS2099/camera-trap-benchmark"
+        # insert "/dataset" right after the base path
+        args.common_config['all_data_config_path'] = config["common_config"]["all_data_config_path"].replace(base, base + "/dataset", 1)
 
     return args
 
