@@ -465,7 +465,7 @@ def run(args):
 
         module_name = getattr(args, 'module_name', 'default_module')  # Fallback if module_name is not in args
         wandb.init(
-            project="ICICLE Camera Trap CVPR",  # Replace with your project name
+            project="Camera Trap - CVPR - Siglip2 ZS",  # Replace with your project name
             name=wandb_run_name,  # Set run name using args.c and module_name
             config=vars(args)  # Log all arguments to wandb
         )
@@ -554,11 +554,11 @@ def run(args):
     log_section_start("📊 DATASET PREPARATION", Colors.BRIGHT_YELLOW)
     
     # Prepare dataset
-    train_dset = CkpDataset(common_config["train_data_config_path"], class_names, is_crop=is_crop, label_type=label_type)
+    train_dset = CkpDataset(common_config["train_data_config_path"], class_names, is_crop=is_crop, label_type=label_type, is_siglip2=is_siglip2)
     if rare_path:
-        eval_dset = CkpDataset(rare_path, class_names, label_type=label_type)
+        eval_dset = CkpDataset(rare_path, class_names, label_type=label_type, is_siglip2=is_siglip2)
     else:
-        eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type)
+        eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type, is_siglip2=is_siglip2)
     
     # Monitor dataset memory usage if enabled
     if args.gpu_memory_monitor:
@@ -1179,7 +1179,7 @@ def run(args):
     print(Colors.BOLD + "=" * 80 + Colors.RESET)
     print()
 
-def run_eval_only(args):
+def run_eval_only(args, is_siglip2=False):
     """Run evaluation only on trained model checkpoints.
     
     Args:
@@ -1208,7 +1208,7 @@ def run_eval_only(args):
             wandb_run_name = f"EVAL | {dataset} | {setting}"
 
         wandb.init(
-            project="Camera Trap Benchmark - EVAL ONLY",
+            project="Camera Trap - CVPR - Siglip2 ZS",
             name=wandb_run_name,
             config=vars(args)
         )
@@ -1313,9 +1313,9 @@ def run_eval_only(args):
     log_section_start("📊 DATASET PREPARATION", Colors.BRIGHT_YELLOW)
     # Prepare dataset
     if rare_path:
-        eval_dset = CkpDataset(rare_path, class_names, is_train=False, label_type=label_type)
+        eval_dset = CkpDataset(rare_path, class_names, is_train=False, label_type=label_type, is_siglip2=is_siglip2)
     else:
-        eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, is_train=False, label_type=label_type)
+        eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, is_train=False, label_type=label_type, is_siglip2=is_siglip2)
     # Get checkpoint list
     ckp_list = eval_dset.get_ckp_list()
     log_info(f"Available checkpoints in dataset: {ckp_list}", Colors.CYAN)
@@ -2068,6 +2068,9 @@ def parse_args():
         for k, v in config.items():
             setattr(args, k, v)
     args.gpu_id = None
+
+    data_name = config['log_path'].split('/')[-1]
+    args.log_path = f"/fs/ess/PAS2099/sooyoung/camera-trap-CVPR-temp/figures/overall_ml/zs/{data_name}"
 
     return args
 

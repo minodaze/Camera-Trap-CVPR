@@ -368,7 +368,7 @@ def build_classifier(params, class_name_idx, device):
     if isinstance(class_name_idx, list):
         class_name_idx = {c: i for i, c in enumerate(class_name_idx)}
     class_num = len(class_name_idx)
-        
+    is_siglip = False    
     # Log initial GPU memory before model loading
     if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
         from utils.gpu_monitor import log_gpu_memory
@@ -459,7 +459,7 @@ def build_classifier(params, class_name_idx, device):
 
     text_embed_dim = bioclip_model.embed_dim
     if params.text == 'head':
-        class_embedding = get_class_embedding(bioclip_model, tokenizer, text_embed_dim, class_name_idx, text_template=params.text_template)
+        class_embedding = get_class_embedding(bioclip_model, tokenizer, text_embed_dim, class_name_idx, text_template=params.text_template, is_siglip=is_siglip)
         classifier.init_head(class_embedding)
 
     else:
@@ -526,7 +526,7 @@ def get_texts(c, text_template='openai'):
     return texts
 
 
-def get_class_embedding(model, tokenizer, embed_dim, class_name_idx, text_template='openai'): 
+def get_class_embedding(model, tokenizer, embed_dim, class_name_idx, text_template='openai', is_siglip=False): 
     device = next(model.parameters()).device
     context_length = model.context_length
     with torch.no_grad():
@@ -537,14 +537,21 @@ def get_class_embedding(model, tokenizer, embed_dim, class_name_idx, text_templa
             # logging.info('Texts: ')
             # for t in texts:
             #     logging.info(f'\t{t}')
-            texts = tokenizer(
-                texts, 
-                padding='max_length', 
-                truncation=True, 
-                max_length=context_length, 
-                return_tensors='pt'
-            )
-            input_ids = texts['input_ids'].to(device)
+            if is_siglip:
+                texts = tokenizer(
+                    texts,
+                    context_length=context_length,
+                )
+                input_ids = texts.to(device)
+            else:
+                texts = tokenizer(
+                    texts, 
+                    padding='max_length', 
+                    truncation=True, 
+                    max_length=context_length, 
+                    return_tensors='pt'
+                )
+                input_ids = texts['input_ids'].to(device)
             _class_embedding = model.encode_text(input_ids)
             _class_embedding = F.normalize(_class_embedding, dim=-1).mean(dim=0)
             _class_embedding = F.normalize(_class_embedding, dim=-1)
