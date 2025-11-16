@@ -13,6 +13,9 @@ from collections import defaultdict
 import numpy as np
 import ruamel.yaml as yaml
 import torch
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader
 import pprint
 import pickle
@@ -120,6 +123,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
     optimizer_name = common_config['optimizer_name']
     optimizer_params = common_config['optimizer_params']
     train_batch_size = common_config['train_batch_size']
+    grad_accum_steps = common_config.get('grad_accum_steps', 1)
     
     _classifier = None  # Placeholder for interpolation model or head
     if pretrain_config['loss_type'] == 'kd' or interpolation_model or interpolation_head:
@@ -355,7 +359,12 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
     
     # Get dataloader
 
-    loader = DataLoader(dataset, batch_size=train_batch_size, shuffle=True, num_workers=4, worker_init_fn=worker_init_fn)
+    # Use DistributedSampler when in distributed mode
+    if args is not None and getattr(args, 'distributed', False) and dist.is_available() and dist.is_initialized():
+        train_sampler = DistributedSampler(dataset, shuffle=True, drop_last=False)
+        loader = DataLoader(dataset, batch_size=train_batch_size, shuffle=False, sampler=train_sampler, num_workers=4, worker_init_fn=worker_init_fn)
+    else:
+        loader = DataLoader(dataset, batch_size=train_batch_size, shuffle=True, num_workers=4, worker_init_fn=worker_init_fn)
     # Get model saving setting from args, with fallback
     save_best_model = getattr(args, 'save_best_model', True) if args else True
     
@@ -405,7 +414,8 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
           early_stop_epoch=getattr(args, 'early_stop_epoch', 5),
           test_per_epoch=test_per_epoch,
           next_test_loader=next_test_loader,
-          test_type="UB_AVG" if test_per_epoch else "NEXT")
+            test_type="UB_AVG" if test_per_epoch else "NEXT",
+            grad_accum_steps=grad_accum_steps)
 
     if interpolation_model or interpolation_head:
         if gpu_monitor:
@@ -446,8 +456,11 @@ def run(args):
         log_success("GPU memory monitoring enabled")
         gpu_monitor.log_memory_usage("startup", "initial")
     
-    # Initialize wandb if enabled
-    if args.wandb:
+    # Initialize wandb if enabled (main process only if distributed)
+    is_dist = dist.is_available() and dist.is_initialized()
+    rank = dist.get_rank() if is_dist else 0
+    is_main = (rank == 0)
+    if args.wandb and is_main:
         log_step(2, "Initializing Weights & Biases logging")
         
         # Extract components from the original save_dir
@@ -539,6 +552,10 @@ def run(args):
     log_step(4, "Building classifier model")
     # Load model
     classifier = build_classifier(args, class_names, args.device)
+    # Wrap with DDP when distributed
+    if getattr(args, 'distributed', False) and dist.is_available() and dist.is_initialized() and torch.cuda.is_available():
+        local_rank = int(os.environ.get('LOCAL_RANK', os.environ.get('RANK', 0)))
+        classifier = DDP(classifier, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=False)
     log_success(f"Classifier built successfully")
     # Monitor model memory usage if enabled
     if args.gpu_memory_monitor:
@@ -1862,6 +1879,11 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Adaptive Workflow')
     parser.add_argument('--c', type=str, help='Configuration file')
     parser.add_argument('--device', type=str, default='cuda', help='Device')
+    # Distributed training flags
+    parser.add_argument('--distributed', action='store_true', help='Enable DistributedDataParallel (single node multi-GPU)')
+    parser.add_argument('--dist_backend', type=str, default='nccl', help='Distributed backend')
+    parser.add_argument('--dist_url', type=str, default='env://', help='URL to set up distributed training (use torchrun env)')
+    parser.add_argument('--local_rank', type=int, default=-1, help='Local rank passed by torchrun (do not set manually)')
     parser.add_argument('--debug', action='store_true', help='Debug mode')
     parser.add_argument('--seed', type=int, default=9527, help='Random seed')
     parser.add_argument('--eval_per_epoch', action='store_true', help='Evaluate per epoch')
@@ -2066,6 +2088,26 @@ if __name__ == '__main__':
     # Parse arguments
     args = parse_args()
 
+    # Setup distributed if requested
+    if args.distributed:
+        # Prefer ranks from torchrun env
+        if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
+            rank = int(os.environ['RANK'])
+            world_size = int(os.environ['WORLD_SIZE'])
+        else:
+            rank = 0
+            world_size = 1
+        if not dist.is_initialized():
+            dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url, rank=rank, world_size=world_size)
+        # Determine local rank and set device
+        local_rank = int(os.environ.get('LOCAL_RANK', args.local_rank if args.local_rank is not None else 0))
+        if torch.cuda.is_available():
+            torch.cuda.set_device(local_rank)
+            args.device = f'cuda:{local_rank}'
+        # Stash for later if useful
+        args.rank = rank
+        args.world_size = world_size
+
     # Set random seed
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -2133,4 +2175,9 @@ if __name__ == '__main__':
     
     print(f"\n{Colors.BRIGHT_GREEN}⏱️  Total Execution Time: {Colors.BOLD}{time_str}{Colors.RESET}")
     print(f"{Colors.BRIGHT_CYAN}🏁 All tasks completed successfully!{Colors.RESET}\n")
+
+    # Cleanup distributed
+    if getattr(args, 'distributed', False) and dist.is_available() and dist.is_initialized():
+        dist.barrier()
+        dist.destroy_process_group()
 
