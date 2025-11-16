@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from torch.nn import functional as F
 from tqdm import tqdm
+import torch.distributed as dist
 import json
 
 from .loss import CB_loss, focal_loss, standard_focal_loss, LDAM_loss, loss_fn_kd, SupConLoss, cdt_loss, balanced_softmax_loss
@@ -203,7 +204,18 @@ def get_scheduler(optimizer, scheduler_name, scheduler_params):
         raise ValueError(f'Unknown scheduler {scheduler_name}. ')
     return scheduler
 
-def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False, gpu_monitor=None, save_best_model=True, save_dir=None, model_name_prefix="model", validation_mode="balanced_acc", early_stop_epoch=5, test_per_epoch=False, next_test_loader=None, test_log_prefix='avg_ub_all', test_type="NEXT"):
+def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False, gpu_monitor=None, save_best_model=True, save_dir=None, model_name_prefix="model", validation_mode="balanced_acc", early_stop_epoch=5, test_per_epoch=False, next_test_loader=None, test_log_prefix='avg_ub_all', test_type="NEXT", grad_accum_steps=1):
+    # Distributed context
+    is_dist = dist.is_available() and dist.is_initialized()
+    rank = dist.get_rank() if is_dist else 0
+    world_size = dist.get_world_size() if is_dist else 1
+    is_main = (rank == 0)
+
+    if grad_accum_steps < 1:
+        raise ValueError("grad_accum_steps must be >= 1")
+
+    # Helper to access the underlying model (for attributes like proj_head)
+    underlying_model = classifier.module if hasattr(classifier, 'module') else classifier
     # Initialize best model tracking
     best_val_metric = float('-inf')  # For accuracy tracking (higher is better)
     best_val_loss = float('inf')     # For loss (lower is better)
@@ -217,26 +229,32 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
     # Determine validation mode
     use_loss_for_best = (validation_mode == "loss")
     
-    logging.info(f'Training for up to {epochs} epochs')
-    if use_loss_for_best:
-        logging.info(f'Using validation loss as primary metric for best model selection (lower is better)')
-    else:
-        logging.info(f'Using validation balanced accuracy as primary metric for best model selection (higher is better)')
+    if is_main:
+        logging.info(f'Training for up to {epochs} epochs')
+        if use_loss_for_best:
+            logging.info(f'Using validation loss as primary metric for best model selection (lower is better)')
+        else:
+            logging.info(f'Using validation balanced accuracy as primary metric for best model selection (higher is better)')
     
-    if eval_per_epoch and early_stop_epoch > 0:
+    if is_main and eval_per_epoch and early_stop_epoch > 0:
         logging.info(f'Early stopping warmup: first {early_stop_warmup} epochs will run without early stopping')
         logging.info(f'Early stopping monitoring: after epoch {early_stop_warmup}, will stop if no improvement for {early_stop_epoch} epochs')
     
     # Add training header for better visualization
-    log_training_header(model_name_prefix, epochs)
+    if is_main:
+        log_training_header(model_name_prefix, epochs)
     
-    if save_best_model:
+    if save_best_model and is_main:
         if save_dir:
             os.makedirs(save_dir, exist_ok=True)
             logging.info(f'Best model will be saved to {save_dir} with prefix "{model_name_prefix}"')
         else:
             logging.warning('save_best_model=True but save_dir is None. Model will be kept in memory only.')
     
+    effective_batch = (getattr(loader, 'batch_size', 1) or 1) * world_size * grad_accum_steps
+    num_batches = len(loader)
+    if is_main and grad_accum_steps > 1:
+        logging.info(f"Gradient accumulation enabled: {grad_accum_steps} steps → effective batch size ≈ {effective_batch}")
     # Initialize test logging structures to avoid unbound local errors
     test_results_json = None
     test_log_path = None
@@ -247,6 +265,10 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
         test_results_json = {}
 
     for epoch in range(epochs):
+        # Ensure sampler epoch is set for DistributedSampler
+        if hasattr(getattr(loader, 'sampler', None), 'set_epoch'):
+            loader.sampler.set_epoch(epoch)
+
         # Log memory at epoch start
         if gpu_monitor:
             gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_start")
@@ -258,8 +280,8 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
         check_vram_and_clean(context="epoch start")
             
         if train_head_only:
-            classifier.visual_model.eval()
-            classifier.head.train()
+            underlying_model.visual_model.eval()
+            underlying_model.head.train()
         else:
             classifier.train()
         loss_arr = []
@@ -269,6 +291,9 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
         
         # Set up maintenance VRAM checker
         maintenance_check = maintenance_vram_check(batch_interval=25, threshold=30.0)
+        
+        optimizer.zero_grad(set_to_none=True)
+        accum_counter = 0
 
         for batch_idx, (inputs, labels, file_paths, old_logits, is_buf) in enumerate(loader):
             # Silent optimized cache clearing and critical warnings only
@@ -316,9 +341,9 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             preds = logits.argmax(dim=1)
             correct = preds == labels
             proj_features = None
-            if hasattr(classifier, 'proj_head'):
+            if hasattr(underlying_model, 'proj_head'):
                 # For SupCon loss, we need to get the features
-                proj_features = classifier.proj_features(inputs)
+                proj_features = underlying_model.proj_features(inputs)
                 
             if debug_memory:
                 gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_before_loss")
@@ -329,23 +354,34 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                 })
             
             # Backward pass with memory tracking
-            optimizer.zero_grad()
             if debug_memory:
                 gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_before_backward")
+
+            loss_value = loss.detach().item()
+            if grad_accum_steps > 1:
+                loss = loss / grad_accum_steps
+
             loss.backward()
-            # gradient tracking
-            if debug_memory:
-                for name, param in classifier.named_parameters():
-                    if param.grad is not None and param.requires_grad:
-                        logging.info(f"Gradient flow check: Param: {name} -- {param.shape}")
+            accum_counter += 1
+
             if debug_memory:
                 gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after_backward")
-            optimizer.step()
-            if debug_memory:
-                gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after_optimizer_step")
+
+            should_step = ((batch_idx + 1) % grad_accum_steps == 0) or (batch_idx + 1 == num_batches)
+            if should_step:
+                if grad_accum_steps > 1 and accum_counter < grad_accum_steps:
+                    correction = grad_accum_steps / accum_counter
+                    for param in classifier.parameters():
+                        if param.grad is not None:
+                            param.grad.mul_(correction)
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
+                accum_counter = 0
+                if debug_memory:
+                    gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after_optimizer_step")
             
             # Append arrays before cleanup (need to access tensors)
-            loss_arr.append(loss.cpu().item())
+            loss_arr.append(loss_value)
             correct_arr.append(correct.cpu().numpy())
             preds_arr.append(preds.cpu().numpy())
             labels_arr.append(labels.cpu().numpy())
@@ -396,7 +432,8 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             balanced_acc = avg_acc  # Fallback if no classes found
         
         # Use new epoch logging format
-        log_epoch_train(epoch, avg_loss, avg_acc, balanced_acc, optimizer.param_groups[0]["lr"])
+        if is_main:
+            log_epoch_train(epoch, avg_loss, avg_acc, balanced_acc, optimizer.param_groups[0]["lr"])
 
         if test_results_json is not None:
             test_results_json[f"epoch_{epoch}"]['train'] = {
@@ -413,17 +450,18 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             })
 
         # Log training loss and accuracy to wandb if initialized
-        try:
-            import wandb
-            if wandb.run is not None:  # Check if wandb is initialized
-                wandb.log({
-                    "train/loss": avg_loss,
-                    "train/acc": avg_acc,
-                    "train/balanced_acc": balanced_acc,
-                    "train/learning_rate": optimizer.param_groups[0]["lr"]
-                })
-        except (ImportError, AttributeError):
-            pass  # wandb not available or not initialized
+        if is_main:
+            try:
+                import wandb
+                if wandb.run is not None:  # Check if wandb is initialized
+                    wandb.log({
+                        "train/loss": avg_loss,
+                        "train/acc": avg_acc,
+                        "train/balanced_acc": balanced_acc,
+                        "train/learning_rate": optimizer.param_groups[0]["lr"]
+                    })
+            except (ImportError, AttributeError):
+                pass  # wandb not available or not initialized
 
         if scheduler is not None:
             scheduler.step()
@@ -433,7 +471,15 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             if gpu_monitor:
                 gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_before_eval")
 
-            loss_arr, preds_arr, labels_arr, _, _ = eval(classifier, eval_loader, device)
+            # Run validation only on main process to keep it simple
+            if 
+            and eval_loader is not None:
+                loss_arr, preds_arr, labels_arr, _, _ = eval(classifier, eval_loader, device)
+            else:
+                # placeholders for non-main ranks
+                loss_arr = np.array([0.0])
+                preds_arr = np.array([0])
+                labels_arr = np.array([0])
 
             # Log memory after evaluation
             if gpu_monitor:
@@ -442,7 +488,10 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                 })
                 
             # Compute metrics without logging to avoid duplication
-            eval_acc, eval_balanced_acc, eval_loss = compute_metrics(loss_arr, preds_arr, labels_arr, len(eval_loader.dataset.class_names))
+            if is_main and eval_loader is not None:
+                eval_acc, eval_balanced_acc, eval_loss = compute_metrics(loss_arr, preds_arr, labels_arr, len(eval_loader.dataset.class_names))
+            else:
+                eval_acc, eval_balanced_acc, eval_loss = 0.0, 0.0, 0.0
             
             if test_results_json is not None:
                 test_results_json[f"epoch_{epoch}"]['val'] = {
@@ -490,12 +539,13 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                         epochs_without_improvement += 1
             
             # Use new validation logging format with best model indicator
-            log_epoch_val(epoch, eval_loss, eval_acc, eval_balanced_acc, len(labels_arr), is_best, best_indicator)
+            if is_main and eval_loader is not None:
+                log_epoch_val(epoch, eval_loss, eval_acc, eval_balanced_acc, len(labels_arr), is_best, best_indicator)
             
             # Test evaluation per epoch if enabled
             if test_per_epoch and next_test_loader is not None:
                 # Log memory before test evaluation
-                if gpu_monitor:
+                if gpu_monitor and is_main:
                     gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_before_test_eval")
                     
                 if isinstance(next_test_loader, dict):
@@ -535,7 +585,8 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                         }
                         
                         # Log the averaged results
-                        log_epoch_test(epoch, avg_test_loss, avg_test_acc, avg_test_balanced_acc, total_samples, "UB_AVG")
+                        if is_main:
+                            log_epoch_test(epoch, avg_test_loss, avg_test_acc, avg_test_balanced_acc, total_samples, "UB_AVG")
                 else:
                     # Single test loader mode (accumulative or other modes)
                     next_test_loss_arr, next_test_preds_arr, next_test_labels_arr, _, _ = eval(classifier, next_test_loader, device)
@@ -543,28 +594,31 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                         next_test_loss_arr, next_test_preds_arr, next_test_labels_arr, 
                         len(next_test_loader.dataset.class_names)
                     )
-                    test_results_json[f"epoch_{epoch}"]['test'] = {
-                        'acc': float(next_test_acc),
-                        'balanced_acc': float(next_test_balanced_acc),
-                        'loss': float(next_test_loss),
-                    }
-                    log_epoch_test(epoch, next_test_loss, next_test_acc, next_test_balanced_acc, len(next_test_labels_arr), test_type)
+                    if is_main:
+                        test_results_json[f"epoch_{epoch}"]['test'] = {
+                            'acc': float(next_test_acc),
+                            'balanced_acc': float(next_test_balanced_acc),
+                            'loss': float(next_test_loss),
+                        }
+                        log_epoch_test(epoch, next_test_loss, next_test_acc, next_test_balanced_acc, len(next_test_labels_arr), test_type)
 
                 # Log memory after test evaluation
-                if gpu_monitor:
+                if gpu_monitor and is_main:
                     gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_after_test_eval")
             
             # Add separator line after each epoch's complete log set
             if eval_per_epoch or test_per_epoch:
-                logging.info("─" * 80)
+                if is_main:
+                    logging.info("─" * 80)
             
             # Save best model state (without logging - already shown in epoch log)
-            if is_best and save_best_model:
+            if is_best and save_best_model and is_main:
                 # Log memory before model state saving
                 if gpu_monitor:
                     gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_before_save_best_model")
-                    
-                best_model_state = copy.deepcopy(classifier.state_dict())
+                
+                # save underlying model state_dict to avoid 'module.' prefix issues
+                best_model_state = copy.deepcopy((classifier.module if hasattr(classifier, 'module') else classifier).state_dict())
                 
                 # Log memory after model state copying
                 if gpu_monitor:
@@ -584,39 +638,41 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             
             # Early stopping check (only after warmup period)
             if early_stop_epoch > 0 and epoch >= early_stop_warmup and epochs_without_improvement >= early_stop_epoch:
-                logging.info(f'Early stopping triggered: no improvement for {early_stop_epoch} epochs after warmup period')
-                logging.info(f'Warmup period completed: first {early_stop_warmup} epochs, monitoring started from epoch {early_stop_warmup}')
-                logging.info(f'Early stopping triggered at epoch {epoch} (after {epochs_without_improvement} epochs without improvement)')
-                logging.info(f'Latest model would have stopped at epoch {early_stop_warmup + early_stop_epoch} if no improvement')
-                if use_loss_for_best:
-                    logging.info(f'Best epoch was {best_epoch} with val_loss={best_val_loss:.4f}')
-                else:
-                    logging.info(f'Best epoch was {best_epoch} with val_balanced_acc={best_val_metric:.4f}')
+                if is_main:
+                    logging.info(f'Early stopping triggered: no improvement for {early_stop_epoch} epochs after warmup period')
+                    logging.info(f'Warmup period completed: first {early_stop_warmup} epochs, monitoring started from epoch {early_stop_warmup}')
+                    logging.info(f'Early stopping triggered at epoch {epoch} (after {epochs_without_improvement} epochs without improvement)')
+                    logging.info(f'Latest model would have stopped at epoch {early_stop_warmup + early_stop_epoch} if no improvement')
+                    if use_loss_for_best:
+                        logging.info(f'Best epoch was {best_epoch} with val_loss={best_val_loss:.4f}')
+                    else:
+                        logging.info(f'Best epoch was {best_epoch} with val_balanced_acc={best_val_metric:.4f}')
                 break
             
             # Log evaluation metrics to wandb if initialized
-            try:
-                import wandb
-                if wandb.run is not None:
-                    eval_loss = loss_arr.mean()
-                    if epoch < early_stop_warmup:
-                        status_indicator = "(WARMUP)" if not is_best else "(BEST-WARMUP)"
-                    else:
-                        status_indicator = "(BEST)" if is_best else f"({epochs_without_improvement}/{early_stop_epoch})" if early_stop_epoch > 0 else ""
-                    logging.info(f'Epoch {epoch}: train_acc={avg_acc:.4f}, train_balanced_acc={balanced_acc:.4f}, val_acc={eval_acc:.4f}, val_balanced_acc={eval_balanced_acc:.4f}, val_loss={eval_loss:.4f}, LR={optimizer.param_groups[0]["lr"]:.8f} {status_indicator}')
-                    wandb.log({
-                        "val/loss": eval_loss,
-                        "val/acc": eval_acc,
-                        "val/balanced_acc": eval_balanced_acc,
-                        "val/is_best": is_best,
-                        "val/best_epoch": best_epoch,
-                        "val/epochs_without_improvement": epochs_without_improvement,
-                        "val/validation_mode": validation_mode,
-                        "val/in_warmup": epoch < early_stop_warmup,
-                        "val/warmup_epoch": early_stop_warmup
-                    })
-            except (ImportError, AttributeError):
-                pass  # wandb not available or not initialized
+            if is_main and eval_loader is not None:
+                try:
+                    import wandb
+                    if wandb.run is not None:
+                        eval_loss = loss_arr.mean()
+                        if epoch < early_stop_warmup:
+                            status_indicator = "(WARMUP)" if not is_best else "(BEST-WARMUP)"
+                        else:
+                            status_indicator = "(BEST)" if is_best else f"({epochs_without_improvement}/{early_stop_epoch})" if early_stop_epoch > 0 else ""
+                        logging.info(f'Epoch {epoch}: train_acc={avg_acc:.4f}, train_balanced_acc={balanced_acc:.4f}, val_acc={eval_acc:.4f}, val_balanced_acc={eval_balanced_acc:.4f}, val_loss={eval_loss:.4f}, LR={optimizer.param_groups[0]["lr"]:.8f} {status_indicator}')
+                        wandb.log({
+                            "val/loss": eval_loss,
+                            "val/acc": eval_acc,
+                            "val/balanced_acc": eval_balanced_acc,
+                            "val/is_best": is_best,
+                            "val/best_epoch": best_epoch,
+                            "val/epochs_without_improvement": epochs_without_improvement,
+                            "val/validation_mode": validation_mode,
+                            "val/in_warmup": epoch < early_stop_warmup,
+                            "val/warmup_epoch": early_stop_warmup
+                        })
+                except (ImportError, AttributeError):
+                    pass  # wandb not available or not initialized
         else:
             # If not evaluating per epoch, just continue training
             pass
@@ -628,9 +684,12 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
 
     # Load best model if we saved one
     if save_best_model and (best_model_state is not None or save_dir):
+        # Make sure the main process has finished saving
+        if is_dist:
+            dist.barrier()
         if best_model_state is not None:
             # Load from memory
-            classifier.load_state_dict(best_model_state)
+            (classifier.module if hasattr(classifier, 'module') else classifier).load_state_dict(best_model_state)
             # Clean up best model state from memory
             del best_model_state
             torch.cuda.empty_cache() if torch.cuda.is_available() else None
@@ -639,35 +698,38 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             best_model_path = os.path.join(save_dir, f'{model_name_prefix}_best_model.pth')
             if os.path.exists(best_model_path):
                 state_dict = torch.load(best_model_path, map_location=device)
-                classifier.load_state_dict(state_dict)
+                (classifier.module if hasattr(classifier, 'module') else classifier).load_state_dict(state_dict)
                 del state_dict  # Clean up loaded state
                 torch.cuda.empty_cache() if torch.cuda.is_available() else None
         
-        if use_loss_for_best:
-            logging.info(f'Loaded best model from epoch {best_epoch} (val_loss={best_val_loss:.4f}, val_balanced_acc={best_val_metric:.4f})')
-        else:
-            logging.info(f'Loaded best model from epoch {best_epoch} (val_balanced_acc={best_val_metric:.4f}, val_loss={best_val_loss:.4f})')
+        if is_main:
+            if use_loss_for_best:
+                logging.info(f'Loaded best model from epoch {best_epoch} (val_loss={best_val_loss:.4f}, val_balanced_acc={best_val_metric:.4f})')
+            else:
+                logging.info(f'Loaded best model from epoch {best_epoch} (val_balanced_acc={best_val_metric:.4f}, val_loss={best_val_loss:.4f})')
         
         # Log final best model info to wandb
-        try:
-            import wandb
-            if wandb.run is not None:
-                wandb.log({
-                    "final/final_best_epoch": best_epoch,
-                    "final/final_best_val_loss": best_val_loss,
-                    "final/final_best_val_balanced_acc": best_val_metric,
-                    "final/total_epochs_trained": epoch + 1,
-                    "final/training_completed": True,
-                    "final/validation_mode": validation_mode,
-                    "final/early_stopped": epochs_without_improvement >= early_stop_epoch if early_stop_epoch > 0 else False
-                })
-        except (ImportError, AttributeError):
-            pass
+        if is_main:
+            try:
+                import wandb
+                if wandb.run is not None:
+                    wandb.log({
+                        "final/final_best_epoch": best_epoch,
+                        "final/final_best_val_loss": best_val_loss,
+                        "final/final_best_val_balanced_acc": best_val_metric,
+                        "final/total_epochs_trained": epoch + 1,
+                        "final/training_completed": True,
+                        "final/validation_mode": validation_mode,
+                        "final/early_stopped": epochs_without_improvement >= early_stop_epoch if early_stop_epoch > 0 else False
+                    })
+            except (ImportError, AttributeError):
+                pass
     
     # Add training completion summary
     best_metric_name = "val_loss" if use_loss_for_best else "val_balanced_acc"
     best_metric_value = best_val_loss if use_loss_for_best else best_val_metric
-    log_training_summary(best_epoch, best_metric_value, best_metric_name)
+    if is_main:
+        log_training_summary(best_epoch, best_metric_value, best_metric_name)
     
     return classifier
 

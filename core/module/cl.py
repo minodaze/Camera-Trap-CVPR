@@ -4,6 +4,8 @@ import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+import torch.distributed as dist
 from ..common import get_optimizer, train, eval, get_f_loss, print_metrics, get_scheduler
 from ..data import BufferDataset
 from abc import ABC, abstractmethod
@@ -55,9 +57,15 @@ class CLModule(ABC):
         else:
             logging.info(f'Training classifier with {len(cl_train_dset)} samples. ')
             
-            cl_train_loader = DataLoader(cl_train_dset, batch_size=self.common_config['train_batch_size'], shuffle=True, num_workers=8)
+            # Use DistributedSampler in distributed mode
+            if dist.is_available() and dist.is_initialized():
+                sampler = DistributedSampler(cl_train_dset, shuffle=True, drop_last=False)
+                cl_train_loader = DataLoader(cl_train_dset, batch_size=self.common_config['train_batch_size'], shuffle=False, sampler=sampler, num_workers=8)
+            else:
+                cl_train_loader = DataLoader(cl_train_dset, batch_size=self.common_config['train_batch_size'], shuffle=True, num_workers=8)
             
             optimizer = get_optimizer(classifier, self.common_config['optimizer_name'], self.common_config['optimizer_params'])
+            grad_accum_steps = self.common_config.get('grad_accum_steps', 1)
             
             if self.common_config['scheduler'] is not None:
                 scheduler = get_scheduler(optimizer, self.common_config['scheduler'], self.common_config['scheduler_params'])
@@ -107,6 +115,8 @@ class CLModule(ABC):
                     early_stop_epoch=getattr(self.args, 'early_stop_epoch', 5),
                     test_per_epoch=test_per_epoch,
                     next_test_loader=next_test_loader,
+                    test_type="NEXT",
+                    grad_accum_steps=grad_accum_steps)
                     test_log_prefix=test_log_prefix,
                     test_type="NEXT")
 

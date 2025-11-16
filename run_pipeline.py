@@ -13,6 +13,9 @@ from collections import defaultdict
 import numpy as np
 import ruamel.yaml as yaml
 import torch
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader
 import pprint
 import pickle
@@ -123,6 +126,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
     optimizer_name = common_config['optimizer_name']
     optimizer_params = common_config['optimizer_params']
     train_batch_size = common_config['train_batch_size']
+    grad_accum_steps = common_config.get('grad_accum_steps', 1)
     
     _classifier = None  # Placeholder for interpolation model or head
     if pretrain_config['loss_type'] == 'kd' or interpolation_model or interpolation_head:
@@ -358,7 +362,12 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
     
     # Get dataloader
 
-    loader = DataLoader(dataset, batch_size=train_batch_size, shuffle=True, num_workers=4, worker_init_fn=worker_init_fn)
+    # Use DistributedSampler when in distributed mode
+    if args is not None and getattr(args, 'distributed', False) and dist.is_available() and dist.is_initialized():
+        train_sampler = DistributedSampler(dataset, shuffle=True, drop_last=False)
+        loader = DataLoader(dataset, batch_size=train_batch_size, shuffle=False, sampler=train_sampler, num_workers=4, worker_init_fn=worker_init_fn)
+    else:
+        loader = DataLoader(dataset, batch_size=train_batch_size, shuffle=True, num_workers=4, worker_init_fn=worker_init_fn)
     # Get model saving setting from args, with fallback
     save_best_model = getattr(args, 'save_best_model', True) if args else True
     
@@ -418,7 +427,8 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
           early_stop_epoch=getattr(args, 'early_stop_epoch', 5),
           test_per_epoch=test_per_epoch,
           next_test_loader=next_test_loader,
-          test_type="UB_AVG" if test_per_epoch else "NEXT")
+            test_type="UB_AVG" if test_per_epoch else "NEXT",
+            grad_accum_steps=grad_accum_steps)
 
     if interpolation_model or interpolation_head:
         if gpu_monitor:
@@ -459,8 +469,11 @@ def run(args):
         log_success("GPU memory monitoring enabled")
         gpu_monitor.log_memory_usage("startup", "initial")
     
-    # Initialize wandb if enabled
-    if args.wandb:
+    # Initialize wandb if enabled (main process only if distributed)
+    is_dist = dist.is_available() and dist.is_initialized()
+    rank = dist.get_rank() if is_dist else 0
+    is_main = (rank == 0)
+    if args.wandb and is_main:
         log_step(2, "Initializing Weights & Biases logging")
         
         # Extract components from the original save_dir
@@ -555,6 +568,10 @@ def run(args):
     log_step(4, "Building classifier model")
     # Load model
     classifier = build_classifier(args, class_names, args.device)
+    # Wrap with DDP when distributed
+    if getattr(args, 'distributed', False) and dist.is_available() and dist.is_initialized() and torch.cuda.is_available():
+        local_rank = int(os.environ.get('LOCAL_RANK', os.environ.get('RANK', 0)))
+        classifier = DDP(classifier, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=False)
     log_success(f"Classifier built successfully")
     # Monitor model memory usage if enabled
     if args.gpu_memory_monitor:
@@ -1319,6 +1336,35 @@ def run_eval_only(args):
         raise FileNotFoundError(f"Model directory not found: {args.model_dir}")
     
     log_success(f"Model directory found: {args.model_dir}")
+
+    # Optional: load weight sanity reference results
+    weight_sanity_enabled = getattr(args, 'weight_sanity', False)
+    sanity_expected = {}
+    sanity_offset = 0.03
+    sanity_mismatches = []
+    sanity_total = 0
+    if weight_sanity_enabled:
+        ref_path = os.path.join(args.model_dir, 'final_training_summary.json')
+        if not os.path.exists(ref_path):
+            log_warning(f"Weight sanity requested, but reference file not found: {ref_path}")
+            weight_sanity_enabled = False
+        else:
+            try:
+                with open(ref_path, 'r') as rf:
+                    ref_data = json.load(rf)
+                # Build expected balanced_accuracy map per checkpoint
+                ckps = ref_data.get('checkpoint_results', {})
+                for k, v in ckps.items():
+                    if isinstance(v, dict) and 'balanced_accuracy' in v:
+                        sanity_expected[k] = float(v['balanced_accuracy'])
+                if sanity_expected:
+                    log_info(f"Weight sanity enabled. Loaded {len(sanity_expected)} checkpoint references from {ref_path}", Colors.CYAN)
+                else:
+                    log_warning("Weight sanity enabled but no checkpoint results found in reference file; disabling")
+                    weight_sanity_enabled = False
+            except Exception as e:
+                log_warning(f"Failed to load weight sanity reference: {e}; disabling sanity check")
+                weight_sanity_enabled = False
     
     log_step(3, "Loading data configuration")
     
@@ -1878,6 +1924,42 @@ def run_eval_only(args):
                     'loss': float(eval_loss),
                     'num_samples': int(len(ckp_eval_dset))
                 }
+
+                # Weight sanity: compare per-ckp on its own eval set
+                if weight_sanity_enabled and accu_ckp == ckp:
+                    sanity_total += 1
+                    expected = sanity_expected.get(ckp)
+                    if expected is None:
+                        log_warning(f"[Sanity] No reference balanced_accuracy for {ckp} in final_training_summary.json")
+                    else:
+                        diff = abs(float(balanced_acc) - float(expected))
+                        if diff <= sanity_offset:
+                            log_success(f"[Sanity] {ckp} balanced_accuracy matches within {sanity_offset:.2f} (diff={diff:.4f})")
+                        else:
+                            log_warning(f"[Sanity] {ckp} mismatch: eval={balanced_acc:.4f}, ref={expected:.4f}, diff={diff:.4f} > {sanity_offset:.2f}")
+                            sanity_mismatches.append({
+                                'checkpoint': ckp,
+                                'eval_balanced_accuracy': float(balanced_acc),
+                                'ref_balanced_accuracy': float(expected),
+                                'diff': float(diff)
+                            })
+
+                # Compare with previous checkpoints that were also evaluated on the same data (accu_ckp)
+                # Only compare if we're evaluating on the current checkpoint data (accu_ckp == ckp)
+                if accu_ckp == ckp:
+                    for pre in range(0, i):
+                        pre_ckp = ckp_list[pre]
+                        # Check if previous checkpoint was evaluated on this same data
+                        if pre_ckp in eval_results and ckp in eval_results[pre_ckp]:
+                            prev_balanced_acc = eval_results[pre_ckp][ckp]['balanced_accuracy']
+                            difference = balanced_acc - prev_balanced_acc
+                            eval_results[ckp][ckp]['improvement_over_' + pre_ckp] = difference
+                                
+                            if difference > 0:
+                                log_info(f"🎯 Model {ckp} improved over {pre_ckp} by {difference:.4f} on {ckp} data!", Colors.CYAN)
+                            else:
+                                log_info(f"📊 Model {ckp} did not improve over {pre_ckp} on {ckp} data (Δ={difference:+.4f})", Colors.CYAN)
+
                 
                 # Log to wandb if enabled
                 if args.wandb:
@@ -1984,6 +2066,20 @@ def run_eval_only(args):
     logging.info(f"  📊 Total Checkpoints: {len(eval_results)}")
     logging.info(f"  📊 Total Samples: {total_samples}")
     logging.info("=" * 60)
+
+    # Final weight sanity summary
+    if weight_sanity_enabled:
+        log_section_start("🧪 WEIGHT SANITY CHECK SUMMARY", Colors.BRIGHT_CYAN)
+        mism_cnt = len(sanity_mismatches)
+        ok_cnt = max(0, sanity_total - mism_cnt)
+        status = "PASS" if mism_cnt == 0 else "FAIL"
+        log_info(f"Offset: ±{sanity_offset:.2f}")
+        log_info(f"Compared checkpoints: {sanity_total}")
+        log_info(f"Matches: {ok_cnt} | Mismatches: {mism_cnt}")
+        if mism_cnt > 0:
+            for item in sanity_mismatches:
+                logging.info(f" - {item['checkpoint']}: eval={item['eval_balanced_accuracy']:.4f}, ref={item['ref_balanced_accuracy']:.4f}, diff={item['diff']:.4f}")
+        log_final_result(f"Weight Sanity: {status}")
     
     eval_results['averages'] = {}
     eval_results['averages']['accuracy'] = float(avg_accuracy)
@@ -2074,6 +2170,11 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Adaptive Workflow')
     parser.add_argument('--c', type=str, help='Configuration file')
     parser.add_argument('--device', type=str, default='cuda', help='Device')
+    # Distributed training flags
+    parser.add_argument('--distributed', action='store_true', help='Enable DistributedDataParallel (single node multi-GPU)')
+    parser.add_argument('--dist_backend', type=str, default='nccl', help='Distributed backend')
+    parser.add_argument('--dist_url', type=str, default='env://', help='URL to set up distributed training (use torchrun env)')
+    parser.add_argument('--local_rank', type=int, default=-1, help='Local rank passed by torchrun (do not set manually)')
     parser.add_argument('--debug', action='store_true', help='Debug mode')
     parser.add_argument('--seed', type=int, default=9527, help='Random seed')
     parser.add_argument('--eval_per_epoch', action='store_true', help='Evaluate per epoch')
@@ -2087,6 +2188,7 @@ def parse_args():
     parser.add_argument('--eval_accu', action='store_true', help='Perform calibration analysis during eval_only mode')
     parser.add_argument('--resume', action='store_true', help='Resume training from last checkpoint')
     parser.add_argument('--model_dir', type=str, help='Directory containing trained model checkpoints (.pth files) for eval_only mode')
+    parser.add_argument('--weight_sanity', action='store_true', help="Compare eval-only balanced_accuracy to reference in model_dir/final_training_summary.json with ±0.03 tolerance")
     parser.add_argument('--skip_head', action='store_true', help='Skip loading head parameters from checkpoint')
     parser.add_argument('--expand_head', type=str, default=None, help='Expand classifier head to include unseen classes during eval_only mode')
     parser.add_argument('--plot_features', action='store_true', help='Plot feature distributions')
@@ -2282,6 +2384,26 @@ if __name__ == '__main__':
     # Parse arguments
     args = parse_args()
 
+    # Setup distributed if requested
+    if args.distributed:
+        # Prefer ranks from torchrun env
+        if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
+            rank = int(os.environ['RANK'])
+            world_size = int(os.environ['WORLD_SIZE'])
+        else:
+            rank = 0
+            world_size = 1
+        if not dist.is_initialized():
+            dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url, rank=rank, world_size=world_size)
+        # Determine local rank and set device
+        local_rank = int(os.environ.get('LOCAL_RANK', args.local_rank if args.local_rank is not None else 0))
+        if torch.cuda.is_available():
+            torch.cuda.set_device(local_rank)
+            args.device = f'cuda:{local_rank}'
+        # Stash for later if useful
+        args.rank = rank
+        args.world_size = world_size
+
     # Set random seed
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -2349,4 +2471,9 @@ if __name__ == '__main__':
     
     print(f"\n{Colors.BRIGHT_GREEN}⏱️  Total Execution Time: {Colors.BOLD}{time_str}{Colors.RESET}")
     print(f"{Colors.BRIGHT_CYAN}🏁 All tasks completed successfully!{Colors.RESET}\n")
+
+    # Cleanup distributed
+    if getattr(args, 'distributed', False) and dist.is_available() and dist.is_initialized():
+        dist.barrier()
+        dist.destroy_process_group()
 
