@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from torch.nn import functional as F
 from tqdm import tqdm
+import json
 
 from .loss import CB_loss, focal_loss, standard_focal_loss, LDAM_loss, loss_fn_kd, SupConLoss, cdt_loss, balanced_softmax_loss
 from utils.vram_check import check_vram_and_clean, maintenance_vram_check, conditional_cache_clear
@@ -202,7 +203,7 @@ def get_scheduler(optimizer, scheduler_name, scheduler_params):
         raise ValueError(f'Unknown scheduler {scheduler_name}. ')
     return scheduler
 
-def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False, gpu_monitor=None, save_best_model=True, save_dir=None, model_name_prefix="model", validation_mode="balanced_acc", early_stop_epoch=5, test_per_epoch=False, next_test_loader=None, test_type="NEXT"):
+def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=False, eval_loader=None, scheduler=None, loss_type=None, train_head_only=False, gpu_monitor=None, save_best_model=True, save_dir=None, model_name_prefix="model", validation_mode="balanced_acc", early_stop_epoch=5, test_per_epoch=False, next_test_loader=None, test_log_prefix='avg_ub_all', test_type="NEXT"):
     # Initialize best model tracking
     best_val_metric = float('-inf')  # For accuracy tracking (higher is better)
     best_val_loss = float('inf')     # For loss (lower is better)
@@ -236,10 +237,22 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
         else:
             logging.warning('save_best_model=True but save_dir is None. Model will be kept in memory only.')
     
+    # Initialize test logging structures to avoid unbound local errors
+    test_results_json = None
+    test_log_path = None
+
+    if test_per_epoch and next_test_loader is not None and save_dir is not None:
+        # Open test log file for appending
+        test_log_path = os.path.join(save_dir, f'{test_log_prefix}_log.json')
+        test_results_json = {}
+
     for epoch in range(epochs):
         # Log memory at epoch start
         if gpu_monitor:
             gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_start")
+        
+        if test_results_json is not None:
+            test_results_json.setdefault(f"epoch_{epoch}", {})
         
         # Additional VRAM debug log for hanging detection
         check_vram_and_clean(context="epoch start")
@@ -256,7 +269,7 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
         
         # Set up maintenance VRAM checker
         maintenance_check = maintenance_vram_check(batch_interval=25, threshold=30.0)
-        
+
         for batch_idx, (inputs, labels, file_paths, old_logits, is_buf) in enumerate(loader):
             # Silent optimized cache clearing and critical warnings only
             if batch_idx % 5 == 0 or batch_idx < 3:
@@ -299,7 +312,7 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                 logits = classifier(inputs)
                 if debug_memory:
                     gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after_forward")
-            
+
             preds = logits.argmax(dim=1)
             correct = preds == labels
             proj_features = None
@@ -320,6 +333,11 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             if debug_memory:
                 gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_before_backward")
             loss.backward()
+            # gradient tracking
+            if debug_memory:
+                for name, param in classifier.named_parameters():
+                    if param.grad is not None and param.requires_grad:
+                        logging.info(f"Gradient flow check: Param: {name} -- {param.shape}")
             if debug_memory:
                 gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after_backward")
             optimizer.step()
@@ -380,6 +398,13 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
         # Use new epoch logging format
         log_epoch_train(epoch, avg_loss, avg_acc, balanced_acc, optimizer.param_groups[0]["lr"])
 
+        if test_results_json is not None:
+            test_results_json[f"epoch_{epoch}"]['train'] = {
+                'loss': float(avg_loss),
+                'acc': float(avg_acc),
+                'balanced_acc': float(balanced_acc)
+            }
+
         # Log memory at epoch end
         if gpu_monitor:
             gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_end", {
@@ -419,6 +444,13 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             # Compute metrics without logging to avoid duplication
             eval_acc, eval_balanced_acc, eval_loss = compute_metrics(loss_arr, preds_arr, labels_arr, len(eval_loader.dataset.class_names))
             
+            if test_results_json is not None:
+                test_results_json[f"epoch_{epoch}"]['val'] = {
+                    'loss': float(eval_loss),
+                    'acc': float(eval_acc),
+                    'balanced_acc': float(eval_balanced_acc)
+                }
+
             # Check if this is the best model so far
             current_val_loss = eval_loss
             current_val_balanced_acc = eval_balanced_acc
@@ -484,6 +516,11 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                             'loss': ckp_test_loss,
                             'samples': len(ckp_test_labels_arr)
                         })
+                        test_results_json[f"epoch_{epoch}"]["test_"+ckp_name] = {
+                            'acc': float(ckp_test_acc),
+                            'balanced_acc': float(ckp_test_balanced_acc),
+                            'loss': float(ckp_test_loss),
+                        }
                         total_samples += len(ckp_test_labels_arr)
                     
                     # Compute averages across all test checkpoints
@@ -491,6 +528,11 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                         avg_test_acc = np.mean([r['acc'] for r in test_results])
                         avg_test_balanced_acc = np.mean([r['balanced_acc'] for r in test_results])
                         avg_test_loss = np.mean([r['loss'] for r in test_results])
+                        test_results_json[f"epoch_{epoch}"]['test_avg'] = {
+                            'avg_acc': float(avg_test_acc),
+                            'avg_balanced_acc': float(avg_test_balanced_acc),
+                            'avg_loss': float(avg_test_loss),
+                        }
                         
                         # Log the averaged results
                         log_epoch_test(epoch, avg_test_loss, avg_test_acc, avg_test_balanced_acc, total_samples, "UB_AVG")
@@ -501,8 +543,13 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                         next_test_loss_arr, next_test_preds_arr, next_test_labels_arr, 
                         len(next_test_loader.dataset.class_names)
                     )
+                    test_results_json[f"epoch_{epoch}"]['test'] = {
+                        'acc': float(next_test_acc),
+                        'balanced_acc': float(next_test_balanced_acc),
+                        'loss': float(next_test_loss),
+                    }
                     log_epoch_test(epoch, next_test_loss, next_test_acc, next_test_balanced_acc, len(next_test_labels_arr), test_type)
-                
+
                 # Log memory after test evaluation
                 if gpu_monitor:
                     gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_after_test_eval")
@@ -574,6 +621,11 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             # If not evaluating per epoch, just continue training
             pass
     
+    if test_per_epoch and next_test_loader is not None and save_dir is not None:
+        logging.info(f'Test results logged to {test_log_path}')
+        with open(test_log_path, 'w') as f:
+            json.dump(test_results_json, f, indent=2)
+
     # Load best model if we saved one
     if save_best_model and (best_model_state is not None or save_dir):
         if best_model_state is not None:

@@ -19,16 +19,14 @@ conda activate ${CONDA_ENV}
 
 DATA_ROOT="/fs/scratch/PAS2099/camera-trap-benchmark/dataset"
 CONFIG_ROOT="/fs/ess/PAS2099/camera-trap-CVPR-configs"
-# /fs/scratch/PAS2099/camera-trap-final/configs
-# CSV_PATH="/fs/ess/PAS2099/${USER_NAME}/Documents/ICICLE/ICICLE-Benchmark/balanced_accuracy_common.csv"
 
 mkdir -p $CONFIG_ROOT
 # mkdir -p $(dirname "$CSV_PATH")
 
 # Get datasets and learning rate from command line arguments
-if [ $# -lt 2 ]; then
+if [ $# -lt 3 ]; then
     echo "Error: Missing required arguments"
-    echo "Usage: sbatch sbatch_run_1.sh 'dataset1 dataset2 dataset3' learning_rate"
+  echo "Usage: sbatch script2/sbatch_run_resume_accum.sh 'dataset1 dataset2 ...' learning_rate 'modeldir1|modeldir2|...'"
     exit 1
 fi
 
@@ -36,13 +34,23 @@ fi
 IFS=' ' read -ra BIG_FOLDERS <<< "$1"
 # Get learning rate from the second argument
 LEARNING_RATE="$2"
+# Parse model dirs from the third argument (pipe-delimited)
+IFS='|' read -ra MODEL_DIRS <<< "$3"
 
 echo "Processing ${#BIG_FOLDERS[@]} datasets: ${BIG_FOLDERS[*]}"
 echo "Using learning rate: ${LEARNING_RATE}"
 
+# Validate that model dirs count matches datasets count
+if [ ${#MODEL_DIRS[@]} -ne ${#BIG_FOLDERS[@]} ]; then
+  echo "Error: Number of model dirs (${#MODEL_DIRS[@]}) does not match number of datasets (${#BIG_FOLDERS[@]})."
+  exit 2
+fi
 
-for DATASET in "${BIG_FOLDERS[@]}"; do
-    echo "=== Processing ${DATASET} ==="
+for idx in "${!BIG_FOLDERS[@]}"; do
+  DATASET="${BIG_FOLDERS[$idx]}"
+  MODEL_DIR="${MODEL_DIRS[$idx]}"
+  echo "=== Processing ${DATASET} ==="
+  echo "Using model dir: ${MODEL_DIR}"
     TRAIN_JSON="${DATA_ROOT}/${DATASET}/30/train.json"
     TEST_JSON="${DATA_ROOT}/${DATASET}/30/test.json"
     ALL_JSON="${DATA_ROOT}/${DATASET}/30/train-all.json"
@@ -60,14 +68,14 @@ for DATASET in "${BIG_FOLDERS[@]}"; do
 # print('\n'.join(['  - ' + s for s in common]))
 # ")
 
-    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}/best_accum_lr${LEARNING_RATE}.yaml"
+    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}/accum_lr${LEARNING_RATE}.yaml"
 
     mkdir -p "${CONFIG_ROOT}/${DATASET//\//_}"
-    mkdir -p "/fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/best_accum/${DATASET//\//_}"
+    mkdir -p "/fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/accum/${DATASET//\//_}"
 
     cat <<EOF > $CONFIG_FILE
-module_name: best_accum_lora_bsm
-log_path: /fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/best_accum/${DATASET//\//_}
+module_name: accum_fullFT_ce
+log_path: /fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/accum/${DATASET//\//_}
 
 common_config:
   model: bioclip2
@@ -95,12 +103,12 @@ al_config:
 cl_config:
   method: accumulative-scratch
   epochs: 30
-  loss_type: bsm
+  loss_type: ce
 
 EOF
 
-    echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
-    python run_pipeline.py --c $CONFIG_FILE --wandb --eval_per_epoch --save_best_model --pretrained_weights bioclip2 --lora_bottleneck 8
+  echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
+  python run_pipeline.py --c $CONFIG_FILE --wandb --resume --model_dir "$MODEL_DIR" --eval_per_epoch --save_best_model --pretrained_weights bioclip2 --full
 
 #     # === Robust log path discovery ===
 #     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/zs_common/"

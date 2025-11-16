@@ -1,8 +1,7 @@
 #!/bin/bash
 
 # Read datasets from file into array
-readarray -t ALL_DATASETS < accum_list.txt
-
+readarray -t ALL_DATASETS < uselist/rare.txt
 # Remove empty lines and trim whitespace
 TEMP_DATASETS=()
 for dataset in "${ALL_DATASETS[@]}"; do
@@ -58,13 +57,13 @@ for lr in "${LEARNING_RATES[@]}"; do
         
         # Create a space-separated string of datasets for this job
         IFS=' ' datasets_string="${job_datasets[*]}"
-        datasets_string="${datasets_string/_//}"  # Replace first _ with / to get original dataset names
         
         job_counter=$((job_counter + 1))
         echo "Job $job_counter/$TOTAL_SUBMISSIONS: LR=$lr, Processing datasets ${start_index}-${end_index}"
         echo "  Datasets: ${datasets_string}"
-        
-        sbatch script2/sbatch_run_accum.sh "${datasets_string}" "$lr"
+
+        sbatch script2/sbatch_run_rare_best_accum.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_rare_best_oracle.sh "${datasets_string}" "$lr"
     done
 done
 

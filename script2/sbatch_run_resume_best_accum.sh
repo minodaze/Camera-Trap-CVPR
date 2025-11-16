@@ -3,7 +3,7 @@
 #SBATCH --job-name=bioclip2_upper_bound
 #SBATCH --output=logs/bioclip2_%j.out
 #SBATCH --error=logs/bioclip2_%j.err
-#SBATCH --time=12:00:00
+#SBATCH --time=16:00:00
 #SBATCH --nodes=1                 # Request 1 node
 #SBATCH --ntasks-per-node=1       # One task per node
 #SBATCH --gpus-per-node=1         # One GPU per node
@@ -26,23 +26,34 @@ mkdir -p $CONFIG_ROOT
 # mkdir -p $(dirname "$CSV_PATH")
 
 # Get datasets and learning rate from command line arguments
-if [ $# -lt 2 ]; then
-    echo "Error: Missing required arguments"
-    echo "Usage: sbatch sbatch_run_1.sh 'dataset1 dataset2 dataset3' learning_rate"
-    exit 1
+if [ $# -lt 3 ]; then
+  echo "Error: Missing required arguments"
+  echo "Usage: sbatch script2/sbatch_run_resume_best_accum.sh 'dataset1 dataset2 ...' learning_rate 'modeldir1|modeldir2|...'"
+  exit 1
 fi
 
 # Parse datasets from the first argument (space-separated string)
 IFS=' ' read -ra BIG_FOLDERS <<< "$1"
 # Get learning rate from the second argument
 LEARNING_RATE="$2"
+# Parse model dirs from the third argument (pipe-delimited)
+IFS='|' read -ra MODEL_DIRS <<< "$3"
 
 echo "Processing ${#BIG_FOLDERS[@]} datasets: ${BIG_FOLDERS[*]}"
 echo "Using learning rate: ${LEARNING_RATE}"
 
+# Validate that model dirs count matches datasets count
+if [ ${#MODEL_DIRS[@]} -ne ${#BIG_FOLDERS[@]} ]; then
+  echo "Error: Number of model dirs (${#MODEL_DIRS[@]}) does not match number of datasets (${#BIG_FOLDERS[@]})."
+  exit 2
+fi
 
-for DATASET in "${BIG_FOLDERS[@]}"; do
-    echo "=== Processing ${DATASET} ==="
+
+for idx in "${!BIG_FOLDERS[@]}"; do
+  DATASET="${BIG_FOLDERS[$idx]}"
+  MODEL_DIR="${MODEL_DIRS[$idx]}"
+  echo "=== Processing ${DATASET} ==="
+  echo "Using model dir: ${MODEL_DIR}"
     TRAIN_JSON="${DATA_ROOT}/${DATASET}/30/train.json"
     TEST_JSON="${DATA_ROOT}/${DATASET}/30/test.json"
     ALL_JSON="${DATA_ROOT}/${DATASET}/30/train-all.json"
@@ -99,8 +110,8 @@ cl_config:
 
 EOF
 
-    echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
-    python run_pipeline.py --c $CONFIG_FILE --wandb --eval_per_epoch --save_best_model --pretrained_weights bioclip2 --lora_bottleneck 8
+  echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
+  python run_pipeline.py --c $CONFIG_FILE --wandb --resume --eval_per_epoch --save_best_model --pretrained_weights bioclip2 --lora_bottleneck 8
 
 #     # === Robust log path discovery ===
 #     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/zs_common/"

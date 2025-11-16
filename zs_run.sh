@@ -1,7 +1,15 @@
 #!/bin/bash
 
+# Read dataset paths from train_list.txt (one dataset per line)
+# Check if train_list.txt exists
+if [ ! -f "train_list.txt" ]; then
+    echo "Error: train_list.txt not found!"
+    echo "Please create train_list.txt with one dataset path per line."
+    exit 1
+fi
+
 # Read datasets from file into array
-readarray -t ALL_DATASETS < accum_list.txt
+readarray -t ALL_DATASETS < uselist/zs_list.txt
 
 # Remove empty lines and trim whitespace
 TEMP_DATASETS=()
@@ -58,13 +66,13 @@ for lr in "${LEARNING_RATES[@]}"; do
         
         # Create a space-separated string of datasets for this job
         IFS=' ' datasets_string="${job_datasets[*]}"
-        datasets_string="${datasets_string/_//}"  # Replace first _ with / to get original dataset names
+        # datasets_string="${datasets_string/_//}"
         
         job_counter=$((job_counter + 1))
         echo "Job $job_counter/$TOTAL_SUBMISSIONS: LR=$lr, Processing datasets ${start_index}-${end_index}"
         echo "  Datasets: ${datasets_string}"
         
-        sbatch script2/sbatch_run_accum.sh "${datasets_string}" "$lr"
+        sbatch script2/sbatch_run_rare_zs.sh "${datasets_string}" "$lr"
     done
 done
 
