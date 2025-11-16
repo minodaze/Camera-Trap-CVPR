@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Read datasets from file into array
-readarray -t ALL_DATASETS < accum_list.txt
+readarray -t ALL_DATASETS < best_accum_list.txt
 
 # Remove empty lines and trim whitespace
 TEMP_DATASETS=()
@@ -63,8 +63,8 @@ for lr in "${LEARNING_RATES[@]}"; do
         job_counter=$((job_counter + 1))
         echo "Job $job_counter/$TOTAL_SUBMISSIONS: LR=$lr, Processing datasets ${start_index}-${end_index}"
         echo "  Datasets: ${datasets_string}"
-        
-        sbatch script2/sbatch_run_accum.sh "${datasets_string}" "$lr"
+
+        sbatch script2/sbatch_run_best_accum.sh "${datasets_string}" "$lr"
     done
 done
 

@@ -9,10 +9,10 @@ if [ ! -f "train_list.txt" ]; then
 fi
 
 # Read datasets from file into array
-readarray -t ALL_DATASETS < eval_dataset.txt
+readarray -t ALL_DATASETS < uselist/eval_dataset.txt
 
 # Read model directories from model_dirs.txt (one directory per line)
-readarray -t MODEL_DIRS < model_path.txt
+readarray -t MODEL_DIRS < uselist/eval_model_path.txt
 
 # Remove empty lines and trim whitespace
 TEMP_DATASETS=()
@@ -43,7 +43,7 @@ fi
 # LEARNING_RATES=(0.000001 0.0000025 0.000005 0.00001 0.000025 0.00005 0.0001 0.00025 0.0005 )
 LEARNING_RATES=(0.000025)
 # Number of datasets to process per sbatch job
-DATASETS_PER_JOB=3
+DATASETS_PER_JOB=1
 
 # Calculate total number of jobs needed
 TOTAL_DATASETS=${#ALL_DATASETS[@]}
@@ -100,12 +100,16 @@ for lr in "${LEARNING_RATES[@]}"; do
         
         for i in "${!job_datasets[@]}"; do
             dataset="${job_datasets[$i]}"
+            dataset="${dataset/_//}"
             model_dir="${job_model_dirs[$i]}"
             json_path="${model_dir}/final_training_summary.json"
             # Check if model directory exists
             if [ -f "$json_path" ]; then
                 echo "  ✓ Model directory exists: $json_path"
-                sbatch script/sbatch_accu_eval_lora_bsm_accu.sh "${dataset}" "$lr" "${model_dir}"
+
+                sbatch script2/sbatch_run_accu_eval_best_accum.sh "${dataset}" "$lr" "${model_dir}"
+                    # sbatch script2/sbatch_eval_best_oracle.sh "${dataset}" "$lr" "${model_dir}" "$r"
+                    # sbatch script2/sbatch_eval_keep_head_lora_bsm_accu.sh "${dataset}" "$lr" "${model_dir}" "$r"
             else
                 echo "  ✗ Skipping ${dataset}: Model directory not found: $model_dir"
                 continue

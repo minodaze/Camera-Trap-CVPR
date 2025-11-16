@@ -93,7 +93,12 @@ class CLModule(ABC):
             if next_test_loader is None:
                 next_test_loader = getattr(self.args, '_next_test_loader', None)
             
-                train(classifier, 
+            ckp_list = eval_dset.get_ckp_list()
+            test_log_prefix = ''
+            for ckp_item in ckp_list:
+                test_log_prefix += f"{ckp_item}_"
+
+            train(classifier, 
                     optimizer, 
                     cl_train_loader, 
                     self.cl_config['epochs'], 
@@ -112,6 +117,8 @@ class CLModule(ABC):
                     next_test_loader=next_test_loader,
                     test_type="NEXT",
                     grad_accum_steps=grad_accum_steps)
+                    test_log_prefix=test_log_prefix,
+                    test_type="NEXT")
 
     @abstractmethod
     def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None):
@@ -197,7 +204,7 @@ class CLAccumulative(CLModule):
 class CLAccumulativeScratch(CLModule):
     """Accumulative training with scratch. Fine-tune the classifier on all samples seen so far, but use a new classifier each time.
     """
-    def process(self, _, train_dset, eval_dset, train_mask, eval_per_epoch=True, eval_loader=None, ckp=None, gpu_monitor=None):
+    def process(self, _, train_dset, eval_dset, train_mask, eval_per_epoch=True, eval_loader=None, ckp=None, gpu_monitor=None, next_test_loader=None):
         # global idx
         classifier = copy.deepcopy(self._classifier)
         
@@ -211,7 +218,7 @@ class CLAccumulativeScratch(CLModule):
         cl_train_dset.add_samples(self.buffer)
         
         # Train
-        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True)
+        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True, next_test_loader=next_test_loader)
         
         # Process buffer
         for msk, sample in zip(train_mask, train_dset.samples):

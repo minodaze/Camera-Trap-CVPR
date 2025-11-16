@@ -63,11 +63,11 @@ for DATASET in "${BIG_FOLDERS[@]}"; do
     CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}/best_accum_lr${LEARNING_RATE}.yaml"
 
     mkdir -p "${CONFIG_ROOT}/${DATASET//\//_}"
-    mkdir -p "/fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/best_accum/${DATASET//\//_}"
+    mkdir -p "/fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/bsm_accum/${DATASET//\//_}"
 
     cat <<EOF > $CONFIG_FILE
 module_name: best_accum_lora_bsm
-log_path: /fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/best_accum/${DATASET//\//_}
+log_path: /fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/bsm_accum/${DATASET//\//_}
 
 common_config:
   model: bioclip2
@@ -100,7 +100,7 @@ cl_config:
 EOF
 
     echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
-    python run_pipeline.py --c $CONFIG_FILE --wandb --eval_per_epoch --save_best_model --pretrained_weights bioclip2 --lora_bottleneck 8
+    python run_pipeline.py --c $CONFIG_FILE --wandb --eval_per_epoch --save_best_model --pretrained_weights bioclip2 --full
 
 #     # === Robust log path discovery ===
 #     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/zs_common/"

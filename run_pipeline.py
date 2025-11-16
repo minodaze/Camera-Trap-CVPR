@@ -71,10 +71,13 @@ def setup_logging(log_path, debug, params):
     log_path = os.path.join(log_path, params.pretrained_weights)
 
     petl_method_name = petl_method_name + f'_text_{params.text}'
-    if params.interpolation_model:
-        petl_method_name += f'_interpolation_model_{params.interpolation_alpha}'
-    if params.eval_only and params.merge_factor is not None:
-        petl_method_name += f'_merge_factor_{params.merge_factor}'
+    if params.eval_only:
+        if params.lora_interpolate:
+            petl_method_name += f'_lora_interpolate_{params.lora_alpha}'
+        if params.eval_on_train:
+            petl_method_name += f'_eval_on_train'
+        if params.interpolation_model:
+            petl_method_name += f'_interpolation_model_{params.interpolation_alpha}'
     log_path = os.path.join(log_path, petl_method_name)
     if params.al_config and params.al_config.get('method') != 'none':
         al = params.al_config.get('method', 'none')
@@ -379,8 +382,17 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
         # Create individual test loaders for each checkpoint
         test_loaders = {}
         available_ckps = []
-        for ckp in ckp_list:
-            try:
+        try:
+            # ckp_test_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp_list)
+            # if len(ckp_test_dset) > 0:
+            #     eval_batch_size = common_config.get('eval_batch_size', train_batch_size)
+            #     test_loader = DataLoader(ckp_test_dset, batch_size=eval_batch_size, shuffle=False, num_workers=4, worker_init_fn=worker_init_fn)
+            #     test_loaders = test_loader
+            #     available_ckps = ckp_list
+            #     log_info(f"✅ Checkpoint {ckp_list}: {len(ckp_test_dset)} test samples", Colors.GREEN)
+            # else:
+            #     log_info(f"⚠️  Checkpoint {ckp_list}: no test samples found", Colors.YELLOW)
+            for ckp in ckp_list:
                 ckp_test_dset = eval_dset.get_subset(is_train=False, ckp_list=[ckp])
                 if len(ckp_test_dset) > 0:
                     eval_batch_size = common_config.get('eval_batch_size', train_batch_size)
@@ -390,13 +402,14 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
                     log_info(f"✅ Checkpoint {ckp}: {len(ckp_test_dset)} test samples", Colors.GREEN)
                 else:
                     log_info(f"⚠️  Checkpoint {ckp}: no test samples found", Colors.YELLOW)
-            except Exception as e:
-                logging.warning(f"Could not load test data for checkpoint {ckp}: {e}")
+        except Exception as e:
+            logging.warning(f"Could not load test data for checkpoint {ckp_list}: {e}")
         
         if test_loaders:
             # Store the dictionary of test loaders instead of a single loader
             next_test_loader = test_loaders
-            total_samples = sum(len(loader.dataset) for loader in test_loaders.values())
+            # total_samples = len(next_test_loader.dataset)
+            total_samples = sum(len(eval_dset.get_subset(is_train=False, ckp_list=[ckp])) for ckp in available_ckps)
             log_info(f"Upper bound test per epoch: individual test loaders for checkpoints {available_ckps} ({total_samples} total samples)", Colors.RED)
             log_info(f"TEST* computes average performance across {len(available_ckps)} individual test checkpoints", Colors.RED)
         else:
@@ -464,13 +477,14 @@ def run(args):
         log_step(2, "Initializing Weights & Biases logging")
         
         # Extract components from the original save_dir
-        match = re.search(r"logs/([^/]+)/([^/]+)/([^/]+)/", getattr(args, "save_dir"))
-        wandb_run_name = "Train"
+        match = re.search(r"logs/([^/]+)/([^/]+)/([^/]+)/([^/]+)/", getattr(args, "save_dir"))
+        wandb_run_name = f"Train {getattr(args, 'save_dir')}"
         if match:
-            dataset = match.group(1)
+            dir_name = match.group(1)
             setting = match.group(2)
+            dataset = match.group(3)
             # Construct the wandb run name
-            wandb_run_name = f"Train | {dataset} | {setting}"
+            wandb_run_name = f"Train | {dir_name} | {setting} | {dataset}"
 
         module_name = getattr(args, 'module_name', 'default_module')  # Fallback if module_name is not in args
         wandb.init(
@@ -527,6 +541,8 @@ def run(args):
 
     rare_path = common_config.get('rare_data_config_path', None)
     if rare_path:
+        log_info(f"Including rare classes from {rare_path}", Colors.CYAN)
+        log_info(f"Original number of classes before adding rare classes: {len(class_names)}", Colors.CYAN)
         with open(rare_path, 'r') as fin:
             data_rare = json.load(fin)
         for key, value in data_rare.items():
@@ -534,7 +550,7 @@ def run(args):
                 if v[label_type] not in class_names:
                     class_names.append(v[label_type])
         del data_rare  # Clear data to free memory
-        log_info(f"Including rare classes from {rare_path}", Colors.CYAN)
+        log_info(f"Number of classes after adding rare classes: {len(class_names)}", Colors.CYAN)
 
     logging.info(f"Extracted {len(class_names)} unique classes from datasets using label type '{label_type}'")
 
@@ -567,10 +583,13 @@ def run(args):
     
     # Prepare dataset
     train_dset = CkpDataset(common_config["train_data_config_path"], class_names, is_crop=is_crop, label_type=label_type)
+
+    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type)
     if rare_path:
-        eval_dset = CkpDataset(rare_path, class_names, label_type=label_type)
-    else:
-        eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type)
+        log_info(f"Including rare evaluation data from {rare_path}, original evaluation data length: {len(eval_dset)}", Colors.CYAN)
+        rare_eval_dset = CkpDataset(rare_path, class_names, label_type=label_type)
+        eval_dset.add_samples(rare_eval_dset.samples)
+        log_info(f"New evaluation data length after adding rare data: {len(eval_dset)}", Colors.CYAN)
     
     # Monitor dataset memory usage if enabled
     if args.gpu_memory_monitor:
@@ -654,7 +673,7 @@ def run(args):
     if args.plot_text_F:
         plot_text_F(classifier, class_names, args, prefix='text_feature_')
         # Note: Continue with normal execution after plotting
-    
+
     # Initialize modules
     ood_module = get_ood_module(ood_config, common_config, class_names, args, args.device)
     al_module = get_al_module(al_config, common_config, class_names, args, args.device)
@@ -682,8 +701,70 @@ def run(args):
     AL_summary = {}
     if args.lora_interpolate:
         lora_inter_json = {ckp: {} for ckp in ckp_list}
+
+    log_section_start("🔍 TRAINING MODE DETECTION", Colors.BRIGHT_GREEN)
+    start_epoch = 0
+
+    if args.resume and not pretrain_config['pretrain'] and args.save_dir and os.path.exists(args.save_dir):
+        log_info("Resume mode enabled. Detecting training mode and available model files...", Colors.CYAN)
+        # Detect training mode by checking what model files exist
+        model_file_mapping = {}
+        training_mode = None
+        
+        # Check for upper bound (full training) - single pretrain_best_model.pth
+        upperbound_model_path = args.save_dir if 'pretrain_best_model.pth' in args.save_dir else os.path.join(args.save_dir, 'pretrain_best_model.pth')
+
+        if os.path.exists(upperbound_model_path):
+            # Upper bound training - one model for all checkpoints
+            training_mode = "upper_bound"
+            for ckp in ckp_list:
+                model_file_mapping[ckp] = upperbound_model_path
+            log_success("Detected UPPER BOUND training mode")
+            log_info(f"Using single model file: {upperbound_model_path}", Colors.GREEN)
+            log_info(f"Will evaluate this model on all {len(ckp_list)} checkpoints: {ckp_list}", Colors.GREEN)
+        else:
+            # Check for accumulative training files (ckp_X_best_model.pth)
+            for ckp in ckp_list:
+                if ckp == 'ckp_1':
+                    # For ckp_1, use the original pretrained model (zero-shot)
+                    model_file_mapping[ckp] = 'pretrained_model'  # Special marker for pretrained model
+                    if training_mode is None:
+                        training_mode = "accumulative"
+                    log_info(f"Using original pretrained model for {ckp} (zero-shot)", Colors.BLUE)
+                else:
+                    acc_model_path = os.path.join(args.save_dir, f'ckp_{ckp}_best_model.pth')
+                    if os.path.exists(acc_model_path):
+                        model_file_mapping[ckp] = acc_model_path
+                        if training_mode is None:
+                            training_mode = "accumulative"
+                    else:
+                        log_warning(f"No model file found for {ckp}: {acc_model_path}")
+            
+            if training_mode == "accumulative":
+                log_success("Detected ACCUMULATIVE training mode")
+                log_info(f"Found model files for {len(model_file_mapping)} checkpoints", Colors.BLUE)
+        
+        if not model_file_mapping:
+            error_msg = f"No model files found in {args.save_dir}. Expected either:\n"
+            error_msg += f"  - Upper bound training: pretrain_best_model.pth directly in {args.save_dir}\n"
+            error_msg += f"  - Accumulative training: ckp_X_best_model.pth files directly in {args.save_dir}"
+            log_error(error_msg)
+        else:
+            log_info(f"Model file mapping length: {len(model_file_mapping)}", Colors.CYAN)
+            start_epoch = len(model_file_mapping) - 1  # Start from the last available checkpoint to resume training
+            log_info(f"Resuming training from checkpoint index: {ckp_list[start_epoch]}", Colors.CYAN)
+    else:
+        log_info(f"Model directory: {args.save_dir}", Colors.CYAN)
+        log_info(f"Model directory exists: {os.path.exists(args.save_dir)}", Colors.CYAN)
+        log_info(f"Resume flag: {args.resume}", Colors.CYAN)
+        log_info("Starting training from the beginning (no resume).", Colors.CYAN)
+
+    if pretrain_config['pretrain']:
+        log_info("Pretraining mode detected. Skipping resume logic.", Colors.YELLOW)
+        start_epoch = 0
+
     # Main loop
-    for i in range(len(ckp_list)):
+    for i in range(start_epoch, len(ckp_list)):
         # Get checkpoint
         ckp_prev = ckp_list[i - 1] if i > 0 else None
         ckp = ckp_list[i]
@@ -889,6 +970,17 @@ def run(args):
         # Run continual learning
         log_step(3, f"Continual Learning ({cl_config.get('method', 'none')})", Colors.GREEN)
         
+        # Sanity check for parameters
+        # if args.debug:
+        #     for name, param in classifier.named_parameters():
+        #         if param.requires_grad:
+        #             logging.info(f"[DEBUG] Parameter to be updated in continual learning: {name}, {param.shape}")
+
+        if args.test_per_epoch:
+            log_info("Test per epoch enabled for continual learning", Colors.RED)
+            eval_batch_size = common_config.get('eval_batch_size', 128)
+            next_test_loader = DataLoader(ckp_eval_dset, batch_size=eval_batch_size, shuffle=False, num_workers=4, worker_init_fn=worker_init_fn)
+
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("continual_learning", f"before_{ckp}")
         if not pretrain_config['pretrain']:
@@ -900,7 +992,8 @@ def run(args):
                 eval_per_epoch=args.eval_per_epoch, 
                 eval_loader=cl_validation_loader, 
                 ckp=ckp,
-                gpu_monitor=gpu_monitor if args.gpu_memory_monitor else None
+                gpu_monitor=gpu_monitor if args.gpu_memory_monitor else None,
+                next_test_loader=next_test_loader if args.test_per_epoch else None
             )
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("continual_learning", f"after_{ckp}")
@@ -1315,6 +1408,10 @@ def run_eval_only(args):
     # Build classifier architecture (same as training)
     classifier = build_classifier(args, class_names, args.device)
     log_success("Classifier built successfully")
+
+    if args.debug:
+        for name, param in classifier.named_parameters():
+            logging.info(f"[DEBUG] Classifier parameter norm and shape: {name}, {param.norm()}, {param.shape}")
     
     if args.gpu_memory_monitor:
         gpu_monitor.log_memory_usage("model_load", "after_build")
@@ -1322,10 +1419,18 @@ def run_eval_only(args):
     
     log_section_start("📊 DATASET PREPARATION", Colors.BRIGHT_YELLOW)
     # Prepare dataset
-    if rare_path:
-        eval_dset = CkpDataset(rare_path, class_names, is_train=False, label_type=label_type)
+    if args.eval_on_train:
+        # eval_dset = CkpDataset(common_config["all_data_config_path"], class_names, is_train=False, label_type=label_type)
+        eval_dset = CkpDataset(common_config["train_data_config_path"], class_names, is_train=False, label_type=label_type)
     else:
         eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, is_train=False, label_type=label_type)
+    if rare_path:
+        log_info(f"Including rare evaluation data from {rare_path}, original evaluation data length: {len(eval_dset)}", Colors.CYAN)
+        rare_eval_dset = CkpDataset(rare_path, class_names, label_type=label_type)
+        eval_dset.add_samples(rare_eval_dset.samples)
+        log_info(f"New evaluation data length after adding rare data: {len(eval_dset)}", Colors.CYAN)
+    
+    
     # Get checkpoint list
     ckp_list = eval_dset.get_ckp_list()
     log_info(f"Available checkpoints in dataset: {ckp_list}", Colors.CYAN)
@@ -1420,110 +1525,315 @@ def run_eval_only(args):
     log_section_start("🎯 CHECKPOINT EVALUATION", Colors.BRIGHT_MAGENTA)
     # Run evaluation for each checkpoint
     eval_results = {}
+    if rare_path:
+        rare_results = {}
+        log_info(f"Including rare evaluation data from {rare_path}, evaluate on rare species alone", Colors.CYAN)
     
     # Save zs backbone for interpolation if needed
-    if args.interpolation_model or args.interpolation_head:
+    if args.interpolation_model or args.interpolation_head or args.lora_interpolate:
         _classifier = copy.deepcopy(classifier)
         _classifier = _classifier.to(args.device)
 
-    preds = {}
-    for i, ckp in enumerate(ckp_list):
-        log_subsection_start(f"📊 Evaluating Checkpoint {ckp} ({i+1}/{len(ckp_list)})", Colors.CYAN)
-        
-        log_step(1, f"Loading model weights", Colors.BLUE)
-        # Load model weights for this checkpoint
-        model_path = model_file_mapping[ckp]
+    if args.eval_on_train:
+        if os.path.exists(upperbound_model_path):
+            log_info(f"Both --eval_on_train and upper bound model detected. Evaluating upper bound model on training data.", Colors.CYAN)
+            state_dict = torch.load(upperbound_model_path, map_location=args.device)
+            classifier.load_state_dict(state_dict)
+            classifier.to(args.device)
+            classifier.eval()
+            log_success(f"Loaded upper bound model weights from {upperbound_model_path} for training data evaluation")
+        else:
+            raise ValueError("For --eval_on_train, an upper bound model (pretrain_best_model.pth) must be provided.")
+        log_info("Evaluation on training data enabled", Colors.CYAN)
+        preds = {}
+        log_step(2, f"Preparing evaluation dataset", Colors.YELLOW)
+        # Get evaluation dataset for this checkpoint
+        log_info(f"Evaluation dataset size for all train data: {len(eval_dset)}", Colors.CYAN)
 
-        preds[ckp] = {}
-        
-        try:
-            if model_path == 'pretrained_model':
-                # For ckp_1, use the original pretrained model (already loaded in classifier)
-                log_info(f"Using original pretrained model for {ckp} (zero-shot)", Colors.GREEN)
-                # classifier is already the pretrained model, no need to load anything
-                classifier.to(args.device)
-                classifier.eval()
-            else:
-                log_info(f"Loading model from {model_path}", Colors.GREEN)
-                state_dict = torch.load(model_path, map_location=args.device)
-                log_success(f"Loaded model weights from {model_path}")
-                # Handle expanded head case with shape mismatch protection
-                current_state_dict = classifier.state_dict()
-                    
-                # Filter out head parameters that have shape mismatches
-                filtered_state_dict = {}
-                for key, value in state_dict.items():
-                    if key in current_state_dict:
-                        current_shape = current_state_dict[key].shape
-                        saved_shape = value.shape
+        if len(eval_dset) == 0:
+            log_warning(f"No evaluation data found for all train data. Skipping evaluation.")
+            return
+                
+        # Create data loader
+        eval_loader = DataLoader(
+            eval_dset, 
+            batch_size=common_config['eval_batch_size'], 
+            shuffle=False, 
+            num_workers=4
+        )
+        log_success("Data loader created successfully")
+
+        log_step(3, f"Running model evaluation", Colors.GREEN)
+        # Run evaluation
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("evaluation", f"before_all_train")
+
+        loss_arr, preds_arr, labels_arr, pred_true, pred_false = eval(
+                    classifier, 
+                    eval_loader, 
+                    args.device, 
+                    chop_head=common_config['chop_head']
+                )
+
+        preds = {
+                    'preds_true': pred_true,
+                    'preds_false': pred_false
+                }
+
+        if args.gpu_memory_monitor:
+            gpu_monitor.log_memory_usage("evaluation", f"after_all_train")
+                
+        log_success("Model evaluation completed")
+
+        log_step(4, f"Computing metrics", Colors.MAGENTA)
+        # Calculate and log metrics
+        acc, balanced_acc = print_metrics(
+                    loss_arr, 
+                    preds_arr, 
+                    labels_arr, 
+                    len(class_names),
+                    log_predix=f"📊 All Train: "
+                )
+        eval_loss = np.mean(loss_arr)
+
+        # Log metrics with colors
+        log_metric("Accuracy", acc, ".4f", Colors.BRIGHT_GREEN)
+        log_metric("Balanced Accuracy", balanced_acc, ".4f", Colors.BRIGHT_GREEN)
+        log_metric("Evaluation Loss", eval_loss, ".4f", Colors.BRIGHT_BLUE)
+
+        # Store results (convert numpy types to Python types for JSON serialization)
+        eval_results = {
+                    'accuracy': float(acc),
+                    'balanced_accuracy': float(balanced_acc),
+                    'loss': float(eval_loss),
+                    'num_samples': int(len(eval_dset))
+                }
+
+        # Log to wandb if enabled
+        if args.wandb:
+            log_info(f"📈 Logging metrics to W&B: all train data", Colors.CYAN)
+            wandb.log({
+                "eval/accuracy": acc,
+                "eval/balanced_accuracy": balanced_acc,
+                "eval/loss": eval_loss,
+                "eval/num_samples": len(eval_dset)
+            })
+                
+        log_step(5, f"Saving results", Colors.BLUE)
+        # Save predictions if requested
+        if args.save_predictions:
+            pred_path = os.path.join(args.save_dir, f'eval_preds.pkl')
+            with open(pred_path, 'wb') as f:
+                pickle.dump((preds_arr, labels_arr), f)
+            log_success(f"Predictions saved to {pred_path}")
+                
+        # Clear GPU cache between checkpoints
+        if args.gpu_memory_monitor:
+            gpu_monitor.clear_cache_and_log(f"eval_all_train")     
+    else:
+        log_info("Evaluation on test data", Colors.CYAN)
+        preds = {}
+        for i, ckp in enumerate(ckp_list):
+            log_subsection_start(f"📊 Evaluating Checkpoint {ckp} ({i+1}/{len(ckp_list)})", Colors.CYAN)
+            
+            log_step(1, f"Loading model weights", Colors.BLUE)
+            # Load model weights for this checkpoint
+            model_path = model_file_mapping[ckp]
+
+            preds[ckp] = {}
+            
+            try:
+                if model_path == 'pretrained_model':
+                    # For ckp_1, use the original pretrained model (already loaded in classifier)
+                    log_info(f"Using original pretrained model for {ckp} (zero-shot)", Colors.GREEN)
+                    # classifier is already the pretrained model, no need to load anything
+                    classifier.to(args.device)
+                    classifier.eval()
+                else:
+                    log_info(f"Loading model from {model_path}", Colors.GREEN)
+                    state_dict = torch.load(model_path, map_location=args.device)
+                    log_success(f"Loaded model weights from {model_path}")
+                    # Handle expanded head case with shape mismatch protection
+                    current_state_dict = classifier.state_dict()
                         
-                        if current_shape == saved_shape:
-                            # Shapes match, safe to load
-                            filtered_state_dict[key] = value
-                        elif 'head' in key:
-                            # Head parameter with shape mismatch - handle carefully
-                            if key == 'head.weight':
-                                # Copy only the overlapping classes
-                                min_classes = min(current_shape[0], saved_shape[0])
-                                current_state_dict[key][:min_classes] = value[:min_classes]
-                                log_info(f"Copied {min_classes} class weights for head.weight", Colors.YELLOW)
-                            elif key == 'head.bias':
-                                # Copy only the overlapping classes
-                                min_classes = min(current_shape[0], saved_shape[0])
-                                current_state_dict[key][:min_classes] = value[:min_classes]
-                                log_info(f"Copied {min_classes} class biases for head.bias", Colors.YELLOW)
+                    # Filter out head parameters that have shape mismatches
+                    filtered_state_dict = {}
+                    for key, value in state_dict.items():
+                        if key in current_state_dict:
+                            current_shape = current_state_dict[key].shape
+                            saved_shape = value.shape
+                            
+                            if current_shape == saved_shape:
+                                # Shapes match, safe to load
+                                if args.skip_head and 'head' in key:
+                                    log_info(f"Skipping head parameter {key} to keep the original head weights", Colors.YELLOW)
+                                    continue
+                                filtered_state_dict[key] = value
+                            elif 'head' in key:
+                                # Head parameter with shape mismatch - handle carefully                            
+                                if key == 'head.weight':
+                                    # Copy only the overlapping classes
+                                    min_classes = min(current_shape[0], saved_shape[0])
+                                    current_state_dict[key][:min_classes] = value[:min_classes]
+                                    log_info(f"Copied {min_classes} class weights for head.weight", Colors.YELLOW)
+                                elif key == 'head.bias':
+                                    # Copy only the overlapping classes
+                                    min_classes = min(current_shape[0], saved_shape[0])
+                                    current_state_dict[key][:min_classes] = value[:min_classes]
+                                    log_info(f"Copied {min_classes} class biases for head.bias", Colors.YELLOW)
+                                else:
+                                    log_warning(f"Skipping head parameter {key} due to shape mismatch: {saved_shape} vs {current_shape}")
                             else:
-                                log_warning(f"Skipping head parameter {key} due to shape mismatch: {saved_shape} vs {current_shape}")
+                                log_warning(f"Skipping parameter {key} due to shape mismatch: {saved_shape} vs {current_shape}")
                         else:
-                            log_warning(f"Skipping parameter {key} due to shape mismatch: {saved_shape} vs {current_shape}")
-                    else:
-                        log_warning(f"Unexpected key in checkpoint: {key}")
-                
-                # Load the filtered state dict
-                missing_keys, unexpected_keys = classifier.load_state_dict(filtered_state_dict, strict=False)
-                
-                # Log what happened during loading
-                if missing_keys:
-                    head_missing = [k for k in missing_keys if 'head' in k]
-                    other_missing = [k for k in missing_keys if 'head' not in k]
+                            log_warning(f"Unexpected key in checkpoint: {key}")
                     
-                    if head_missing:
-                        log_info(f"Expected missing head parameters for expanded classes: {len(head_missing)} keys", Colors.YELLOW)
-                    if other_missing:
-                        log_warning(f"Unexpected missing parameters: {other_missing}")
+                    # Load the filtered state dict
+                    missing_keys, unexpected_keys = classifier.load_state_dict(filtered_state_dict, strict=False)
                     
-                if unexpected_keys:
-                    log_warning(f"Unexpected keys in checkpoint: {unexpected_keys}")
-                    
-                log_success("Model loaded successfully with expanded head handling")
-                classifier.to(args.device)
-                classifier.eval()
+                    # Log what happened during loading
+                    if missing_keys:
+                        head_missing = [k for k in missing_keys if 'head' in k]
+                        other_missing = [k for k in missing_keys if 'head' not in k]
+                        if head_missing:
+                            log_info(f"Expected missing head parameters for expanded classes: {len(head_missing)} keys", Colors.YELLOW)
+                        if other_missing:
+                            log_warning(f"Unexpected missing parameters: {other_missing}")
+                        log_info(f"Total missing keys: {len(missing_keys)}", Colors.YELLOW)
+                        
+                    if unexpected_keys:
+                        log_warning(f"Unexpected keys in checkpoint: {unexpected_keys}")
+                        
+                    log_success("Model loaded successfully with expanded head handling")
+                    classifier.to(args.device)
+                    classifier.eval()
 
-            if (args.interpolation_model or args.interpolation_head) and _classifier is not None:
-                logging.info(f"Interpolating model at checkpoint {ckp} with alpha {args.interpolation_alpha}")
-                classifier.interpolate_model(_classifier, alpha=args.interpolation_alpha)
+                if (args.interpolation_model or args.interpolation_head) and _classifier is not None:
+                    logging.info(f"Interpolating model at checkpoint {ckp} with alpha {args.interpolation_alpha}")
+                    classifier.interpolate_model(_classifier, alpha=args.interpolation_alpha)
+
+                if args.lora_interpolate and args.lora_bottleneck > 0 and _classifier is not None:
+                    logging.info(f"Setting up LoRA interpolation with bottleneck {args.lora_bottleneck} and alpha {args.lora_alpha}")
+                    classifier.interpolate_lora(_classifier, args.lora_alpha)
+                    
+                if args.gpu_memory_monitor:
+                    gpu_monitor.log_memory_usage("model_load", f"after_load_{ckp}")
                 
-            if args.gpu_memory_monitor:
-                gpu_monitor.log_memory_usage("model_load", f"after_load_{ckp}")
-            
-            log_success("Model loaded successfully")
+                log_success("Model loaded successfully")
                 
-        except Exception as e:
-            log_error(f"Failed to load model for {ckp}: {e}")
-            continue
-        
-        if args.accu_eval:
-            eval_results[ckp] = {}
+                if args.debug:
+                    for name, param in classifier.named_parameters():
+                        logging.info(f"[DEBUG] Classifier parameter norm and shape after load: {name}, {param.norm()}, {param.shape}")
+
+            except Exception as e:
+                log_error(f"Failed to load model for {ckp}: {e}")
+                continue
             
-            for idx in range(i, len(ckp_list)):
+            if args.accu_eval:
+                eval_results[ckp] = {}
+                
+                for idx in range(i, len(ckp_list)):
+                    log_step(2, f"Preparing evaluation dataset", Colors.YELLOW)
+                    accu_ckp = ckp_list[idx]
+                    log_info(f"Accumulating evaluation for checkpoint {accu_ckp}", Colors.YELLOW)
+                    ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=accu_ckp)
+                    log_info(f"Evaluation dataset size for {accu_ckp}: {len(ckp_eval_dset)}", Colors.CYAN)
+                    
+                    if len(ckp_eval_dset) == 0:
+                        log_warning(f"No evaluation data found for checkpoint {accu_ckp}")
+                        continue
+                    
+                    # Create data loader
+                    eval_loader = DataLoader(
+                        ckp_eval_dset, 
+                        batch_size=common_config['eval_batch_size'], 
+                        shuffle=False, 
+                        num_workers=4
+                    )
+                    log_success("Data loader created successfully")
+                    
+                    log_step(3, f"Running model evaluation", Colors.GREEN)
+                    # Run evaluation
+                    if args.gpu_memory_monitor:
+                        gpu_monitor.log_memory_usage("evaluation", f"before_{accu_ckp}")
+                        
+                    loss_arr, preds_arr, labels_arr, pred_true, pred_false = eval(
+                        classifier, 
+                        eval_loader, 
+                        args.device, 
+                        chop_head=common_config['chop_head']
+                    )
+                    
+                    preds[ckp][accu_ckp] = {
+                        'preds_true': pred_true,
+                        'preds_false': pred_false
+                    }
+
+                    if args.gpu_memory_monitor:
+                        gpu_monitor.log_memory_usage("evaluation", f"after_{accu_ckp}")
+                    
+                    acc, balanced_acc = print_metrics(
+                        loss_arr, 
+                        preds_arr, 
+                        labels_arr, 
+                        len(class_names),
+                        log_predix=f"📊 {ckp}: "
+                    )
+                    eval_loss = np.mean(loss_arr)
+                
+                    # Log metrics with colors
+                    log_metric(f"Accuracy for ckp {accu_ckp} using ckp model {ckp}", acc, ".4f", Colors.BRIGHT_GREEN)
+                    log_metric(f"Balanced Accuracy for ckp {accu_ckp} using ckp model {ckp}", balanced_acc, ".4f", Colors.BRIGHT_GREEN)
+                    log_metric(f"Evaluation Loss for ckp {accu_ckp} using ckp model {ckp}", eval_loss, ".4f", Colors.BRIGHT_BLUE)
+
+                    # Store results (convert numpy types to Python types for JSON serialization)
+                    eval_results[ckp][accu_ckp] = {
+                        'accuracy': float(acc),
+                        'balanced_accuracy': float(balanced_acc),
+                        'loss': float(eval_loss),
+                        'num_samples': int(len(ckp_eval_dset))
+                    }
+
+                    # Compare with previous checkpoints that were also evaluated on the same data (accu_ckp)
+                    # Only compare if we're evaluating on the current checkpoint data (accu_ckp == ckp)
+                    # if accu_ckp == ckp:
+                    #     for pre in range(0, i):
+                    #         pre_ckp = ckp_list[pre]
+                    #         # Check if previous checkpoint was evaluated on this same data
+                    #         if pre_ckp in eval_results and ckp in eval_results[pre_ckp]:
+                    #             prev_balanced_acc = eval_results[pre_ckp][ckp]['balanced_accuracy']
+                    #             difference = balanced_acc - prev_balanced_acc
+                    #             eval_results[ckp][ckp]['improvement_over_' + pre_ckp] = difference
+                                    
+                    #             if difference > 0:
+                    #                 log_info(f"🎯 Model {ckp} improved over {pre_ckp} by {difference:.4f} on {ckp} data!", Colors.CYAN)
+                    #             else:
+                    #                 log_info(f"📊 Model {ckp} did not improve over {pre_ckp} on {ckp} data (Δ={difference:+.4f})", Colors.CYAN)
+
+                    log_step(5, f"Saving results", Colors.BLUE)
+                    # Save predictions if requested
+                    if args.save_predictions:
+                        pred_path = os.path.join(args.save_dir, f'{ckp}_eval_preds.pkl')
+                        with open(pred_path, 'wb') as f:
+                            pickle.dump((preds_arr, labels_arr), f)
+                        log_success(f"Predictions saved to {pred_path}")
+                    
+                    # Clear GPU cache between checkpoints
+                    if args.gpu_memory_monitor:
+                        gpu_monitor.clear_cache_and_log(f"eval_checkpoint_{ckp}")
+                    
+                    log_subsection_start(f"✅ Checkpoint {ckp} Complete", Colors.BRIGHT_GREEN)
+            else:
                 log_step(2, f"Preparing evaluation dataset", Colors.YELLOW)
-                accu_ckp = ckp_list[idx]
-                log_info(f"Accumulating evaluation for checkpoint {accu_ckp}", Colors.YELLOW)
-                ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=accu_ckp)
-                log_info(f"Evaluation dataset size for {accu_ckp}: {len(ckp_eval_dset)}", Colors.CYAN)
+                # Get evaluation dataset for this checkpoint
+                ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp)
+                if rare_path:
+                    rare_ckp_eval_dset = rare_eval_dset.get_subset(is_train=False, ckp_list=ckp)
+                    log_info(f"Getting rare species evaluation data from {rare_path} to only evaluate on rare species", Colors.CYAN)
+                log_info(f"Evaluation dataset size for {ckp}: {len(ckp_eval_dset)}", Colors.CYAN)
                 
                 if len(ckp_eval_dset) == 0:
-                    log_warning(f"No evaluation data found for checkpoint {accu_ckp}")
+                    log_warning(f"No evaluation data found for checkpoint {ckp}")
                     continue
                 
                 # Create data loader
@@ -1533,12 +1843,20 @@ def run_eval_only(args):
                     shuffle=False, 
                     num_workers=4
                 )
+                if rare_path:
+                    rare_eval_loader = DataLoader(
+                        rare_ckp_eval_dset, 
+                        batch_size=common_config['eval_batch_size'], 
+                        shuffle=False, 
+                        num_workers=4
+                    )
+                
                 log_success("Data loader created successfully")
                 
                 log_step(3, f"Running model evaluation", Colors.GREEN)
                 # Run evaluation
                 if args.gpu_memory_monitor:
-                    gpu_monitor.log_memory_usage("evaluation", f"before_{accu_ckp}")
+                    gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
                     
                 loss_arr, preds_arr, labels_arr, pred_true, pred_false = eval(
                     classifier, 
@@ -1546,15 +1864,27 @@ def run_eval_only(args):
                     args.device, 
                     chop_head=common_config['chop_head']
                 )
-                
-                preds[ckp][accu_ckp] = {
+                if rare_path:
+                    log_info(f"Running evaluation on rare species data from {rare_path}", Colors.CYAN)
+                    loss_arr_rare, preds_arr_rare, labels_arr_rare, pred_true_rare, pred_false_rare = eval(
+                        classifier, 
+                        rare_eval_loader, 
+                        args.device, 
+                        chop_head=common_config['chop_head']
+                    )
+
+                preds[ckp] = {
                     'preds_true': pred_true,
                     'preds_false': pred_false
                 }
 
                 if args.gpu_memory_monitor:
-                    gpu_monitor.log_memory_usage("evaluation", f"after_{accu_ckp}")
+                    gpu_monitor.log_memory_usage("evaluation", f"after_{ckp}")
                 
+                log_success("Model evaluation completed")
+                
+                log_step(4, f"Computing metrics", Colors.MAGENTA)
+                # Calculate and log metrics
                 acc, balanced_acc = print_metrics(
                     loss_arr, 
                     preds_arr, 
@@ -1562,15 +1892,33 @@ def run_eval_only(args):
                     len(class_names),
                     log_predix=f"📊 {ckp}: "
                 )
+                if rare_path:
+                    log_info(f"Computing metrics for rare species data from {rare_path}", Colors.CYAN)
+                    acc_rare, balanced_acc_rare = print_metrics(
+                        loss_arr_rare, 
+                        preds_arr_rare, 
+                        labels_arr_rare, 
+                        len(class_names),
+                        log_predix=f"📊 {ckp} (Rare Species): "
+                    )
+                    log_metric("Accuracy on Rare Species", acc_rare, ".4f", Colors.BRIGHT_GREEN)
+                    log_metric("Balanced Accuracy on Rare Species", balanced_acc_rare, ".4f", Colors.BRIGHT_GREEN)
+                    log_metric("Evaluation Loss on Rare Species", np.mean(loss_arr_rare), ".4f", Colors.BRIGHT_BLUE)
+                    rare_results[ckp] = {
+                        'accuracy': float(acc_rare),
+                        'balanced_accuracy': float(balanced_acc_rare),
+                        'loss': float(np.mean(loss_arr_rare)),
+                        'num_samples': int(len(rare_ckp_eval_dset))
+                    }
                 eval_loss = np.mean(loss_arr)
-            
+                
                 # Log metrics with colors
-                log_metric(f"Accuracy for ckp {accu_ckp} using ckp model {ckp}", acc, ".4f", Colors.BRIGHT_GREEN)
-                log_metric(f"Balanced Accuracy for ckp {accu_ckp} using ckp model {ckp}", balanced_acc, ".4f", Colors.BRIGHT_GREEN)
-                log_metric(f"Evaluation Loss for ckp {accu_ckp} using ckp model {ckp}", eval_loss, ".4f", Colors.BRIGHT_BLUE)
-
+                log_metric("Accuracy", acc, ".4f", Colors.BRIGHT_GREEN)
+                log_metric("Balanced Accuracy", balanced_acc, ".4f", Colors.BRIGHT_GREEN)
+                log_metric("Evaluation Loss", eval_loss, ".4f", Colors.BRIGHT_BLUE)
+                
                 # Store results (convert numpy types to Python types for JSON serialization)
-                eval_results[ckp][accu_ckp] = {
+                eval_results[ckp] = {
                     'accuracy': float(acc),
                     'balanced_accuracy': float(balanced_acc),
                     'loss': float(eval_loss),
@@ -1612,6 +1960,18 @@ def run_eval_only(args):
                             else:
                                 log_info(f"📊 Model {ckp} did not improve over {pre_ckp} on {ckp} data (Δ={difference:+.4f})", Colors.CYAN)
 
+                
+                # Log to wandb if enabled
+                if args.wandb:
+                    log_info(f"📈 Logging metrics to W&B: {ckp}", Colors.CYAN)
+                    wandb.log({
+                        "eval/accuracy": acc,
+                        "eval/balanced_accuracy": balanced_acc,
+                        "eval/loss": eval_loss,
+                        "eval/checkpoint": ckp,
+                        "eval/num_samples": len(ckp_eval_dset)
+                    }, step=i)
+                
                 log_step(5, f"Saving results", Colors.BLUE)
                 # Save predictions if requested
                 if args.save_predictions:
@@ -1625,129 +1985,32 @@ def run_eval_only(args):
                     gpu_monitor.clear_cache_and_log(f"eval_checkpoint_{ckp}")
                 
                 log_subsection_start(f"✅ Checkpoint {ckp} Complete", Colors.BRIGHT_GREEN)
-        else:
-            log_step(2, f"Preparing evaluation dataset", Colors.YELLOW)
-            # Get evaluation dataset for this checkpoint
-            ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp)
-            log_info(f"Evaluation dataset size for {ckp}: {len(ckp_eval_dset)}", Colors.CYAN)
-            
-            if len(ckp_eval_dset) == 0:
-                log_warning(f"No evaluation data found for checkpoint {ckp}")
-                continue
-            
-            # Create data loader
-            eval_loader = DataLoader(
-                ckp_eval_dset, 
-                batch_size=common_config['eval_batch_size'], 
-                shuffle=False, 
-                num_workers=4
-            )
-            log_success("Data loader created successfully")
-            
-            log_step(3, f"Running model evaluation", Colors.GREEN)
-            # Run evaluation
-            if args.gpu_memory_monitor:
-                gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
-                
-            loss_arr, preds_arr, labels_arr, pred_true, pred_false = eval(
-                classifier, 
-                eval_loader, 
-                args.device, 
-                chop_head=common_config['chop_head']
-            )
-
-            preds[ckp] = {
-                'preds_true': pred_true,
-                'preds_false': pred_false
-            }
-
-            if args.gpu_memory_monitor:
-                gpu_monitor.log_memory_usage("evaluation", f"after_{ckp}")
-            
-            log_success("Model evaluation completed")
-            
-            log_step(4, f"Computing metrics", Colors.MAGENTA)
-            # Calculate and log metrics
-            acc, balanced_acc = print_metrics(
-                loss_arr, 
-                preds_arr, 
-                labels_arr, 
-                len(class_names),
-                log_predix=f"📊 {ckp}: "
-            )
-            eval_loss = np.mean(loss_arr)
-            
-            # Log metrics with colors
-            log_metric("Accuracy", acc, ".4f", Colors.BRIGHT_GREEN)
-            log_metric("Balanced Accuracy", balanced_acc, ".4f", Colors.BRIGHT_GREEN)
-            log_metric("Evaluation Loss", eval_loss, ".4f", Colors.BRIGHT_BLUE)
-            
-            # Store results (convert numpy types to Python types for JSON serialization)
-            eval_results[ckp] = {
-                'accuracy': float(acc),
-                'balanced_accuracy': float(balanced_acc),
-                'loss': float(eval_loss),
-                'num_samples': int(len(ckp_eval_dset))
-            }
-
-            # Weight sanity: compare per-ckp on its own eval set
-            if weight_sanity_enabled:
-                sanity_total += 1
-                expected = sanity_expected.get(ckp)
-                if expected is None:
-                    log_warning(f"[Sanity] No reference balanced_accuracy for {ckp} in final_training_summary.json")
-                else:
-                    diff = abs(float(balanced_acc) - float(expected))
-                    if diff <= sanity_offset:
-                        log_success(f"[Sanity] {ckp} balanced_accuracy matches within {sanity_offset:.2f} (diff={diff:.4f})")
-                    else:
-                        log_warning(f"[Sanity] {ckp} mismatch: eval={balanced_acc:.4f}, ref={expected:.4f}, diff={diff:.4f} > {sanity_offset:.2f}")
-                        sanity_mismatches.append({
-                            'checkpoint': ckp,
-                            'eval_balanced_accuracy': float(balanced_acc),
-                            'ref_balanced_accuracy': float(expected),
-                            'diff': float(diff)
-                        })
-            
-            # Log to wandb if enabled
-            if args.wandb:
-                log_info(f"📈 Logging metrics to W&B: {ckp}", Colors.CYAN)
-                wandb.log({
-                    "eval/accuracy": acc,
-                    "eval/balanced_accuracy": balanced_acc,
-                    "eval/loss": eval_loss,
-                    "eval/checkpoint": ckp,
-                    "eval/num_samples": len(ckp_eval_dset)
-                }, step=i)
-            
-            log_step(5, f"Saving results", Colors.BLUE)
-            # Save predictions if requested
-            if args.save_predictions:
-                pred_path = os.path.join(args.save_dir, f'{ckp}_eval_preds.pkl')
-                with open(pred_path, 'wb') as f:
-                    pickle.dump((preds_arr, labels_arr), f)
-                log_success(f"Predictions saved to {pred_path}")
-            
-            # Clear GPU cache between checkpoints
-            if args.gpu_memory_monitor:
-                gpu_monitor.clear_cache_and_log(f"eval_checkpoint_{ckp}")
-            
-            log_subsection_start(f"✅ Checkpoint {ckp} Complete", Colors.BRIGHT_GREEN)
 
     log_section_start("📊 FINAL EVALUATION SUMMARY", Colors.BRIGHT_YELLOW)
     
     # Calculate average metrics
     if eval_results:
         if not args.accu_eval:
-            # Filter out NaN values when calculating averages
-            valid_accuracies = [result['accuracy'] for result in eval_results.values() if not np.isnan(result['accuracy'])]
-            valid_balanced_accuracies = [result['balanced_accuracy'] for result in eval_results.values() if not np.isnan(result['balanced_accuracy'])]
-            valid_losses = [result['loss'] for result in eval_results.values() if not np.isnan(result['loss'])]
-            
-            avg_accuracy = sum(valid_accuracies) / len(valid_accuracies) if valid_accuracies else 0.0
-            avg_balanced_accuracy = sum(valid_balanced_accuracies) / len(valid_balanced_accuracies) if valid_balanced_accuracies else 0.0
-            avg_loss = sum(valid_losses) / len(valid_losses) if valid_losses else 0.0
-            total_samples = sum(result['num_samples'] for result in eval_results.values())
+            if args.eval_on_train:
+                logging.info("Averaging results for all train data evaluation")
+                valid_accuracies = [eval_results['accuracy'] if not np.isnan(eval_results['accuracy']) else 0.0]
+                valid_balanced_accuracies = [eval_results['balanced_accuracy'] if not np.isnan(eval_results['balanced_accuracy']) else 0.0]
+                valid_losses = [eval_results['loss'] if not np.isnan(eval_results['loss']) else 0.0]
+
+                avg_accuracy = sum(valid_accuracies) / len(valid_accuracies) if valid_accuracies else 0.0
+                avg_balanced_accuracy = sum(valid_balanced_accuracies) / len(valid_balanced_accuracies) if valid_balanced_accuracies else 0.0
+                avg_loss = sum(valid_losses) / len(valid_losses) if valid_losses else 0.0
+                total_samples = eval_results['num_samples']
+            else:
+                # Filter out NaN values when calculating averages
+                valid_accuracies = [result['accuracy'] for result in eval_results.values() if not np.isnan(result['accuracy'])]
+                valid_balanced_accuracies = [result['balanced_accuracy'] for result in eval_results.values() if not np.isnan(result['balanced_accuracy'])]
+                valid_losses = [result['loss'] for result in eval_results.values() if not np.isnan(result['loss'])]
+                
+                avg_accuracy = sum(valid_accuracies) / len(valid_accuracies) if valid_accuracies else 0.0
+                avg_balanced_accuracy = sum(valid_balanced_accuracies) / len(valid_balanced_accuracies) if valid_balanced_accuracies else 0.0
+                avg_loss = sum(valid_losses) / len(valid_losses) if valid_losses else 0.0
+                total_samples = sum(result['num_samples'] for result in eval_results.values())
         else:
             # For eval_accu mode, average over all accumulated results
             all_accuracies = []
@@ -1766,15 +2029,35 @@ def run_eval_only(args):
         avg_accuracy = avg_balanced_accuracy = avg_loss = 0.0
         total_samples = 0
     
+    if rare_path:
+        # Filter out NaN values when calculating averages
+        valid_accuracies = [result['accuracy'] for result in rare_results.values() if not np.isnan(result['accuracy'])]
+        valid_balanced_accuracies = [result['balanced_accuracy'] for result in rare_results.values() if not np.isnan(result['balanced_accuracy'])]
+        valid_losses = [result['loss'] for result in rare_results.values() if not np.isnan(result['loss'])]
+                
+        avg_accuracy = sum(valid_accuracies) / len(valid_accuracies) if valid_accuracies else 0.0
+        avg_balanced_accuracy = sum(valid_balanced_accuracies) / len(valid_balanced_accuracies) if valid_balanced_accuracies else 0.0
+        avg_loss = sum(valid_losses) / len(valid_losses) if valid_losses else 0.0
+        total_samples = sum(result['num_samples'] for result in rare_results.values())
+        logging.info("=== RARE SPECIES EVALUATION SUMMARY ===")
+        for ckp, results in rare_results.items():
+            logging.info(f"{ckp}: acc={results['accuracy']:.4f}, balanced_acc={results['balanced_accuracy']:.4f}, "
+                         f"loss={results['loss']:.4f}, samples={results['num_samples']}")
+        logging.info("=" * 60)
+
     # Log summary with beautiful formatting
     logging.info("=== CHECKPOINT RESULTS SUMMARY ===")
-    for ckp, results in eval_results.items():
-        if args.accu_eval:
-            logging.info(f"{ckp}: acc={results[ckp]['accuracy']:.4f}, balanced_acc={results[ckp]['balanced_accuracy']:.4f}, "
-                    f"loss={results[ckp]['loss']:.4f}, samples={results[ckp]['num_samples']}")
-        else:
-            logging.info(f"{ckp}: acc={results['accuracy']:.4f}, balanced_acc={results['balanced_accuracy']:.4f}, "
-                    f"loss={results['loss']:.4f}, samples={results['num_samples']}")
+    if args.eval_on_train:
+        logging.info(f"Eval on Train data: acc={eval_results['accuracy']:.4f}, balanced_acc={eval_results['balanced_accuracy']:.4f}, "
+                        f"loss={eval_results['loss']:.4f}, samples={eval_results['num_samples']}")
+    else:
+        for ckp, results in eval_results.items():
+            if args.accu_eval:
+                logging.info(f"{ckp}: acc={results[ckp]['accuracy']:.4f}, balanced_acc={results[ckp]['balanced_accuracy']:.4f}, "
+                        f"loss={results[ckp]['loss']:.4f}, samples={results[ckp]['num_samples']}")
+            else:
+                logging.info(f"{ckp}: acc={results['accuracy']:.4f}, balanced_acc={results['balanced_accuracy']:.4f}, "
+                        f"loss={results['loss']:.4f}, samples={results['num_samples']}")
     logging.info("=" * 60)
     logging.info(f"🎯 FINAL AVERAGE ACROSS ALL CHECKPOINTS:")
     log_metric("Average Accuracy", avg_accuracy, ".4f", Colors.BRIGHT_GREEN)
@@ -1798,16 +2081,24 @@ def run_eval_only(args):
                 logging.info(f" - {item['checkpoint']}: eval={item['eval_balanced_accuracy']:.4f}, ref={item['ref_balanced_accuracy']:.4f}, diff={item['diff']:.4f}")
         log_final_result(f"Weight Sanity: {status}")
     
-    eval_results['average'] = {}
-    eval_results['average']['accuracy'] = float(avg_accuracy)
-    eval_results['average']['balanced_accuracy'] = float(avg_balanced_accuracy)
-    eval_results['average']['loss'] = float(avg_loss)
+    eval_results['averages'] = {}
+    eval_results['averages']['accuracy'] = float(avg_accuracy)
+    eval_results['averages']['balanced_accuracy'] = float(avg_balanced_accuracy)
+    eval_results['averages']['loss'] = float(avg_loss)
 
     # Save summary results
-    summary_path = os.path.join(args.save_dir, 'eval_only_summary.json')
+    if not args.accu_eval:
+        summary_path = os.path.join(args.save_dir, 'eval_only_summary.json')
+    else:
+        summary_path = os.path.join(args.save_dir, 'eval_accu_eval_only_summary.json')
+
+    rare_summary_path = os.path.join(args.save_dir, 'eval_only_rare_summary.json')
     preds_path = os.path.join(args.save_dir, 'eval_only_predictions.json')
     with open(summary_path, 'w') as f:
         json.dump(eval_results, f, indent=2)
+    if rare_path:
+        with open(rare_summary_path, 'w') as f:
+            json.dump(rare_results, f, indent=2)
     with open(preds_path, 'w') as f:
         json.dump(preds, f, indent=2)
     log_success(f"Summary saved to {summary_path}")
@@ -1893,9 +2184,12 @@ def parse_args():
     parser.add_argument('--early_stop_epoch', type=int, default=5, help='Number of epochs without improvement to trigger early stopping after warmup period (default: 5)')
     parser.add_argument('--is_save', action='store_true', help='Save model')
     parser.add_argument('--eval_only', action='store_true', help='Evaluate only mode - loads trained model checkpoints and evaluates them')
+    parser.add_argument('--eval_on_train', action='store_true', help='Evaluate on training data')
     parser.add_argument('--eval_accu', action='store_true', help='Perform calibration analysis during eval_only mode')
+    parser.add_argument('--resume', action='store_true', help='Resume training from last checkpoint')
     parser.add_argument('--model_dir', type=str, help='Directory containing trained model checkpoints (.pth files) for eval_only mode')
     parser.add_argument('--weight_sanity', action='store_true', help="Compare eval-only balanced_accuracy to reference in model_dir/final_training_summary.json with ±0.03 tolerance")
+    parser.add_argument('--skip_head', action='store_true', help='Skip loading head parameters from checkpoint')
     parser.add_argument('--expand_head', type=str, default=None, help='Expand classifier head to include unseen classes during eval_only mode')
     parser.add_argument('--plot_features', action='store_true', help='Plot feature distributions')
     parser.add_argument('--plot_text_F', action='store_true', help='Plot text features')
@@ -1912,7 +2206,7 @@ def parse_args():
 
     ###########################Model Configurations#########################
     parser.add_argument('--pretrained_weights', type=str, default='bioclip2',
-                        choices=['bioclip', 'bioclip2'],
+                        choices=['bioclip', 'bioclip2', 'openai-ViT-L-14'],
                         help='pretrained weights name')
 
     parser.add_argument('--class_type', type=str, default='common_name',
@@ -2064,6 +2358,8 @@ def parse_args():
                         help='merge factor')
     parser.add_argument('--lora_interpolate', action='store_true',
                         help='whether to use LoRA interpolation')
+    parser.add_argument('--lora_alpha', default=0.5, type=float,
+                        help='interpolation alpha for LoRA interpolation')
     # parser.add_argument('--lora_interpolate', default=1, type=float,
     #                     help='shift factor')
 

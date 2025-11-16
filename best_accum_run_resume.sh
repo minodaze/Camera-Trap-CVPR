@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Read datasets from file into array
-readarray -t ALL_DATASETS < accum_list.txt
+readarray -t ALL_DATASETS < best_accum_resume_dataset_list.txt
+readarray -t RESUME_MODEL < best_accum_resume_model_list.txt
 
 # Remove empty lines and trim whitespace
 TEMP_DATASETS=()
@@ -52,19 +53,35 @@ for lr in "${LEARNING_RATES[@]}"; do
         
         # Extract datasets for this job
         job_datasets=()
+        job_models=()
         for ((i=start_index; i<=end_index; i++)); do
             job_datasets+=("${ALL_DATASETS[$i]}")
+            job_models+=("${RESUME_MODEL[$i]}")
         done
-        
-        # Create a space-separated string of datasets for this job
-        IFS=' ' datasets_string="${job_datasets[*]}"
-        datasets_string="${datasets_string/_//}"  # Replace first _ with / to get original dataset names
+
+        # Per-element underscore->slash conversion
+        fixed_datasets=()
+        for d in "${job_datasets[@]}"; do
+            fixed_datasets+=("${d/_//}")
+        done
+        datasets_string="${fixed_datasets[*]}"
+
+        # Build pipe-delimited model dirs string aligned with datasets
+        model_dirs_string=""
+        for m in "${job_models[@]}"; do
+            if [[ -z "$model_dirs_string" ]]; then
+                model_dirs_string="$m"
+            else
+                model_dirs_string+="|$m"
+            fi
+        done
         
         job_counter=$((job_counter + 1))
         echo "Job $job_counter/$TOTAL_SUBMISSIONS: LR=$lr, Processing datasets ${start_index}-${end_index}"
         echo "  Datasets: ${datasets_string}"
-        
-        sbatch script2/sbatch_run_accum.sh "${datasets_string}" "$lr"
+    echo "  Model Dirs: ${model_dirs_string}"
+
+    sbatch script2/sbatch_run_resume_best_accum.sh "${datasets_string}" "$lr" "$model_dirs_string"
     done
 done
 

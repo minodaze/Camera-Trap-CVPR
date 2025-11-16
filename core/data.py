@@ -159,6 +159,8 @@ class CkpDataset(Dataset):
                 if 'dataset' not in file_path:
                     parts = file_path.split('camera-trap-benchmark', 1)
                     file_path = parts[0] + 'camera-trap-benchmark/dataset' + parts[1]
+                if 'dataset-rare' in file_path:
+                    file_path = file_path.replace('dataset-rare', 'dataset_rare')
 
                 if not file_path:
                     raise ValueError(f"image_path not found in {data}")

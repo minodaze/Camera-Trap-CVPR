@@ -3,12 +3,12 @@
 #SBATCH --job-name=bioclip2_upper_bound
 #SBATCH --output=logs/bioclip2_%j.out
 #SBATCH --error=logs/bioclip2_%j.err
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --nodes=1                 # Request 1 node
 #SBATCH --ntasks-per-node=1       # One task per node
 #SBATCH --gpus-per-node=1         # One GPU per node
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=128G                 # Request 128GB total memory per node
+#SBATCH --mem=64G                 # Request 100GB total memory per node
 
 USER_NAME="mino"
 CONDA_ENV="ICICLE"
@@ -19,7 +19,6 @@ conda activate ${CONDA_ENV}
 
 DATA_ROOT="/fs/scratch/PAS2099/camera-trap-benchmark/dataset"
 CONFIG_ROOT="/fs/ess/PAS2099/camera-trap-CVPR-configs"
-# /fs/scratch/PAS2099/camera-trap-final/configs
 # CSV_PATH="/fs/ess/PAS2099/${USER_NAME}/Documents/ICICLE/ICICLE-Benchmark/balanced_accuracy_common.csv"
 
 mkdir -p $CONFIG_ROOT
@@ -60,14 +59,14 @@ for DATASET in "${BIG_FOLDERS[@]}"; do
 # print('\n'.join(['  - ' + s for s in common]))
 # ")
 
-    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}/best_accum_lr${LEARNING_RATE}.yaml"
+    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}/oracle_lr${LEARNING_RATE}.yaml"
 
     mkdir -p "${CONFIG_ROOT}/${DATASET//\//_}"
-    mkdir -p "/fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/best_accum/${DATASET//\//_}"
+    mkdir -p "/fs/ess/PAS2099/camera-trap-CVPR-logs/oracle_20/oracle2/${DATASET//\//_}"
 
     cat <<EOF > $CONFIG_FILE
-module_name: best_accum_lora_bsm
-log_path: /fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/best_accum/${DATASET//\//_}
+module_name: oracle
+log_path: /fs/ess/PAS2099/camera-trap-CVPR-logs/oracle_20/oracle2/${DATASET//\//_}
 
 common_config:
   model: bioclip2
@@ -87,20 +86,21 @@ common_config:
     eta_min: $(echo "${LEARNING_RATE} / 10" | bc -l)
 
 pretrain_config:
-  pretrain: false
+  pretrain: true
+  pretrain_data_config_path: ${ALL_JSON}
+  epochs: 30
+  loss_type: ce
+  
 ood_config:
   method: all
 al_config:
   method: all
 cl_config:
-  method: accumulative-scratch
-  epochs: 30
-  loss_type: bsm
-
+  method: none
 EOF
 
     echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
-    python run_pipeline.py --c $CONFIG_FILE --wandb --eval_per_epoch --save_best_model --pretrained_weights bioclip2 --lora_bottleneck 8
+    python run_pipeline.py --c $CONFIG_FILE --resume --plot_features --wandb --eval_per_epoch --save_best_model --pretrained_weights bioclip2 --full
 
 #     # === Robust log path discovery ===
 #     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/zs_common/"

@@ -301,30 +301,33 @@ class CLIPClassifier(nn.Module):
         for (name1, param1), (name2, param2) in zip(self.visual_model.named_parameters(), classifier.visual_model.named_parameters()):
             if name1 != name2:
                 raise ValueError(f"Parameter names don't match: {name1} vs {name2}")
-            param1.data = (1 - alpha) * param1.data + alpha * param2.data
+            param1.data = alpha * param1.data + (1 - alpha) * param2.data
             
         # Interpolate head parameters if both are initialized
         if self.initialized and classifier.initialized:
-            self.head.weight.data = (1 - alpha) * self.head.weight.data + alpha * classifier.head.weight.data
-            self.head.bias.data = (1 - alpha) * self.head.bias.data + alpha * classifier.head.bias.data
+            self.head.weight.data = alpha * self.head.weight.data + (1 - alpha) * classifier.head.weight.data
+            self.head.bias.data = alpha * self.head.bias.data + (1 - alpha) * classifier.head.bias.data
             
         # Interpolate text model parameters if both have text models
         if hasattr(self, 'text_model') and hasattr(classifier, 'text_model'):
             for (name1, param1), (name2, param2) in zip(self.text_model.named_parameters(), classifier.text_model.named_parameters()):
                 if name1 != name2:
                     raise ValueError(f"Text model parameter names don't match: {name1} vs {name2}")
-                param1.data = (1 - alpha) * param1.data + alpha * param2.data
-            
+                param1.data = alpha * param1.data + (1 - alpha) * param2.data
+
         # Interpolate projection head if both have it
         if hasattr(self, 'proj_head') and hasattr(classifier, 'proj_head'):
             for (name1, param1), (name2, param2) in zip(self.proj_head.named_parameters(), classifier.proj_head.named_parameters()):
                 if name1 != name2:
                     raise ValueError(f"Projection head parameter names don't match: {name1} vs {name2}")
-                param1.data = (1 - alpha) * param1.data + alpha * param2.data        
+                param1.data = alpha * param1.data + (1 - alpha) * param2.data
 
-    def interpolate_lora(self, alpha=0.5):
+    def interpolate_lora(self, classifier, alpha=0.5):
+        """Interpolate the LoRA parameters in the visual model."""
         for block in self.visual_model.transformer.resblocks:
-            block.attn.lora.params.merge_factor = alpha
+            block.attn.lora.merge_factor = alpha
+        self.head.weight.data = alpha * self.head.weight.data + (1 - alpha) * classifier.head.weight.data
+        self.head.bias.data = alpha * self.head.bias.data + (1 - alpha) * classifier.head.bias.data
 
     def get_class_embedding(self, model, tokenizer, embed_dim, class_name_idx, text_template='openai'): 
         device = next(model.parameters()).device
@@ -405,6 +408,26 @@ def build_classifier(params, class_name_idx, device):
             params=params
         )
         tokenizer = AutoTokenizer.from_pretrained('pretrained_weights/bioclip-2')
+    elif params.pretrained_weights == 'openai-ViT-L-14':
+        logging.info("Using OpenAI ViT-L-14 model. ")
+        bioclip_model, preprocess_train, preprocess_val = create_model_and_transforms(
+            'ViT-L-14',
+            'openai',
+            precision='amp',
+            device=device,
+            jit=False,
+            force_quick_gelu=False,
+            force_custom_text=False,
+            force_patch_dropout=None,
+            force_image_size=None,
+            pretrained_image=False,
+            image_mean=None,
+            image_std=None,
+            aug_cfg={},
+            output_dict=True,
+            params=params
+        )
+        tokenizer = AutoTokenizer.from_pretrained('pretrained_weights/clip-vit-large-patch14')
     else:
         raise NotImplementedError(f"Pretrained weights {params.pretrained_weights} not supported. ")
     
@@ -448,6 +471,10 @@ def build_classifier(params, class_name_idx, device):
                     logging.info("\t{}, {}, {}".format(name, parameter.numel(), parameter.shape))
             else:
                 parameter.requires_grad = False
+
+    for name, parameter in classifier.named_parameters():
+        if parameter.requires_grad:
+            logging.info("Classifier trainable param: {}, {}, {}".format(name, parameter.numel(), parameter.shape))
 
     # Log memory after class embedding
     if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:

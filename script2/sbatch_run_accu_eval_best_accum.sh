@@ -3,12 +3,12 @@
 #SBATCH --job-name=bioclip2_upper_bound
 #SBATCH --output=logs/bioclip2_%j.out
 #SBATCH --error=logs/bioclip2_%j.err
-#SBATCH --time=12:00:00
+#SBATCH --time=00:30:00
 #SBATCH --nodes=1                 # Request 1 node
 #SBATCH --ntasks-per-node=1       # One task per node
 #SBATCH --gpus-per-node=1         # One GPU per node
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=128G                 # Request 128GB total memory per node
+#SBATCH --mem=64G                 # Request 64GB total memory per node
 
 USER_NAME="mino"
 CONDA_ENV="ICICLE"
@@ -36,6 +36,7 @@ fi
 IFS=' ' read -ra BIG_FOLDERS <<< "$1"
 # Get learning rate from the second argument
 LEARNING_RATE="$2"
+MODEL_DIR="$3"
 
 echo "Processing ${#BIG_FOLDERS[@]} datasets: ${BIG_FOLDERS[*]}"
 echo "Using learning rate: ${LEARNING_RATE}"
@@ -60,14 +61,14 @@ for DATASET in "${BIG_FOLDERS[@]}"; do
 # print('\n'.join(['  - ' + s for s in common]))
 # ")
 
-    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}/best_accum_lr${LEARNING_RATE}.yaml"
+    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}/accu_eval_best_accum_lr${LEARNING_RATE}.yaml"
 
     mkdir -p "${CONFIG_ROOT}/${DATASET//\//_}"
-    mkdir -p "/fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/best_accum/${DATASET//\//_}"
+    mkdir -p "/fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/best_accum_accu_eval_all/${DATASET//\//_}"
 
     cat <<EOF > $CONFIG_FILE
 module_name: best_accum_lora_bsm
-log_path: /fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/best_accum/${DATASET//\//_}
+log_path: //fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/best_accum_accu_eval_all/${DATASET//\//_}
 
 common_config:
   model: bioclip2
@@ -100,7 +101,7 @@ cl_config:
 EOF
 
     echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
-    python run_pipeline.py --c $CONFIG_FILE --wandb --eval_per_epoch --save_best_model --pretrained_weights bioclip2 --lora_bottleneck 8
+    python run_pipeline.py --c $CONFIG_FILE --wandb --eval_only --model_dir "${MODEL_DIR}" --eval_per_epoch --accu_eval --save_best_model --pretrained_weights bioclip2 --lora_bottleneck 8
 
 #     # === Robust log path discovery ===
 #     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/zs_common/"
