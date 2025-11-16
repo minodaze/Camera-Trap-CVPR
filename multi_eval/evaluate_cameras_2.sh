@@ -2,7 +2,7 @@
 
 # Script to evaluate cameras one by one from camera_list.txt
 
-CAMERA_LIST="/fs/ess/PAS2099/sooyoung/Camera-Trap-CVPR/multi_eval/camera_list.txt"
+CAMERA_LIST="/fs/ess/PAS2099/sooyoung/Camera-Trap-CVPR/multi_eval/camera_list_2.txt"
 BASE_DIR="/fs/ess/PAS2099/sooyoung/Camera-Trap-CVPR"
 LOGS_DIR1="/fs/ess/PAS2099/sooyoung/camera-trap-CVPR-logs/best_accum"
 LOGS_DIR2="/fs/ess/PAS2099/sooyoung/camera-trap-CVPR-logs/accum_80/best_accum"

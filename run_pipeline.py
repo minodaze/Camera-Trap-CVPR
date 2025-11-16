@@ -24,7 +24,7 @@ from matplotlib.colors import LinearSegmentedColormap
 from core import *
 from core.module import get_al_module, get_cl_module, get_ood_module
 from core.calibration_new.calibration_new import run_calibration, _compute_accuracy, extract_seen_unseen
-from core.calibration_new.simple_calibration import simple_calibration, verify_calibration_inputs, evaluate_calibrated_logits, run_simple_calibration
+from core.calibration_new.simple_calibration_2 import simple_calibration, verify_calibration_inputs, evaluate_calibrated_logits, run_simple_calibration
 from utils.misc import method_name
 from utils.gpu_monitor import get_gpu_monitor, log_gpu_memory, monitor_model_memory
 from utils.log_formatter import (
@@ -1723,17 +1723,19 @@ def run_eval_only(args):
                     eval_seen_classes = checkpoint_analysis['eval'][ckp]['seen'] if checkpoint_analysis and ckp in checkpoint_analysis['eval'] else None
                     eval_unseen_classes = checkpoint_analysis['eval'][ckp]['unseen'] if checkpoint_analysis and ckp in checkpoint_analysis['eval'] else None
 
-                    calib_mean, calib_max, upper_bound_balanced_acc = run_calibration(ckp_train_dset,
-                                                                                        ckp_eval_dset,
-                                                                                        train_loader,
-                                                                                        eval_loader,
-                                                                                        classifier,
-                                                                                        seen_classes,
-                                                                                        unseen_classes,
-                                                                                        eval_seen_classes,
-                                                                                        eval_unseen_classes,
-                                                                                        args.device)
-                    
+                    try:
+                        calib_mean, calib_max, upper_bound_balanced_acc = run_calibration(ckp_train_dset,
+                                                                                            ckp_eval_dset,
+                                                                                            train_loader,
+                                                                                            eval_loader,
+                                                                                            classifier,
+                                                                                            seen_classes,
+                                                                                            unseen_classes,
+                                                                                            eval_seen_classes,
+                                                                                            eval_unseen_classes,
+                                                                                            args.device)
+                    except Exception as e:
+                        log_error(f"Mean/Max Calibration failed for {ckp}: {e}, but still continue...")
                     # Create binary mask (length = total classes) where seen classes -> True
                     num_classes = len(class_names)
                     simple_calib_seen_classes = np.zeros(num_classes, dtype=bool)
@@ -2418,7 +2420,7 @@ def parse_args():
         else os.path.basename(os.path.dirname(original_c))
     )
     args.camera_name = camera_name
-    args.log_path = f"/fs/ess/PAS2099/sooyoung/camera-trap-CVPR-logs/accum_80/best_accum_calib/{camera_name}"
+    args.log_path = f"/fs/ess/PAS2099/sooyoung/camera-trap-CVPR-logs/accum_80/best_accum_cheating_calib/{camera_name}"
 
     with open(original_c, 'r') as f:
         yml = yaml.YAML(typ='rt')
