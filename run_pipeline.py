@@ -50,8 +50,9 @@ def worker_init_fn(worker_id):
     seed = int(os.environ.get('WORKER_SEED', 9527))
     np.random.seed(seed + worker_id)
     torch.manual_seed(seed + worker_id)
+    random.seed(seed + worker_id)
 
-def setup_logging(log_path, debug, params):
+def setup_logging(log_path, debug, params, rank=0):
     """Setup logging for the training process.
     
         Args:
@@ -66,7 +67,10 @@ def setup_logging(log_path, debug, params):
     
     # Clear existing handlers to prevent duplicates
     logger.handlers.clear()
-    
+    logger.disabled = False
+
+    is_main = (rank == 0)
+
     petl_method_name = method_name(params)
     log_path = os.path.join(log_path, params.pretrained_weights)
 
@@ -92,6 +96,15 @@ def setup_logging(log_path, debug, params):
     else:
         logger.setLevel(logging.DEBUG)
         log_path = os.path.join(log_path, 'debug')
+
+    if log_path and not os.path.exists(log_path):
+        os.makedirs(log_path, exist_ok=True)
+
+    if not is_main:
+        logger.disabled = True
+        logger.addHandler(logging.NullHandler())
+        return log_path
+
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
     # Log to stdout
@@ -102,8 +115,6 @@ def setup_logging(log_path, debug, params):
     
     # Log to file
     if log_path:
-        if not os.path.exists(log_path):
-            os.makedirs(log_path, exist_ok=True)
         log_file = os.path.join(log_path, 'log.txt')
         fh = logging.FileHandler(log_file)
         fh.setLevel(logging.INFO)
@@ -1202,7 +1213,8 @@ def run(args):
         total_samples = sum(result['num_samples'] for result in final_eval_results.values())
         
         # Log final summary
-        print(Colors.BOLD + "=" * 80 + Colors.RESET)
+        if is_main:
+            print(Colors.BOLD + "=" * 80 + Colors.RESET)
         log_section_start("📊 FINAL EVALUATION SUMMARY", Colors.BRIGHT_YELLOW)
         logging.info("=== CHECKPOINT RESULTS SUMMARY ===")
         for ckp, results in final_eval_results.items():
@@ -1259,9 +1271,11 @@ def run(args):
         log_success(f"Final summary saved to {summary_path}")
 
     # Final completion logs
-    print(Colors.BOLD + "=" * 80 + Colors.RESET)
+    if is_main:
+        print(Colors.BOLD + "=" * 80 + Colors.RESET)
     log_final_result("🎉 PIPELINE EXECUTION COMPLETED SUCCESSFULLY!")
-    print(Colors.BOLD + "=" * 80 + Colors.RESET)
+    if is_main:
+        print(Colors.BOLD + "=" * 80 + Colors.RESET)
     
     # Final summary with colors
     log_info(f"📊 Total checkpoints processed: {len(ckp_list)}")
@@ -1280,8 +1294,9 @@ def run(args):
         wandb.finish()
         log_success("✅ W&B run finished")
     
-    print(Colors.BOLD + "=" * 80 + Colors.RESET)
-    print()
+    if is_main:
+        print(Colors.BOLD + "=" * 80 + Colors.RESET)
+        print()
 
 def run_eval_only(args):
     """Run evaluation only on trained model checkpoints.
@@ -1289,6 +1304,9 @@ def run_eval_only(args):
     Args:
         args (argparse.Namespace): Parsed command-line arguments.
     """
+    is_dist = dist.is_available() and dist.is_initialized()
+    rank = dist.get_rank() if is_dist else 0
+    is_main = (rank == 0)
     log_section_start("🔍 EVALUATION-ONLY MODE INITIALIZATION", Colors.BRIGHT_CYAN)
     
     # Initialize GPU memory monitoring if enabled
@@ -2150,15 +2168,18 @@ def run_eval_only(args):
             log_warning("No AUC curves were generated (possibly due to missing seen/absent classes)")
 
     # Final completion logs
-    print(Colors.BOLD + "=" * 80 + Colors.RESET)
+    if is_main:
+        print(Colors.BOLD + "=" * 80 + Colors.RESET)
     log_final_result("🎉 EVALUATION-ONLY MODE COMPLETED SUCCESSFULLY!")
-    print(Colors.BOLD + "=" * 80 + Colors.RESET)
+    if is_main:
+        print(Colors.BOLD + "=" * 80 + Colors.RESET)
     
     # Final summary with colors
     log_info(f"📊 Total checkpoints evaluated: {len(eval_results)}")
     log_info(f"💾 Results saved to: {args.save_dir}")
-    print(Colors.BOLD + "=" * 80 + Colors.RESET)
-    print()
+    if is_main:
+        print(Colors.BOLD + "=" * 80 + Colors.RESET)
+        print()
 
 def parse_args():
     """Parse command-line arguments for the adaptive learning pipeline.
@@ -2439,7 +2460,7 @@ if __name__ == '__main__':
     
     default_log_path = args.log_path
     
-    args.save_dir = setup_logging(default_log_path, args.debug, args)
+    args.save_dir = setup_logging(default_log_path, args.debug, args, rank=getattr(args, 'rank', 0))
     logging.info(f'Saving to {args.save_dir}. ')
 
     # Save configuration
@@ -2469,8 +2490,10 @@ if __name__ == '__main__':
     else:
         time_str = f"{seconds:.1f}s"
     
-    print(f"\n{Colors.BRIGHT_GREEN}⏱️  Total Execution Time: {Colors.BOLD}{time_str}{Colors.RESET}")
-    print(f"{Colors.BRIGHT_CYAN}🏁 All tasks completed successfully!{Colors.RESET}\n")
+    main_rank = getattr(args, 'rank', 0)
+    if (not args.distributed) or main_rank == 0:
+        print(f"\n{Colors.BRIGHT_GREEN}⏱️  Total Execution Time: {Colors.BOLD}{time_str}{Colors.RESET}")
+        print(f"{Colors.BRIGHT_CYAN}🏁 All tasks completed successfully!{Colors.RESET}\n")
 
     # Cleanup distributed
     if getattr(args, 'distributed', False) and dist.is_available() and dist.is_initialized():
