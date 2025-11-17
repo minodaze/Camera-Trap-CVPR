@@ -116,9 +116,9 @@ class CLModule(ABC):
                     test_per_epoch=test_per_epoch,
                     next_test_loader=next_test_loader,
                     test_type="NEXT",
-                    grad_accum_steps=grad_accum_steps)
+                    grad_accum_steps=grad_accum_steps,
                     test_log_prefix=test_log_prefix,
-                    test_type="NEXT")
+                    )
 
     @abstractmethod
     def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None):

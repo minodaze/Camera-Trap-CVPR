@@ -472,8 +472,7 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
                 gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_before_eval")
 
             # Run validation only on main process to keep it simple
-            if 
-            and eval_loader is not None:
+            if is_main and eval_loader is not None:
                 loss_arr, preds_arr, labels_arr, _, _ = eval(classifier, eval_loader, device)
             else:
                 # placeholders for non-main ranks
@@ -677,6 +676,7 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             # If not evaluating per epoch, just continue training
             pass
     
+    test_results_json['best_epoch'] = best_epoch
     if test_per_epoch and next_test_loader is not None and save_dir is not None:
         logging.info(f'Test results logged to {test_log_path}')
         with open(test_log_path, 'w') as f:

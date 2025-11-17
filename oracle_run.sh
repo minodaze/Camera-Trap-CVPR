@@ -9,7 +9,7 @@ if [ ! -f "train_list.txt" ]; then
 fi
 
 # Read datasets from file into array
-readarray -t ALL_DATASETS < uselist/oracle_easy_list.txt
+readarray -t ALL_DATASETS < uselist/oracle_list.txt
 
 # Remove empty lines and trim whitespace
 TEMP_DATASETS=()
@@ -74,8 +74,8 @@ for lr in "${LEARNING_RATES[@]}"; do
         
         # sbatch script2/sbatch_run_oracle.sh "${datasets_string}" "$lr"
         # sbatch script2/sbatch_run_bsm_oracle.sh "${datasets_string}" "$lr"
-        sbatch script2/sbatch_run_bsm_oracle.sh "${datasets_string}" "$lr"
-        sbatch script2/sbatch_run_lora_oracle.sh "${datasets_string}" "$lr"
+        sbatch script2/sbatch_run_muti_gpu_bsm_oracle.sh "${datasets_string}" "$lr"
+        sbatch script2/sbatch_run_muti_gpu_lora_oracle.sh "${datasets_string}" "$lr"
         # sbatch script/sbatch_run_ub_lora_bsm_inter.sh "${datasets_string}" "$lr"
     done
 done
