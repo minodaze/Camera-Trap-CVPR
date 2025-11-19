@@ -40,6 +40,8 @@ from utils.log_formatter import (
 from plot.plot_features import plot_features
 from plot.plot_text_F import plot_text_F
 
+import csv
+
 # Global worker init function for deterministic DataLoader behavior
 def worker_init_fn(worker_id):
     # This will be set by the main process
@@ -1966,6 +1968,11 @@ def parse_args():
     ########################calibration#########################
     parser.add_argument('--calibration', action='store_true', 
                         help='Enable paper calibration analysis for eval_only mode')
+
+    ######################## Model Selection #########################
+    parser.add_argument('--model_selection', type=str, default='none',
+                        choices=['none', 'matrix'],
+                        help='Model selection strategy for eval_only. "none" = existing behavior. "matrix" = evaluate models (rows) x checkpoints (columns) matrix.')
 
     args = parser.parse_args()
 
