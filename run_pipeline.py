@@ -2430,7 +2430,10 @@ if __name__ == '__main__':
     np.random.seed(args.seed)
     
     # Set PyTorch to deterministic mode for full reproducibility
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
     torch.backends.cudnn.deterministic = True
+    torch.set_float32_matmul_precision('high')
     torch.backends.cudnn.benchmark = False
     
     # Additional deterministic settings for CUDA operations
@@ -2449,8 +2452,6 @@ if __name__ == '__main__':
     os.environ['PYTHONHASHSEED'] = str(args.seed)
     os.environ['WORKER_SEED'] = str(args.seed)  # Set seed for worker processes
     
-    logging.info(f'Deterministic training enabled with seed: {args.seed}')
-
     save_dir = args.log_path
     if args.debug:
         ts = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
@@ -2461,6 +2462,7 @@ if __name__ == '__main__':
     default_log_path = args.log_path
     
     args.save_dir = setup_logging(default_log_path, args.debug, args, rank=getattr(args, 'rank', 0))
+    logging.info(f'Deterministic training enabled with seed: {args.seed}')
     logging.info(f'Saving to {args.save_dir}. ')
 
     # Save configuration

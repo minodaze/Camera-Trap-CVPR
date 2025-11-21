@@ -676,7 +676,6 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             # If not evaluating per epoch, just continue training
             pass
     
-    test_results_json['best_epoch'] = best_epoch
     if test_per_epoch and next_test_loader is not None and save_dir is not None:
         logging.info(f'Test results logged to {test_log_path}')
         with open(test_log_path, 'w') as f:
