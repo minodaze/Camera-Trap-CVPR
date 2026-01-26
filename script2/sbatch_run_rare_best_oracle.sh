@@ -106,7 +106,7 @@ cl_config:
 EOF
 
     echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
-    python run_pipeline.py --c $CONFIG_FILE --wandb --eval_per_epoch --resume --save_best_model --pretrained_weights bioclip2 --lora_bottleneck 8
+    python run_pipeline.py --c $CONFIG_FILE --wandb --eval_per_epoch --resume --save_best_model --pretrained_weights bioclip2 --lora_bottleneck 8 --loss_type bsm
 
 #     # === Robust log path discovery ===
 #     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/zs_common/"

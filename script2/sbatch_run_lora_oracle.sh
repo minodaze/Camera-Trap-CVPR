@@ -3,7 +3,7 @@
 #SBATCH --job-name=bioclip2_upper_bound
 #SBATCH --output=logs/bioclip2_%j.out
 #SBATCH --error=logs/bioclip2_%j.err
-#SBATCH --time=12:00:00
+#SBATCH --time=8:00:00
 #SBATCH --nodes=1                 # Request 1 node
 #SBATCH --ntasks-per-node=1       # One task per node
 #SBATCH --gpus-per-node=1         # One GPU per node
@@ -59,14 +59,14 @@ for DATASET in "${BIG_FOLDERS[@]}"; do
 # print('\n'.join(['  - ' + s for s in common]))
 # ")
 
-    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}/lora_oracle_lr${LEARNING_RATE}.yaml"
+    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}/lora_oracle_cardinal_lr${LEARNING_RATE}.yaml"
 
     mkdir -p "${CONFIG_ROOT}/${DATASET//\//_}"
-    mkdir -p "/fs/ess/PAS2099/camera-trap-CVPR-logs/oracle_20/lora_oracle_test_per_epoch_ascend/${DATASET//\//_}"
+    mkdir -p "/fs/ess/PAS2099/camera-trap-CVPR-logs/oracle_20/lora_oracle_test_per_epoch_cardinal_final/${DATASET//\//_}"
 
     cat <<EOF > $CONFIG_FILE
 module_name: oracle
-log_path: /fs/ess/PAS2099/camera-trap-CVPR-logs/oracle_20/lora_oracle_test_per_epoch_ascend/${DATASET//\//_}
+log_path: /fs/ess/PAS2099/camera-trap-CVPR-logs/oracle_20/lora_oracle_test_per_epoch_cardinal_final/${DATASET//\//_}
 common_config:
   model: bioclip2
   train_data_config_path: ${TRAIN_JSON}

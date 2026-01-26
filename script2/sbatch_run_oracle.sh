@@ -62,11 +62,11 @@ for DATASET in "${BIG_FOLDERS[@]}"; do
     CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}/oracle_lr${LEARNING_RATE}.yaml"
 
     mkdir -p "${CONFIG_ROOT}/${DATASET//\//_}"
-    mkdir -p "/fs/ess/PAS2099/camera-trap-CVPR-logs/rere_oracle_20/oracle/${DATASET//\//_}"
+    mkdir -p "/fs/ess/PAS2099/camera-trap-CVPR-logs/oracle_20/oracle_cardinal_final/${DATASET//\//_}"
 
     cat <<EOF > $CONFIG_FILE
 module_name: oracle
-log_path: /fs/ess/PAS2099/camera-trap-CVPR-logs/rere_oracle_20/oracle/${DATASET//\//_}
+log_path: /fs/ess/PAS2099/camera-trap-CVPR-logs/oracle_20/oracle_cardinal_final/${DATASET//\//_}
 common_config:
   model: bioclip2
   train_data_config_path: ${TRAIN_JSON}
@@ -99,7 +99,7 @@ cl_config:
 EOF
 
     echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
-    python run_pipeline.py --c $CONFIG_FILE --resume --plot_features --wandb --eval_per_epoch --save_best_model --pretrained_weights bioclip2 --full
+    python run_pipeline.py --c $CONFIG_FILE --resume --plot_features --wandb --eval_per_epoch --save_best_model --pretrained_weights bioclip2 --full --loss_type ce
 
 #     # === Robust log path discovery ===
 #     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/zs_common/"

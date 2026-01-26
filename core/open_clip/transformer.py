@@ -10,20 +10,13 @@ from torch.utils.checkpoint import checkpoint
 from .utils import to_2tuple
 
 from functools import partial
- 
-# Added for PETL
-from ..petl_model.block import BlockPETL
-from ..petl_model.mlp import MlpPETL
-from ..petl_model.vpt import VPT
-from ..petl_model.vqt import VQT
-from ..petl_model.ssf import init_ssf_scale_shift, ssf_ada
-from ..petl_model.fact import FacT
-from .. petl_model.lora import LoRA
 
 # Add imports for PEFT modules
 from .adapter import Adapter
 from .convpass import ConvPass
 from .repadapter import RepAdapter
+from .lora import LoRA
+from .vpt import VPT
 
 PEFT_MODULE_REGISTRY = {
     'adapter': Adapter,
@@ -370,7 +363,7 @@ class CustomResidualAttentionBlock(nn.Module):
     def forward(self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None):
         # Attention path
         x = self._forward_helper(
-            x, self.ln_1, self.ft_attn_module, self.ls_1, 
+            x, self.ln_1, self.ft_attn_module, self.ls_1,
             lambda x_norm: self.ln_attn(self.attn(x_norm, attn_mask=attn_mask)), 1
         )
         
@@ -393,13 +386,17 @@ class Transformer(nn.Module):
             act_layer: Callable = nn.GELU,
             norm_layer: Callable = LayerNorm,
             params: Optional[Any] = None,  # PETL parameters
+            vpt: Optional[nn.Module] = None,
     ):
         super().__init__()
         self.width = width
         self.layers = layers
         self.grad_checkpointing = False
 
-        if params is not None and not params.full:
+        self.vpt = vpt
+        self.vpt_num = params.vpt_num if (params is not None and getattr(params, "vpt_mode", None)) else None
+
+        if params is not None and not params.full and (params.ft_attn_module is not None or params.ft_mlp_module is not None or params.lora_bottleneck > 0) and params.vpt_mode is None:
             self.resblocks = nn.ModuleList([
                 CustomResidualAttentionBlock(
                     width, heads, mlp_ratio, ls_init_value=ls_init_value, act_layer=act_layer, norm_layer=norm_layer, params=params)
@@ -410,20 +407,43 @@ class Transformer(nn.Module):
                 ResidualAttentionBlock(
                     width, heads, mlp_ratio, ls_init_value=ls_init_value, act_layer=act_layer, norm_layer=norm_layer)
                 for _ in range(layers)
-            ])            
+            ])
 
     def get_cast_dtype(self) -> torch.dtype:
         return self.resblocks[0].mlp.c_fc.weight.dtype
 
     def forward(self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None):
-        for r in self.resblocks:
+        use_vpt = (
+            self.vpt is not None
+            and self.vpt_num is not None
+        )
+        for idx, r in enumerate(self.resblocks):
+            if use_vpt:
+                # convert LND -> BNC so VPT (which expects [B, tokens, C]) can work
+                x_bnc = x.permute(1, 0, 2)           # [N, L, C]
+                batch_size = x_bnc.shape[0]
+
+                prompt = self.vpt.retrieve_prompt(idx, batch_size)  # [B, vpt_num, C] or None
+                if prompt is not None:
+                    # prepend prompts on token dimension
+                    x_bnc = torch.cat([prompt, x_bnc], dim=1)       # [B, vpt_num + L, C]
+                    x = x_bnc.permute(1, 0, 2)                      # back to [L', N, C]
+                else:
+                    # no prompt for this layer; just restore original format
+                    x = x_bnc.permute(1, 0, 2)          # increment layer index
+            
             if self.grad_checkpointing and not torch.jit.is_scripting():
                 # TODO: handle kwargs https://github.com/pytorch/pytorch/issues/79887#issuecomment-1161758372
                 x = checkpoint(r, x, None, None, attn_mask)
             else:
                 x = r(x, attn_mask=attn_mask)
+            if use_vpt and prompt is not None:
+                # x is [L', N, C] with prompts at the beginning on L dimension (after BNC manip)
+                x_bnc = x.permute(1, 0, 2)                             # [B, L', C]
+                # drop first vpt_num tokens
+                x_bnc = x_bnc[:, self.vpt_num:, :]              # [B, L, C]
+                x = x_bnc.permute(1, 0, 2)                             # [L, B, C] again
         return x
-
 
 class VisionTransformer(nn.Module):
     output_tokens: torch.jit.Final[bool]
@@ -471,6 +491,11 @@ class VisionTransformer(nn.Module):
         scale = width ** -0.5
         self.class_embedding = nn.Parameter(scale * torch.randn(width))
         self.positional_embedding = nn.Parameter(scale * torch.randn(self.grid_size[0] * self.grid_size[1] + 1, width))
+        if params is not None and getattr(params, "vpt_mode", None):
+            # layers = depth, width = embed_dim, patch_size = (H,W) per patch
+            self.vpt = VPT(params, depth=layers, patch_size=self.patch_size, embed_dim=width)
+        else:
+            self.vpt = None
 
         # setting a patch_dropout of 0. would mean it is disabled and this function would be the identity fn
         self.patch_dropout = PatchDropout(patch_dropout) if patch_dropout > 0. else nn.Identity()
@@ -485,6 +510,7 @@ class VisionTransformer(nn.Module):
             act_layer=act_layer,
             norm_layer=norm_layer,
             params=params,  # PETL parameters
+            vpt=self.vpt
         )
 
         self.global_average_pool = global_average_pool
@@ -653,7 +679,6 @@ class TextTransformer(nn.Module):
             ls_init_value=ls_init_value,
             act_layer=act_layer,
             norm_layer=norm_layer,
-            params=params,  # PETL parameters
         )
         self.ln_final = norm_layer(width)
 

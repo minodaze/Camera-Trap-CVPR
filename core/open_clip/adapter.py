@@ -31,6 +31,7 @@ class Adapter(nn.Module):
 
         init_weight(self.down_proj, self.up_proj, params.adapter_init)
         self.params = params
+        self.merge_factor = params.merge_factor
     def forward(self, x, add_residual=False, residual=None):
         residual = x if residual is None else residual
         if self.adapter_layernorm_option == 'in':
@@ -47,8 +48,8 @@ class Adapter(nn.Module):
             up = self.adapter_layer_norm_before(up)
 
         if add_residual:
-            output = up * self.params.merge_factor + residual
+            output = up * self.merge_factor + residual
         else:
-            output = up * self.params.merge_factor
+            output = up * self.merge_factor
 
         return output

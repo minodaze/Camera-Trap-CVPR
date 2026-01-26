@@ -2,7 +2,7 @@ import json
 from PIL import Image
 import torch
 from torch.utils.data import Dataset, Sampler
-from torchvision.transforms import Normalize, Compose, InterpolationMode, ToTensor, Resize, RandomHorizontalFlip, RandomResizedCrop
+from torchvision.transforms import Normalize, Compose, InterpolationMode, ToTensor, Resize, RandomHorizontalFlip, RandomResizedCrop, ColorJitter, RandomApply, GaussianBlur
 from collections import defaultdict
 import logging
 import copy
@@ -22,12 +22,21 @@ _TRAIN_TRANSFORM = Compose([
     ToTensor(),
     Normalize(mean=_IMAGENET_DEFAULT_MEAN, std=_IMAGENET_DEFAULT_STD),
 ])
-_CROP_TRAIN_TRANSFORM = Compose([
+_AUG_TRAIN_TRANSFORM = Compose([
     RandomResizedCrop(224,                     # final H × W
                       scale=(0.7, 1.0),        # crop covers 70 – 100 % of image area
                       ratio=(3/4, 4/3),        # aspect-ratio range
                       interpolation=InterpolationMode.BICUBIC),
     RandomHorizontalFlip(p=0.5),
+    ColorJitter(
+        brightness=0.3,
+        contrast=0.3,
+        saturation=0.2,
+        hue=0.05
+    ),
+    RandomApply(
+        [GaussianBlur(23, (0.1, 2.0))], p=0.2
+    ),
     ToTensor(),
     Normalize(mean=_IMAGENET_DEFAULT_MEAN,
               std=_IMAGENET_DEFAULT_STD),
@@ -41,7 +50,7 @@ _VAL_TRANSFORM = Compose([
 
 _VAL_TRANSFORM_SPECIESNET = Compose([
     Resize((480, 480), interpolation=InterpolationMode.BICUBIC),
-    ToTensor(),1
+    ToTensor(),
 ])
 
 @dataclass
@@ -107,14 +116,14 @@ class CkpDataset(Dataset):
         self.is_train = is_train
         self.is_crop = is_crop
         self.label_type = label_type
-        self.crop_train_transform = _CROP_TRAIN_TRANSFORM
+        self.aug_train_transform = _AUG_TRAIN_TRANSFORM
         self.train_transform = _TRAIN_TRANSFORM
         if is_speciesnet:
             self.val_transform = _VAL_TRANSFORM_SPECIESNET
         else:
             self.val_transform = _VAL_TRANSFORM
         if is_train:
-            self.transform = self.crop_train_transform if self.is_crop else self.train_transform
+            self.transform = self.train_transform
         else:
             self.transform = self.val_transform 
         
@@ -225,7 +234,7 @@ class CkpDataset(Dataset):
         # else:
         #     self.cache[file_path] = image
         if self.is_crop and self.is_train:
-            image = [self.transform(image), self.transform(image)]
+            image = [self.train_transform(image), self.aug_train_transform(image)]
         else:
             image = self.transform(image)
         return image, label, file_path, logits, is_buf
@@ -263,13 +272,14 @@ class CkpDataset(Dataset):
         sub_dataset.class_names = self.class_names
         sub_dataset.class_name_idx = self.class_name_idx
         if is_train:
-            sub_dataset.transform = self.crop_train_transform if self.is_crop else self.train_transform
+            sub_dataset.transform = self.aug_train_transform if self.is_crop else self.train_transform
         else:
             sub_dataset.transform = self.val_transform
         sub_dataset.val_transform = self.val_transform
         sub_dataset.train_transform = self.train_transform
-        sub_dataset.crop_train_transform = self.crop_train_transform
+        sub_dataset.aug_train_transform = self.aug_train_transform
         sub_dataset.samples = filtered_samples
+        sub_dataset.ckp_samples = sub_dataset._get_ckp_samples(sub_dataset.samples)
         sub_dataset.cache = self.cache
         logging.info(f"Subset length: {len(sub_dataset)}")
         return sub_dataset

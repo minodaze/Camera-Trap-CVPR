@@ -11,7 +11,7 @@ from tqdm import tqdm
 import torch.distributed as dist
 import json
 
-from .loss import CB_loss, focal_loss, standard_focal_loss, LDAM_loss, loss_fn_kd, SupConLoss, cdt_loss, balanced_softmax_loss
+from .loss import CB_loss, focal_loss, standard_focal_loss, LDAM_loss, loss_fn_kd, SupConLoss, cdt_loss, balanced_softmax_loss, per_sample_balanced_softmax_loss
 from utils.vram_check import check_vram_and_clean, maintenance_vram_check, conditional_cache_clear
 
 # Import epoch logging functions
@@ -108,7 +108,7 @@ def get_f_loss(loss_type, samples, n_classes, device, alpha=None, beta=None, gam
             return loss
     elif loss_type == 'cb-ce':
         def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
-            cb_beta = beta if beta is not None else 0.9999  # Default beta value
+            cb_beta = beta if beta is not None else 0.999  # Default beta value
             use_per_class = alpha if alpha is not None else False  # Use alpha to control per-class beta
             # For CB-CE, gamma is not needed, set to 0 or None based on CB_loss implementation
             loss = CB_loss(logits, labels, samples_per_cls, n_classes, 'softmax', cb_beta, 0.0, device, use_per_class_beta=use_per_class)
@@ -116,10 +116,18 @@ def get_f_loss(loss_type, samples, n_classes, device, alpha=None, beta=None, gam
     elif loss_type == 'cb-focal':
         def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
             # CB-focal loss with configurable beta strategy
-            cb_beta = beta if beta is not None else 0.9999  # Default beta value for global strategy
-            cb_gamma = gamma if gamma is not None else 2.0   # Standard focusing parameter
+            cb_beta = beta if beta is not None else 0.999  # Default beta value for global strategy
+            cb_gamma = gamma if gamma is not None else 0.5   # Standard focusing parameter
             use_per_class = alpha if alpha is not None else False  # Use alpha to control per-class beta
             loss = CB_loss(logits, labels, samples_per_cls, n_classes, 'focal', cb_beta, cb_gamma, device, use_per_class_beta=use_per_class)
+            return loss
+    elif loss_type == 'cb-sigmoid':
+        def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
+            # CB-sigmoid loss with configurable beta strategy
+            cb_beta = beta if beta is not None else 0.999  # Default beta value for global strategy
+            use_per_class = alpha if alpha is not None else False  # Use alpha to control per-class beta
+            # For CB-sigmoid, gamma is not needed, set to 0 or None based on CB_loss implementation
+            loss = CB_loss(logits, labels, samples_per_cls, n_classes, 'sigmoid', cb_beta, 0.0, device, use_per_class_beta=use_per_class)
             return loss
     elif loss_type == 'kd':
         def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
@@ -161,6 +169,24 @@ def get_f_loss(loss_type, samples, n_classes, device, alpha=None, beta=None, gam
                             ref_logits.float())
                 loss += beta  * F.cross_entropy(buf_logits, labels[is_buf])
             return loss
+    elif loss_type == 'derpp_bsm':
+        def f_loss(outputs, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
+            alpha = 1.0
+            beta  = 1.0
+            is_buf = is_buf.bool()
+            is_new = ~is_buf
+            # loss  = F.cross_entropy(outputs[is_new], labels[is_new])
+            loss = balanced_softmax_loss(outputs[is_new], labels[is_new], samples_per_cls, n_classes, device)
+            # buffer logits may be empty for new-data rows → mask first dim
+            if is_buf.any():
+                buf_logits = outputs[is_buf]
+                ref_logits = old_logits[is_buf].to(buf_logits.device)
+                loss += alpha * F.mse_loss(
+                            buf_logits[:, :old_logits.shape[1]],
+                            ref_logits.float())
+                # loss += beta  * F.cross_entropy(buf_logits, labels[is_buf])
+                loss += beta  * balanced_softmax_loss(buf_logits, labels[is_buf], samples_per_cls, n_classes, device)
+            return loss
     elif loss_type == 'cdt':
         def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
             cdt_gamma = gamma if gamma is not None else 0.3
@@ -171,13 +197,17 @@ def get_f_loss(loss_type, samples, n_classes, device, alpha=None, beta=None, gam
             ldam_C = alpha if alpha is not None else 0.5  # Use alpha parameter for C
             loss = LDAM_loss(logits, labels, samples_per_cls, n_classes, ldam_C, device)
             return loss
-    
     elif loss_type == 'bsm':
         def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
             loss = balanced_softmax_loss(logits, labels, samples_per_cls, n_classes, device)
             return loss
+    elif loss_type == 'per_sample_bsm':
+        def f_loss(logits, labels, images=None, proj_features=None, old_logits=None, is_buf=None):
+            loss = per_sample_balanced_softmax_loss(logits, labels, samples_per_cls, n_classes, device)
+            return loss
     else:
-        raise ValueError(f'Unknown loss type {loss_type}. ')
+        raise ValueError(f'Unknown loss type {loss_type}.')
+    logging.info(f'Using {loss_type} loss function. ')
     return f_loss
 
 def get_optimizer(model, optimizer_name, optimizer_params):
@@ -324,30 +354,85 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             
             # Forward pass with detailed memory tracking
             bsz = labels.size(0)
-            if inputs.size(0) == 2 * bsz:
+
+            # if inputs.size(0) == 2 * bsz:
+            #     i1, i2 = torch.split(inputs, [bsz, bsz], dim=0)
+            #     if debug_memory:
+            #         gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_before_forward")
+            #     logits = classifier(i1)
+            #     if debug_memory:
+            #         gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after_forward")
+            # else:
+            #     if debug_memory:
+            #         gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_before_forward")
+            #     logits = classifier(inputs)
+            #     if debug_memory:
+            #         gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after_forward")
+
+            # preds = logits.argmax(dim=1)
+            # correct = preds == labels
+            # proj_features = None
+            # if hasattr(underlying_model, 'proj_head'):
+            #     # For SupCon loss, we need to get the features
+            #     proj_features = underlying_model.proj_features(inputs)
+                
+            # if debug_memory:
+            #     gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_before_loss")
+            # loss = f_loss(logits, labels, images=inputs, proj_features=proj_features, old_logits=old_logits, is_buf=is_buf)
+            is_two_view = (inputs.size(0) == 2 * bsz)
+            if loss_type == 'supcon' and not is_two_view:
+                raise ValueError(
+                      "SupCon loss requires two views per sample (inputs should be 2*batch_size). "
+                      "Enable TwoCrop/is_crop for the training dataset."
+                )
+
+            logits_view2 = None
+            loss_view1 = None
+            loss_view2 = None
+            proj_features = None
+
+            if debug_memory:
+                gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_before_forward")
+            if is_two_view:
                 i1, i2 = torch.split(inputs, [bsz, bsz], dim=0)
-                if debug_memory:
-                    gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_before_forward")
-                logits = classifier(i1)
-                if debug_memory:
-                    gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after_forward")
+                if loss_type == 'supcon':
+                    # SupCon already expects both views together via proj_features/images.
+                    logits = classifier(i1)  # used only for metrics
+                    if hasattr(underlying_model, 'proj_head'):
+                        proj_features = underlying_model.proj_features(inputs)
+                else:
+                    # Two separate forwards; average two losses (your requested behavior).
+                    logits = classifier(i1)
+                    logits_view2 = classifier(i2)
             else:
-                if debug_memory:
-                    gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_before_forward")
                 logits = classifier(inputs)
-                if debug_memory:
-                    gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after_forward")
+                if loss_type == 'supcon' and hasattr(underlying_model, 'proj_head'):
+                    proj_features = underlying_model.proj_features(inputs)
+
+            if debug_memory:
+                gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after_forward")
 
             preds = logits.argmax(dim=1)
             correct = preds == labels
-            proj_features = None
-            if hasattr(underlying_model, 'proj_head'):
-                # For SupCon loss, we need to get the features
-                proj_features = underlying_model.proj_features(inputs)
-                
+
             if debug_memory:
                 gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_before_loss")
-            loss = f_loss(logits, labels, images=inputs, proj_features=proj_features, old_logits=old_logits, is_buf=is_buf)
+
+            if is_two_view and loss_type != 'supcon':
+                loss_view1 = f_loss(
+                    logits, labels, images=i1, proj_features=None,
+                    old_logits=old_logits, is_buf=is_buf
+                )
+                loss_view2 = f_loss(
+                    logits_view2, labels, images=i2, proj_features=None,
+                    old_logits=old_logits, is_buf=is_buf
+                )
+                loss = 0.5 * (loss_view1 + loss_view2)
+            else:
+                loss = f_loss(
+                    logits, labels, images=inputs, proj_features=proj_features,
+                    old_logits=old_logits, is_buf=is_buf
+                )
             if debug_memory:
                 gpu_monitor.log_memory_usage("training", f"epoch_{epoch}_batch_{batch_idx}_after_loss", {
                     'loss_value': loss.item()
@@ -387,7 +472,7 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             labels_arr.append(labels.cpu().numpy())
             
             # Clean up tensors to help with memory
-            del inputs, labels, logits, loss
+            del inputs, labels, logits, logits_view2, loss, loss_view1, loss_view2 
             if proj_features is not None:
                 del proj_features
             

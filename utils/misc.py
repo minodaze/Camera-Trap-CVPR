@@ -15,7 +15,7 @@ def method_name(params):
         elif params.ft_attn_module == 'convpass':
             name += str(params.convpass_xavier_init) + '_'
             name += str(params.convpass_scaler) + '_'
-        elif params.ft_mlp_module == 'repadapter':
+        elif params.ft_attn_module == 'repadapter':
             name += str(params.repadapter_scaler) + '_'
         else:
             raise NotImplementedError
@@ -23,8 +23,8 @@ def method_name(params):
         name += 'mlp_'
         name += params.ft_mlp_module + '_'
         name += params.ft_mlp_mode + '_'
-        if params.ft_attn_mode == 'parallel':
-            name += params.ft_attn_ln + '_'
+        if params.ft_mlp_mode == 'parallel':
+            name += params.ft_mlp_ln + '_'
         if params.ft_mlp_module == 'adapter':
             name += str(params.adapter_bottleneck) + '_'
             name += params.adapter_init + '_'

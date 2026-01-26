@@ -9,8 +9,7 @@ if [ ! -f "train_list.txt" ]; then
 fi
 
 # Read datasets from file into array
-readarray -t ALL_DATASETS < uselist/oracle_list.txt
-
+readarray -t ALL_DATASETS < uselist/adapter.txt
 # Remove empty lines and trim whitespace
 TEMP_DATASETS=()
 for dataset in "${ALL_DATASETS[@]}"; do
@@ -71,11 +70,40 @@ for lr in "${LEARNING_RATES[@]}"; do
         job_counter=$((job_counter + 1))
         echo "Job $job_counter/$TOTAL_SUBMISSIONS: LR=$lr, Processing datasets ${start_index}-${end_index}"
         echo "  Datasets: ${datasets_string}"
-        
+        # sbatch script2/sbatch_run_adapter16_scaler1.0_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cb_sigmoid_beta0.9999_oracle.sh "${datasets_string}" "$lr"
         # sbatch script2/sbatch_run_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cdt_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_adapter_scaler0.1_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_adapter_scaler0.01_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_adapter_scaler2.0_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cdt0.1_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cdt0.15_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cdt0.2_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cdt0.3_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cdt0.4_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_vpt50_oracle.sh "${datasets_string}" "$lr"
+        sbatch script2/sbatch_run_adapter32_scaler1.0_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cb_focal_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cb_focal_gamma0.0_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cb_focal_gamma1.0_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cb_focal_beta0.9999gamma2.0_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cb_focal_beta0.9999gamma1.0_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cb_focal_beta0.9999gamma1.8_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cb_focal_beta0.9999gamma1.5_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cb_focal_beta0.9999gamma1.2_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cb_sigmoid_beta0.999_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cb_focal_beta0.999gamma1.8_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cb_focal_beta0.999gamma1.5_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cb_focal_beta0.999gamma1.2_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cb_focal_beta0.99_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cdt0.05_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cdt0.5_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_cdt0.7_oracle.sh "${datasets_string}" "$lr"
         # sbatch script2/sbatch_run_bsm_oracle.sh "${datasets_string}" "$lr"
-        sbatch script2/sbatch_run_muti_gpu_bsm_oracle.sh "${datasets_string}" "$lr"
-        sbatch script2/sbatch_run_muti_gpu_lora_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_lora_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_muti_gpu_bsm_oracle.sh "${datasets_string}" "$lr"
+        # sbatch script2/sbatch_run_muti_gpu_lora_oracle.sh "${datasets_string}" "$lr"
         # sbatch script/sbatch_run_ub_lora_bsm_inter.sh "${datasets_string}" "$lr"
     done
 done

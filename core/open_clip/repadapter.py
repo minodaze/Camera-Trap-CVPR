@@ -19,6 +19,7 @@ class RepAdapter(nn.Module):
 
         init_weight(self.conv_A, self.conv_B, params.repadapter_init)
         self.params = params
+        self.merge_factor = params.merge_factor
 
     def forward(self, x):
         # Handle OpenCLIP's LND format
@@ -31,7 +32,7 @@ class RepAdapter(nn.Module):
         # RepAdapter works the same for both vision and text (1D convolution over sequence)
         x_orig = x
         x = x.transpose(1, 2)  # B, N, C -> B, C, N
-        x = self.conv_B(self.dropout(self.conv_A(x))) * self.scale * self.params.merge_factor + x
+        x = self.conv_B(self.dropout(self.conv_A(x))) * self.scale * self.merge_factor + x
         x = x.transpose(1, 2).contiguous()  # B, C, N -> B, N, C
         
         if transposed:

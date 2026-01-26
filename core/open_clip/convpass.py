@@ -41,6 +41,7 @@ class ConvPass(nn.Module):
             crop_size, patch_size = params.image_size, params.patch_size
         self.patch_num = crop_size // patch_size
         self.params = params
+        self.merge_factor = params.merge_factor
 
     def _is_vision_input(self, x):
         """Detect if input is from vision or text transformer"""
@@ -77,7 +78,7 @@ class ConvPass(nn.Module):
         x_down = self.dropout(x_down)
         x_up = self.adapter_up(x_down)
 
-        x_up = x_up * self.scale * self.params.merge_factor
+        x_up = x_up * self.scale * self.merge_factor
         
         if transposed:
             x_up = x_up.transpose(0, 1)
@@ -107,7 +108,7 @@ class ConvPass(nn.Module):
         x_conv = self.dropout(x_conv)
         x_up = self.adapter_up(x_conv)
 
-        x_up = x_up * self.scale * self.params.merge_factor
+        x_up = x_up * self.scale * self.merge_factor
         
         if transposed:
             x_up = x_up.transpose(0, 1)

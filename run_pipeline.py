@@ -74,7 +74,14 @@ def setup_logging(log_path, debug, params, rank=0):
     petl_method_name = method_name(params)
     log_path = os.path.join(log_path, params.pretrained_weights)
 
-    petl_method_name = petl_method_name + f'_text_{params.text}'
+    petl_method_name = petl_method_name + f'_text_{params.text}' + f'_loss_{params.loss_type}'
+    if params.loss_alpha is not None:
+        petl_method_name = petl_method_name + f'_alpha_{params.loss_alpha}'
+    if params.loss_beta is not None:
+        petl_method_name = petl_method_name + f'_beta_{params.loss_beta}'
+    if params.loss_gamma is not None:
+        petl_method_name = petl_method_name + f'_gamma_{params.loss_gamma}'
+    # petl_method_name = petl_method_name + f'_text_{params.text}'
     if params.eval_only:
         if params.lora_interpolate:
             petl_method_name += f'_lora_interpolate_{params.lora_alpha}'
@@ -140,7 +147,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
     grad_accum_steps = common_config.get('grad_accum_steps', 1)
     
     _classifier = None  # Placeholder for interpolation model or head
-    if pretrain_config['loss_type'] == 'kd' or interpolation_model or interpolation_head:
+    if args.loss_type == 'kd' or interpolation_model or interpolation_head:
         _classifier = copy.deepcopy(classifier)
         _classifier.to(device)
 
@@ -361,13 +368,13 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
     
     # Get loss function
     f_loss = get_f_loss(
-        pretrain_config['loss_type'], 
+        args.loss_type, 
         dataset.samples, 
         len(class_names),
         device,
-        alpha=pretrain_config.get('loss_alpha', None),
-        beta=pretrain_config.get('loss_beta', None),
-        gamma=pretrain_config.get('loss_gamma', None),
+        alpha=args.loss_alpha,
+        beta=args.loss_beta,
+        gamma=args.loss_gamma,
         ref_model=_classifier,  # Use _classifier for KD loss if applicable
     )
     
@@ -572,7 +579,7 @@ def run(args):
         class_names.extend([cls for cls in expand_classes if cls not in class_names])
         log_info(f"Expanded classes (total {len(class_names)} classes)", Colors.CYAN)
 
-    is_crop = True if cl_config['method'] == 'co2l' else False
+    is_crop = True if cl_config['method'] in ['co2l', 'replay', 'rand-replace-old', 'lwf', 'mir', 'derpp'] else False
     
     log_success(f"Loaded {len(class_names)} classes using '{label_type}' labels")
     
@@ -995,6 +1002,7 @@ def run(args):
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("continual_learning", f"before_{ckp}")
         if not pretrain_config['pretrain']:
+            # import pdb; pdb.set_trace()
             classifier = cl_module.process(
                 classifier, 
                 ckp_train_dset, 
@@ -1944,7 +1952,7 @@ def run_eval_only(args):
                 }
 
                 # Weight sanity: compare per-ckp on its own eval set
-                if weight_sanity_enabled and accu_ckp == ckp:
+                if weight_sanity_enabled:
                     sanity_total += 1
                     expected = sanity_expected.get(ckp)
                     if expected is None:
@@ -1964,19 +1972,19 @@ def run_eval_only(args):
 
                 # Compare with previous checkpoints that were also evaluated on the same data (accu_ckp)
                 # Only compare if we're evaluating on the current checkpoint data (accu_ckp == ckp)
-                if accu_ckp == ckp:
-                    for pre in range(0, i):
-                        pre_ckp = ckp_list[pre]
-                        # Check if previous checkpoint was evaluated on this same data
-                        if pre_ckp in eval_results and ckp in eval_results[pre_ckp]:
-                            prev_balanced_acc = eval_results[pre_ckp][ckp]['balanced_accuracy']
-                            difference = balanced_acc - prev_balanced_acc
-                            eval_results[ckp][ckp]['improvement_over_' + pre_ckp] = difference
+                # if accu_ckp == ckp:
+                #     for pre in range(0, i):
+                #         pre_ckp = ckp_list[pre]
+                #         # Check if previous checkpoint was evaluated on this same data
+                #         if pre_ckp in eval_results and ckp in eval_results[pre_ckp]:
+                #             prev_balanced_acc = eval_results[pre_ckp][ckp]['balanced_accuracy']
+                #             difference = balanced_acc - prev_balanced_acc
+                #             eval_results[ckp][ckp]['improvement_over_' + pre_ckp] = difference
                                 
-                            if difference > 0:
-                                log_info(f"🎯 Model {ckp} improved over {pre_ckp} by {difference:.4f} on {ckp} data!", Colors.CYAN)
-                            else:
-                                log_info(f"📊 Model {ckp} did not improve over {pre_ckp} on {ckp} data (Δ={difference:+.4f})", Colors.CYAN)
+                #             if difference > 0:
+                #                 log_info(f"🎯 Model {ckp} improved over {pre_ckp} by {difference:.4f} on {ckp} data!", Colors.CYAN)
+                #             else:
+                #                 log_info(f"📊 Model {ckp} did not improve over {pre_ckp} on {ckp} data (Δ={difference:+.4f})", Colors.CYAN)
 
                 
                 # Log to wandb if enabled
@@ -2252,6 +2260,17 @@ def parse_args():
                         choices=['bioclip', 'openai', 'customized'],
                         help='text template type')
 
+    ############################## Loss Type ##############################
+    parser.add_argument('--loss_type', type=str, default='ce',
+                        choices=['ce', 'focal', 'bsm','ldam', 'cdt', 'cb-focal', 'cb-ce', 'cb-bsm', 'cb-sigmoid', 'derpp', 'derpp_bsm', 'supcon'],
+                        help='loss type')
+    parser.add_argument('--loss_alpha', type=float, default=None,
+                        help='balancing factor for loss (default: %(default)s)')
+    parser.add_argument('--loss_beta', type=float, default=None,
+                        help='scaling factor for loss (default: %(default)s)')
+    parser.add_argument('--loss_gamma', type=float, default=None,
+                        help='focusing parameter for focal loss (default: %(default)s)')
+
     ########################PETL#########################
     parser.add_argument('--ft_attn_module', default=None, choices=['adapter', 'convpass', 'repadapter'],
                         help='Module used to fine-tune attention module. (default: %(default)s)')
@@ -2430,7 +2449,10 @@ if __name__ == '__main__':
     np.random.seed(args.seed)
     
     # Set PyTorch to deterministic mode for full reproducibility
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
     torch.backends.cudnn.deterministic = True
+    torch.set_float32_matmul_precision('high')
     torch.backends.cudnn.benchmark = False
     
     # Additional deterministic settings for CUDA operations

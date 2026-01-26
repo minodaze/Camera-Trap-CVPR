@@ -143,17 +143,17 @@ def CB_loss(logits, labels, samples_per_cls, no_of_classes, loss_type, beta, gam
     """
     samples_per_cls = np.array(samples_per_cls)
     
-    if use_per_class_beta:
-        # Per-class beta: β_i = (n_i - 1)/n_i
-        beta_per_class = (samples_per_cls - 1) / samples_per_cls
-        # Handle case where n_i = 1 (would cause division by zero)
-        beta_per_class[samples_per_cls == 1] = 0.0
-        effective_num = 1.0 - np.power(beta_per_class, samples_per_cls)
-        weights = (1.0 - beta_per_class) / effective_num
-    else:
+    # if use_per_class_beta:
+    #     # Per-class beta: β_i = (n_i - 1)/n_i
+    #     beta_per_class = (samples_per_cls - 1) / samples_per_cls
+    #     # Handle case where n_i = 1 (would cause division by zero)
+    #     beta_per_class[samples_per_cls == 1] = 0.0
+    #     effective_num = 1.0 - np.power(beta_per_class, samples_per_cls)
+    #     weights = (1.0 - beta_per_class) / effective_num
+    # else:
         # Global beta (original implementation)
-        effective_num = 1.0 - np.power(beta, samples_per_cls)
-        weights = (1.0 - beta) / np.array(effective_num)
+    effective_num = 1.0 - np.power(beta, samples_per_cls)
+    weights = (1.0 - beta) / np.array(effective_num)
     
     weights = weights / np.sum(weights) * no_of_classes
 
@@ -169,11 +169,22 @@ def CB_loss(logits, labels, samples_per_cls, no_of_classes, loss_type, beta, gam
     if loss_type == "focal":
         cb_loss = focal_loss(labels_one_hot, logits, weights, gamma)
     elif loss_type == "sigmoid":
-        assert False, "Not implemented"
-        cb_loss = F.binary_cross_entropy_with_logits(input = logits,target = labels_one_hot, weights = weights)
+        # Per-element BCE with logits
+        bce = F.binary_cross_entropy_with_logits(
+            input=logits,
+            target=labels_one_hot,
+            reduction="none"
+        )  # [B, C]
+        # Apply CB weighting
+        weighted_bce = weights * bce  # [B, C]
+
+        # Normalize: sum over elements, divide by number of positive labels
+        cb_loss = weighted_bce.sum() / labels_one_hot.sum()
     elif loss_type == "softmax":
-        pred = logits.softmax(dim = 1)
-        cb_loss = F.binary_cross_entropy(input = pred, target = labels_one_hot, weight = weights)
+        ce = F.cross_entropy(logits, labels, reduction="none")
+        cb_loss = torch.mean(weights[:,0] * ce)
+        # pred = logits.softmax(dim = 1)
+        # cb_loss = F.binary_cross_entropy(input = pred, target = labels_one_hot, weight = weights)
     
     return cb_loss
 
@@ -290,5 +301,39 @@ def balanced_softmax_loss(logits, labels, samples_per_cls, no_of_classes, device
     
     # Compute balanced softmax loss using the reweighted logits
     bsl_loss = F.cross_entropy(reweighted_logits, labels)
+    
+    return bsl_loss
+
+def per_sample_balanced_softmax_loss(logits, labels, samples_per_cls, no_of_classes, device='cuda'):
+    """Compute the Balanced Softmax Loss.
+
+    Balanced Softmax Loss accommodates label distribution shifts between training and test sets
+    by reweighting the softmax probabilities based on class frequencies.
+    
+    Formula: l(θ) = -log(φ_y) = -log(n_y * e^η_y / Σ_i n_i * e^η_i)
+    where n_y is the number of samples for true class y, and η is the logit.
+
+    Args:
+      logits: A float tensor of size [batch, no_of_classes].
+      labels: A int tensor of size [batch].
+      samples_per_cls: A python list of size [no_of_classes] containing number of samples per class.
+      no_of_classes: total number of classes. int
+      device: device to place tensors on.
+
+    Returns:
+      bsl_loss: A float tensor representing balanced softmax loss
+    """
+    batch_size = logits.size(0)
+    
+    # Convert samples_per_cls to tensor
+    samples_per_cls = torch.tensor(samples_per_cls, dtype=torch.float32, device=device)
+    
+    # Compute reweighted logits: n_i * e^η_i for all classes
+    # logits: [batch_size, no_of_classes]
+    # samples_per_cls: [no_of_classes]
+    reweighted_logits = logits + torch.log(samples_per_cls.unsqueeze(0))  # [batch_size, no_of_classes]
+    
+    # Compute balanced softmax loss using the reweighted logits
+    bsl_loss = F.cross_entropy(reweighted_logits, labels, reduction="none")
     
     return bsl_loss

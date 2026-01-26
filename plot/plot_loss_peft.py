@@ -109,12 +109,16 @@ for dataset in datasets:
         bsm_best_epoch, bsm_best_val, bsm_idx = bsm_match
         plt.plot(bsm_epochs[:bsm_idx+1], np.array(bsm_vals[:bsm_idx+1]) * 100.0,
                  marker='o', label='BSM', color='#2a9d8f')
+        # plt.plot(bsm_epochs, np.array(bsm_vals) * 100.0,
+        #          marker='o', label='BSM', color='#2a9d8f')
         plt.scatter([bsm_best_epoch], [bsm_best_val * 100.0],
                     color='#2a9d8f', edgecolors='black', zorder=3)
     if lora_match:
         lora_best_epoch, lora_best_val, lora_idx = lora_match
         plt.plot(lora_epochs[:lora_idx+1], np.array(lora_vals[:lora_idx+1]) * 100.0,
                  marker='s', label='LoRA', color='#e76f51')
+        # plt.plot(lora_epochs, np.array(lora_vals) * 100.0,
+        #          marker='s', label='LoRA', color='#e76f51')
         plt.scatter([lora_best_epoch], [lora_best_val * 100.0],
                     color='#e76f51', edgecolors='black', zorder=3)
 

@@ -6,6 +6,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 import torch.distributed as dist
+from torchvision.transforms import Normalize, Compose, InterpolationMode, ToTensor, Resize, RandomHorizontalFlip, RandomResizedCrop, ColorJitter
 from ..common import get_optimizer, train, eval, get_f_loss, print_metrics, get_scheduler
 from ..data import BufferDataset
 from abc import ABC, abstractmethod
@@ -72,13 +73,13 @@ class CLModule(ABC):
             else:
                 scheduler = None
             f_loss = get_f_loss(
-                self.cl_config['loss_type'], 
+                self.args.loss_type,
                 cl_train_loader.dataset.samples, 
                 len(self.class_names),
                 self.device,
-                alpha=self.cl_config.get('loss_alpha', None),
-                beta=self.cl_config.get('loss_beta', None),
-                gamma=self.cl_config.get('loss_gamma', None),
+                alpha=getattr(self.args, 'loss_alpha', None),
+                beta=getattr(self.args, 'loss_beta', None),
+                gamma=getattr(self.args, 'loss_gamma', None),
                 ref_model=self.ref_model,
             )
             
@@ -103,7 +104,8 @@ class CLModule(ABC):
                     cl_train_loader, 
                     self.cl_config['epochs'], 
                     self.device, 
-                    f_loss, 
+                    f_loss,
+                    loss_type=getattr(self.args, 'loss_type', None),
                     eval_per_epoch=eval_per_epoch, 
                     eval_loader=eval_loader,
                     scheduler=scheduler,
@@ -214,16 +216,18 @@ class CLAccumulativeScratch(CLModule):
         # Process data
         cl_train_dset = copy.deepcopy(train_dset)
         
+        # Apply mask and add buffer samples
+        logging.info(f'Applying train mask with {np.sum(train_mask)} samples selected for training. ')
         cl_train_dset.apply_mask(train_mask)
         cl_train_dset.add_samples(self.buffer)
+        logging.info(f'After adding buffer, total {len(cl_train_dset)} samples for training. ')
         
         # Train
         self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True, next_test_loader=next_test_loader)
         
         # Process buffer
-        for msk, sample in zip(train_mask, train_dset.samples):
-            if msk:
-                self.buffer.append(sample)
+        for sample in train_dset.samples:
+            self.buffer.append(sample)
 
         # Memory cleanup
         del cl_train_dset
@@ -358,7 +362,8 @@ class CLReplay(CLModule):
 
         n_cls     = len(by_cls)
         per_class = max(1, buf_size // n_cls)
-        if per_class < 10:
+        if per_class < 30:
+            logging.info(f'Buffer too small to keep class balance with {n_cls} classes. Increasing buffer size from {buf_size} to {buf_size*2}.')
             self.cl_config['buffer_size'] = buf_size*2  # increase the buffer size to keep at least 10 samples per class
             buf_size = self.cl_config.get('buffer_size', 500)
             per_class = max(1, buf_size // n_cls)
@@ -384,8 +389,13 @@ class CLReplay(CLModule):
         buf_size = self.cl_config.get('buffer_size', 500)
         self._rebalance_buffer(buf_size)                       # trim/balance
 
+    def augmentation(self, train_dset):
+        logging.info('Enable data augmentation for training dataset.')
+        train_dset.is_crop = True
+        train_dset.is_train = True
+
     def process(self, classifier, train_dset, eval_dset, train_mask,
-                eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None):
+                eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None, next_test_loader=None):
 
         # 1) collect *new* samples for this round
         cl_train_dset = copy.deepcopy(train_dset)
@@ -399,13 +409,14 @@ class CLReplay(CLModule):
         # 2) replay: draw the same number of samples from the buffer -> expected 50 : 50 ratio in every DataLoader epoch
         replay_samples = self._sample_from_buffer(n_new, classifier, train_dset)
         cl_train_dset.add_samples(replay_samples)
+        self.augmentation(cl_train_dset)
 
         # 3) incremental step: update the reference model
         self.incremental_step(classifier)
 
         # 4) train the classifier on NEW ⊕ REPLAY
         self._train(classifier, cl_train_dset,
-                    eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True)
+                    eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True, next_test_loader=next_test_loader)
         
         # 5) after training
         self._after_train(classifier, train_dset, eval_dset, train_mask)
@@ -450,7 +461,7 @@ class CLDerpp(CLReplay):
             logging.info('Computing logits for the buffer samples')
             cl_buffer_dset = BufferDataset(self.buffer)
             for sample, data in zip(self.buffer, cl_buffer_dset):
-                image, label, _, is_buf = data
+                image, label, _, _, is_buf = data
                 image = image.to(self.device)
                 if is_buf:
                     with torch.no_grad():
@@ -472,15 +483,25 @@ class CLMIR(CLReplay):
         if n <= len(self.buffer):
             logging.info(f'Selecting {n} samples from the buffer of size {len(self.buffer)} by the MIR criterion.')
             cl_train_loader = DataLoader(train_dset, batch_size=self.common_config['train_batch_size'], shuffle=True, num_workers=12)
-            optimizer = get_optimizer(classifier, self.common_config['optimizer_name'], self.common_config['optimizer_params'])
-            self._classifier = copy.deepcopy(classifier).to(self.device)
-            self._classifier.train()
+            f_loss = get_f_loss(
+                self.args.loss_type,
+                cl_train_loader.dataset.samples, 
+                len(self.class_names),
+                self.device,
+                alpha=getattr(self.args, 'loss_alpha', None),
+                beta=getattr(self.args, 'loss_beta', None),
+                gamma=getattr(self.args, 'loss_gamma', None),
+                ref_model=self.ref_model,
+            )
+            _classifier = copy.deepcopy(classifier).to(self.device)
+            _classifier.train()
+            optimizer = get_optimizer(_classifier, self.common_config['optimizer_name'], self.common_config['optimizer_params'])
             # Train one epoch is enough
-            for inputs, labels, _, _ in cl_train_loader:
+            for inputs, labels, _, old_logits, is_buf in cl_train_loader:
                 # Forward
                 inputs, labels = inputs.to(self.device), labels.to(self.device)
-                logits = self._classifier(inputs)
-                loss = F.cross_entropy(logits, labels)
+                logits = _classifier(inputs)
+                loss = f_loss(logits, labels, images=inputs, proj_features=None, old_logits=old_logits, is_buf=is_buf)
                 # Backward
                 optimizer.zero_grad()
                 loss.backward()
@@ -488,14 +509,24 @@ class CLMIR(CLReplay):
             buf_dset = BufferDataset(self.buffer)
             buf_loader = DataLoader(buf_dset, batch_size=self.common_config['train_batch_size'], shuffle=False, num_workers=12)
             scores = []
-            self._classifier.eval()
+            _classifier.eval()
             classifier.eval()
+            f_loss = get_f_loss(
+                'per_sample_bsm',
+                cl_train_loader.dataset.samples, 
+                len(self.class_names),
+                self.device,
+                alpha=getattr(self.args, 'loss_alpha', None),
+                beta=getattr(self.args, 'loss_beta', None),
+                gamma=getattr(self.args, 'loss_gamma', None),
+                ref_model=self.ref_model,
+            )
             with torch.no_grad():
-                for imgs, labels, _, _ in buf_loader:
+                for imgs, labels, _, logits, is_buf in buf_loader:
                     imgs, labels = imgs.to(self.device), labels.to(self.device)
-                    prev_loss = F.cross_entropy(classifier(imgs), labels, reduction='none').cpu().numpy()
-                    curr_loss = F.cross_entropy(self._classifier(imgs), labels, reduction='none').cpu().numpy()
-                    scores.append(prev_loss - curr_loss)
+                    prev_loss = f_loss(classifier(imgs), labels, images=imgs, proj_features=None, old_logits=logits, is_buf=is_buf).cpu().numpy()
+                    curr_loss = f_loss(_classifier(imgs), labels, images=imgs, proj_features=None, old_logits=logits, is_buf=is_buf).cpu().numpy()
+                    scores.append(curr_loss - prev_loss)
             scores = np.concatenate(scores)
             selected_idx = np.argsort(scores)[::-1][:n]  # pick the n highest scores
             selected_samples = [self.buffer[i] for i in selected_idx]
@@ -563,7 +594,7 @@ class CLCO2L(CLReplay):
         ).to(device)
         classifier.set_proj_head(proj_head)
 
-        self.ref_model     = None        
+        self.ref_model     = None
 
     #  incremental-step: copy previous nets so we can distil later
     def incremental_step(self, model):
@@ -594,9 +625,9 @@ class CLCO2L(CLReplay):
                 cl_buffer_loader.dataset.samples, 
                 len(self.class_names),
                 self.device,
-                alpha=self.cl_config.get('loss_alpha', None),
-                beta=self.cl_config.get('loss_beta', None),
-                gamma=self.cl_config.get('loss_gamma', None),
+                alpha=getattr(self.args, 'loss_alpha', None),
+                beta=getattr(self.args, 'loss_beta', None),
+                gamma=getattr(self.args, 'loss_gamma', None),
                 ref_model=self.ref_model,
             )
             train(classifier, 
@@ -605,6 +636,7 @@ class CLCO2L(CLReplay):
                     self.cl_config['epochs'], 
                     self.device, 
                     f_loss, 
+                    loss_type=getattr(self.args, 'loss_type', 'ce'),
                     eval_per_epoch=eval_per_epoch, 
                     eval_loader=eval_loader,
                     scheduler=scheduler,

@@ -7,6 +7,7 @@ log/
 data
 _scripts/
 figures/
+tables/
 ALOE_plots/
 ALMSP_plots/
 all_config/
@@ -45,6 +46,8 @@ plot_2d.py
 script.py
 run_pipeline_2.py
 
+script2/
+plot/
 _bioclip/
 _stale/
 log/

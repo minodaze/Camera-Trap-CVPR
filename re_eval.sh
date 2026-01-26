@@ -9,10 +9,10 @@ if [ ! -f "train_list.txt" ]; then
 fi
 
 # Read datasets from file into array
-readarray -t ALL_DATASETS < uselist/eval_dataset.txt
+readarray -t ALL_DATASETS < uselist/CL_list.txt
 
 # Read model directories from model_dirs.txt (one directory per line)
-readarray -t MODEL_DIRS < uselist/eval_model_path.txt
+readarray -t MODEL_DIRS < uselist/randrepold_eval_model_path.txt
 
 # Remove empty lines and trim whitespace
 TEMP_DATASETS=()
@@ -107,7 +107,8 @@ for lr in "${LEARNING_RATES[@]}"; do
             if [ -f "$json_path" ]; then
                 echo "  ✓ Model directory exists: $json_path"
 
-                sbatch script2/sbatch_run_accu_eval_best_accum.sh "${dataset}" "$lr" "${model_dir}"
+                # sbatch script2/sbatch_reeval_best_replay.sh "${dataset}" "$lr" "${model_dir}"
+                sbatch script2/sbatch_reeval_best_randrepold.sh "${dataset}" "$lr" "${model_dir}"
                     # sbatch script2/sbatch_eval_best_oracle.sh "${dataset}" "$lr" "${model_dir}" "$r"
                     # sbatch script2/sbatch_eval_keep_head_lora_bsm_accu.sh "${dataset}" "$lr" "${model_dir}" "$r"
             else

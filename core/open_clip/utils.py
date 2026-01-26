@@ -4,6 +4,7 @@ import collections.abc
 from torch import nn as nn
 import torch
 from torchvision.ops.misc import FrozenBatchNorm2d
+import math
 
 def init_weight(down, up, option):
     with torch.no_grad():
