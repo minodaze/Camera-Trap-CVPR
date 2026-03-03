@@ -137,4 +137,21 @@ for idx, row in df.iterrows():
     df.at[idx, 'BSM Oracle Interpolation 0.8'] = bsm_oracle_data_per_dataset[dataset_name][7]
     df.at[idx, 'Best Oracle Interpolation 0.8'] = best_oracle_data_per_dataset[dataset_name][7]
 
+# Compute averages across datasets (ignores missing values)
+for _col in ['zs', 'Oracle Interpolation', 'Best Oracle Interpolation', 'Oracle Interpolation 0.8', 'Best Oracle Interpolation 0.8']:
+    if _col in df.columns:
+        df[_col] = pd.to_numeric(df[_col], errors='coerce')
+
+oracle_interp_avg = df['Oracle Interpolation'].mean(skipna=True) if 'Oracle Interpolation' in df.columns else float('nan')
+best_oracle_interp_avg = df['Best Oracle Interpolation'].mean(skipna=True) if 'Best Oracle Interpolation' in df.columns else float('nan')
+
+print(f"Average Oracle Best Interpolation Coef: {oracle_interp_avg:.6f}")
+print(f"Average BSM + LoRA Oracle Best Interpolation Coef: {best_oracle_interp_avg:.6f}")
+print(f"Average Oracle Interpolation 0.8: {df['Oracle Interpolation 0.8'].mean(skipna=True):.6f}")
+print(f"Average BSM + LoRA Oracle Interpolation 0.8: {df['Best Oracle Interpolation 0.8'].mean(skipna=True):.6f}")
+
+print(f"Gap between Oracle Best Interpolation Coef and ZS: {oracle_interp_avg - df['zs'].mean(skipna=True):.6f}")
+print(f"Gap between BSM + LoRA Oracle Best Interpolation Coef and ZS: {best_oracle_interp_avg - df['zs'].mean(skipna=True):.6f}")
+
 df.to_csv(out_path, index=False)
+
