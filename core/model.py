@@ -19,6 +19,7 @@ from .petl_model.vision_transformer import VisionTransformerPETL
 from .open_clip import create_model_and_transforms, get_cast_dtype, get_tokenizer
 from .open_clip_new import get_tokenizer as get_tokenizer_new
 from .open_clip_new import create_model_from_pretrained as create_model_from_pretrained_new
+from transformers import AutoTokenizer, AutoModel, AutoProcessor
 
 SIGLIP_TEMPLATE = [
     'a {CLZ_NAME}.',
@@ -118,12 +119,13 @@ CAMERA_TRAP_TEMPLATE = [
     'a camera trap photo of {CLZ_NAME}.',
 ]
 class CLIPClassifier(nn.Module):
-    def __init__(self, visual_model, hidden_size, device):
+    def __init__(self, visual_model, hidden_size, device, processor=None):
         super(CLIPClassifier, self).__init__()
         self.visual_model = visual_model
         self.head = None
         self.initialized = False
         self.device = device
+        self.processor = processor
         self.init_text = False
 
     def init_head(self, class_embedding):
@@ -157,8 +159,14 @@ class CLIPClassifier(nn.Module):
         return F.normalize(self.proj_head(feats), dim=1)
     
     def forward(self, images, return_feats=False):
-        x = self.visual_model(images)
-        feats = F.normalize(x, dim=-1)  # Normalize the features
+        # if self.processor is not None:
+        #     images = self.processor(images=images, return_tensors="pt").to(self.device)
+        if self.processor is None:
+            x = self.visual_model(images)
+            feats = F.normalize(x, dim=-1)  # Normalize the features
+        else:
+            x = self.visual_model.get_image_features(images)
+            feats = F.normalize(x, dim=-1)
         if self.init_text:
             class_embedding = self.get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx, self.text_template).to(self.device)
             x = F.linear(feats, class_embedding, bias=None)  # Use the class embedding to compute logits
@@ -168,16 +176,16 @@ class CLIPClassifier(nn.Module):
         else:
             raise RuntimeError("Forward pass requires either text model or initialized head.")
 
-        x = self.visual_model(images)
-        feats = F.normalize(x, dim=-1)  # Normalize the features
-        if self.init_text:
-            class_embedding = self.get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx, self.text_template).to(self.device)
-            x = F.linear(feats, class_embedding, bias=None)  # Use the class embedding to compute logits
-            del class_embedding  # Free memory
-        elif self.initialized:
-            x = self.head(feats)
-        else:
-            raise RuntimeError("Forward pass requires either text model or initialized head.")
+        # x = self.visual_model(images)
+        # feats = F.normalize(x, dim=-1)  # Normalize the features
+        # if self.init_text:
+        #     class_embedding = self.get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx, self.text_template).to(self.device)
+        #     x = F.linear(feats, class_embedding, bias=None)  # Use the class embedding to compute logits
+        #     del class_embedding  # Free memory
+        # elif self.initialized:
+        #     x = self.head(feats)
+        # else:
+        #     raise RuntimeError("Forward pass requires either text model or initialized head.")
         if return_feats:
             return x, feats
         else:
@@ -417,22 +425,28 @@ def build_classifier(params, class_name_idx, device):
         tokenizer = AutoTokenizer.from_pretrained('pretrained_weights/bioclip-2')
     elif params.pretrained_weights == 'siglip2':
         logging.info("Using Siglip-2 model. ")
-        bioclip_model, preprocess = create_model_from_pretrained_new(
-            model_name='hf-hub:timm/ViT-SO400M-16-SigLIP2-256',
-            precision='amp',
-            device=device,
-            jit=False,
-            force_quick_gelu=False,
-            force_custom_text=False,
-            force_patch_dropout=None,
-            force_image_size=None,
-            pretrained_image=False,
-            image_mean=None,
-            image_std=None,
-            output_dict=True,
-            params=params
-        )
-        tokenizer = get_tokenizer_new('hf-hub:timm/ViT-SO400M-16-SigLIP2-256')
+        # bioclip_model, preprocess = create_model_from_pretrained_new(
+        #     model_name='hf-hub:timm/ViT-SO400M-16-SigLIP2-256',
+        #     precision='amp',
+        #     device=device,
+        #     jit=False,
+        #     force_quick_gelu=False,
+        #     force_custom_text=False,
+        #     force_patch_dropout=None,
+        #     force_image_size=None,
+        #     pretrained_image=False,
+        #     image_mean=None,
+        #     image_std=None,
+        #     output_dict=True,
+        #     params=params
+        # )
+        # tokenizer = get_tokenizer_new('hf-hub:timm/ViT-SO400M-16-SigLIP2-256')
+
+        # original way to load
+        bioclip_model = AutoModel.from_pretrained("google/siglip2-base-patch16-224")
+        tokenizer = AutoTokenizer.from_pretrained("google/siglip2-base-patch16-224")
+        processor = AutoProcessor.from_pretrained("google/siglip2-base-patch16-224")
+    
         is_siglip = True
     else:
         raise NotImplementedError(f"Pretrained weights {params.pretrained_weights} not supported. ")
@@ -455,13 +469,17 @@ def build_classifier(params, class_name_idx, device):
         log_gpu_memory("model_build", "after_petl_model", device=device, enable_wandb=getattr(params, 'wandb', False))
 
     ###################################################################
-    classifier = CLIPClassifier(bioclip_model.visual, bioclip_model.embed_dim, device)
+    if not is_siglip:
+        classifier = CLIPClassifier(bioclip_model.visual, bioclip_model.embed_dim, device)
+        text_embed_dim = bioclip_model.embed_dim
+    elif is_siglip:
+        hidden_size = None
+        classifier = CLIPClassifier(bioclip_model, hidden_size, device, processor=processor)
+        text_embed_dim = bioclip_model.text_model.embeddings.token_embedding.embedding_dim
 
-    text_embed_dim = bioclip_model.embed_dim
     if params.text == 'head':
         class_embedding = get_class_embedding(bioclip_model, tokenizer, text_embed_dim, class_name_idx, text_template=params.text_template, is_siglip=is_siglip)
         classifier.init_head(class_embedding)
-
     else:
         classifier.set_text(bioclip_model, tokenizer, text_embed_dim, class_name_idx, params.text_template)
         
@@ -490,7 +508,7 @@ def build_classifier(params, class_name_idx, device):
     if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
         log_gpu_memory("model_build", "final", device=device, enable_wandb=getattr(params, 'wandb', False))
     
-    return classifier
+    return classifier, processor
 
 # _LOOKUP_PATH = 'config/common_name_lookup.json'
 # _lookup = json.load(open(_LOOKUP_PATH))
@@ -528,7 +546,10 @@ def get_texts(c, text_template='openai'):
 
 def get_class_embedding(model, tokenizer, embed_dim, class_name_idx, text_template='openai', is_siglip=False): 
     device = next(model.parameters()).device
-    context_length = model.context_length
+    if not is_siglip:
+        context_length = model.context_length
+    else:
+        context_length = None
     with torch.no_grad():
         class_embedding = torch.empty(len(class_name_idx), embed_dim)
         for class_name, class_idx in class_name_idx.items():
@@ -540,9 +561,10 @@ def get_class_embedding(model, tokenizer, embed_dim, class_name_idx, text_templa
             if is_siglip:
                 texts = tokenizer(
                     texts,
-                    context_length=context_length,
+                    padding="max_length", 
+                    return_tensors="pt"
                 )
-                input_ids = texts.to(device)
+                input_ids = texts['input_ids'].to(device)
             else:
                 texts = tokenizer(
                     texts, 
@@ -552,9 +574,12 @@ def get_class_embedding(model, tokenizer, embed_dim, class_name_idx, text_templa
                     return_tensors='pt'
                 )
                 input_ids = texts['input_ids'].to(device)
-            _class_embedding = model.encode_text(input_ids)
-            _class_embedding = F.normalize(_class_embedding, dim=-1).mean(dim=0)
-            _class_embedding = F.normalize(_class_embedding, dim=-1)
+            if is_siglip:
+                _class_embedding = model.get_text_features(input_ids)
+            else:
+                _class_embedding = model.encode_text(input_ids)
+                _class_embedding = F.normalize(_class_embedding, dim=-1).mean(dim=0)
+                _class_embedding = F.normalize(_class_embedding, dim=-1)
             class_embedding[class_idx] = _class_embedding
     return class_embedding
 

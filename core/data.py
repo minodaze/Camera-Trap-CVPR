@@ -16,7 +16,7 @@ _IMAGENET_DEFAULT_MEAN = [0.485, 0.456, 0.406]
 _IMAGENET_DEFAULT_STD = [0.229, 0.224, 0.225]
 
 # SIGLIP 256
-_SIGLIP_SIZE = 256
+_SIGLIP_SIZE = 224
 _TRAIN_TRANSFORM_SIGLIP2 = Compose([
     Resize((_SIGLIP_SIZE, _SIGLIP_SIZE), interpolation=InterpolationMode.BICUBIC),
     RandomHorizontalFlip(p=0.5),
@@ -125,13 +125,15 @@ class ClassBalancedSampler(Sampler):
 class CkpDataset(Dataset):
     _global_cache = {}
 
-    def __init__(self, json_path, class_names, is_train=True, is_speciesnet=False, is_crop=False, label_type='common', is_siglip2=False):
+    def __init__(self, json_path, class_names, is_train=True, is_speciesnet=False, is_crop=False, label_type='common', is_siglip2=False, processor=None):
         self.cache = CkpDataset._global_cache
         self.json_path = json_path
         self.class_names = class_names
         self.is_train = is_train
         self.is_crop = is_crop
         self.label_type = label_type
+        self.is_siglip2 = is_siglip2
+        self.processor = processor
         if is_siglip2:
             self.crop_train_transform = _CROP_TRAIN_TRANSFORM_SIGLIP2
             self.train_transform = _TRAIN_TRANSFORM_SIGLIP2
@@ -255,8 +257,11 @@ class CkpDataset(Dataset):
         #     self.cache[file_path] = image
         if self.is_crop and self.is_train:
             image = [self.transform(image), self.transform(image)]
-        else:
+        elif not self.is_siglip2:
             image = self.transform(image)
+        elif self.is_siglip2 and self.processor is not None:
+            encoded = self.processor(images=[image], return_tensors="pt")
+            image = encoded["pixel_values"].squeeze(0)
         return image, label, file_path, logits, is_buf
 
     def get_ckp_list(self):
@@ -291,6 +296,8 @@ class CkpDataset(Dataset):
         sub_dataset.is_train = is_train
         sub_dataset.class_names = self.class_names
         sub_dataset.class_name_idx = self.class_name_idx
+        sub_dataset.is_siglip2 = self.is_siglip2
+        sub_dataset.processor = self.processor
         if is_train:
             sub_dataset.transform = self.crop_train_transform if self.is_crop else self.train_transform
         else:

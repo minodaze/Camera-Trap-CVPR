@@ -422,7 +422,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
     del _classifier  # Clear the temporary classifier to free memory
     return classifier, AL_summary
 
-def run(args):
+def run(args, is_siglip2=False):
     """Main execution workflow for the adaptive learning pipeline.
     
     Validation Strategies:
@@ -542,7 +542,7 @@ def run(args):
     
     log_step(4, "Building classifier model")
     # Load model
-    classifier = build_classifier(args, class_names, args.device)
+    classifier, processor = build_classifier(args, class_names, args.device)
     log_success(f"Classifier built successfully")
     
     # Monitor model memory usage if enabled
@@ -556,9 +556,9 @@ def run(args):
     # Prepare dataset
     train_dset = CkpDataset(common_config["train_data_config_path"], class_names, is_crop=is_crop, label_type=label_type, is_siglip2=is_siglip2)
     if rare_path:
-        eval_dset = CkpDataset(rare_path, class_names, label_type=label_type, is_siglip2=is_siglip2)
+        eval_dset = CkpDataset(rare_path, class_names, label_type=label_type, is_siglip2=is_siglip2, processor=processor)
     else:
-        eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type, is_siglip2=is_siglip2)
+        eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type, is_siglip2=is_siglip2, processor=processor)
     
     # Monitor dataset memory usage if enabled
     if args.gpu_memory_monitor:
@@ -976,7 +976,7 @@ def run(args):
             log_info(f"Evaluating on target checkpoint {ckp}")
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("evaluation", f"before_{ckp}")
-            loss_arr, preds_arr, labels_arr, pred_true, pred_false = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'])
+            loss_arr, preds_arr, labels_arr, pred_true, pred_false = eval(classifier, cl_eval_loader, args.device, chop_head=common_config['chop_head'], is_siglip2=is_siglip2, processor=processor)
             if args.gpu_memory_monitor:
                 gpu_monitor.log_memory_usage("evaluation", f"after_{ckp}")
             acc, balanced_acc = print_metrics(loss_arr, preds_arr, labels_arr, len(class_names), log_predix=f"📊 Target ckp {ckp}: ")
@@ -1303,7 +1303,8 @@ def run_eval_only(args, is_siglip2=False):
     
     log_step(4, "Building classifier model")
     # Build classifier architecture (same as training)
-    classifier = build_classifier(args, class_names, args.device)
+    
+    classifier, processor = build_classifier(args, class_names, args.device)
     log_success("Classifier built successfully")
     
     if args.gpu_memory_monitor:
@@ -2070,7 +2071,9 @@ def parse_args():
     args.gpu_id = None
 
     data_name = config['log_path'].split('/')[-1]
-    args.log_path = f"/fs/ess/PAS2099/sooyoung/camera-trap-CVPR-temp/figures/overall_ml/zs/{data_name}"
+    args.log_path = f"/fs/ess/PAS2099/sooyoung/camera-trap-CVPR-temp/siglip_sanity/logs/zs/{data_name}"
+    args.pretrained_weights = 'siglip2'
+    args.text_template = 'siglip2'
 
     return args
 
@@ -2127,7 +2130,7 @@ if __name__ == '__main__':
     if args.eval_only:
         run_eval_only(args, is_siglip2=(args.pretrained_weights=='siglip2'))
     else:
-        run(args)
+        run(args, is_siglip2=(args.pretrained_weights=='siglip2'))
     end_time = time.time()
 
     # Print elapsed time with colors

@@ -619,7 +619,7 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
     
     return classifier
 
-def eval(classifier, loader, device, chop_head=False, return_logits=False):
+def eval(classifier, loader, device, chop_head=False, return_logits=False, is_siglip2=False, processor=None):
     dset = loader.dataset
     if len(dset) == 0:
         if return_logits:
@@ -649,7 +649,6 @@ def eval(classifier, loader, device, chop_head=False, return_logits=False):
     pred_true = []
     with torch.no_grad():
         for inputs, labels, file_paths, _, _ in loader:
-            # Forward
             inputs, labels = inputs.to(device), labels.to(device)
             logits = classifier(inputs)
             loss = F.cross_entropy(logits, labels, reduction='none')
