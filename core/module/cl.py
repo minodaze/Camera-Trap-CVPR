@@ -123,7 +123,7 @@ class CLModule(ABC):
                     )
 
     @abstractmethod
-    def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None):
+    def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None, next_test_loader=None):
         pass
 
     @abstractmethod
@@ -141,7 +141,7 @@ class CLModule(ABC):
 class CLNone(CLModule):
     """No training. Used in zero-shot evaluation.
     """
-    def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None):
+    def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None, next_test_loader=None):
         return classifier
     
     def refresh_buffer(self, new_samples):
@@ -156,12 +156,12 @@ class CLNone(CLModule):
 
 class CLNaiveFT(CLModule):
     """Naive fine-tuning. Naively fine-tune the classifier on the new samples."""
-    def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None):
+    def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None, next_test_loader=None):
         # Process data
         cl_train_dset = copy.deepcopy(train_dset)
         cl_train_dset.apply_mask(train_mask)
         # Train
-        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True)
+        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True, next_test_loader=next_test_loader)
         return classifier
 
     def refresh_buffer(self, new_samples):
@@ -176,13 +176,13 @@ class CLNaiveFT(CLModule):
 class CLAccumulative(CLModule):
     """Accumulative training. Fine-tune the classifier on all samples seen so far.
     """
-    def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None):
+    def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None, next_test_loader=None):
         # Process data
         cl_train_dset = copy.deepcopy(train_dset)
         cl_train_dset.apply_mask(train_mask)
         cl_train_dset.add_samples(self.buffer)
         # Train
-        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True)
+        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True, next_test_loader=next_test_loader)
         # Process buffer
         for msk, sample in zip(train_mask, train_dset.samples):
             if msk:

@@ -63,11 +63,11 @@ for DATASET in "${BIG_FOLDERS[@]}"; do
     CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}/accu_eval_best_accum_lr${LEARNING_RATE}.yaml"
 
     mkdir -p "${CONFIG_ROOT}/${DATASET//\//_}"
-    mkdir -p "/fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/best_accum_accu_eval_all/${DATASET//\//_}"
+    mkdir -p "/fs/scratch/PAS2099/camera-trap-ECCV/ascend3/best_accum_accu_eval/${DATASET//\//_}"
 
     cat <<EOF > $CONFIG_FILE
 module_name: best_accum_lora_bsm
-log_path: //fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/best_accum_accu_eval_all/${DATASET//\//_}
+log_path: /fs/scratch/PAS2099/camera-trap-ECCV/ascend3/best_accum_accu_eval/${DATASET//\//_}
 
 common_config:
   model: bioclip2
@@ -100,7 +100,7 @@ cl_config:
 EOF
 
     echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
-    python run_pipeline.py --c $CONFIG_FILE --wandb --eval_only --model_dir "${MODEL_DIR}" --eval_per_epoch --accu_eval --save_best_model --pretrained_weights bioclip2 --lora_bottleneck 8
+    python run_pipeline.py --c $CONFIG_FILE --wandb --eval_only --model_dir "${MODEL_DIR}" --eval_per_epoch --accu_eval --save_best_model --pretrained_weights bioclip2 --lora_bottleneck 8 --loss_type bsm
 
 #     # === Robust log path discovery ===
 #     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/zs_common/"

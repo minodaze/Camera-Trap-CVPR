@@ -225,7 +225,7 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
         eval_dataset.transform = full_dataset.val_transform
         eval_dataset.val_transform = full_dataset.val_transform
         eval_dataset.train_transform = full_dataset.train_transform
-        eval_dataset.crop_train_transform = full_dataset.crop_train_transform
+        eval_dataset.aug_train_transform = full_dataset.aug_train_transform
         eval_dataset.samples = val_samples
         eval_dataset.cache = full_dataset.cache
         
@@ -599,13 +599,14 @@ def run(args):
     
     log_section_start("📊 DATASET PREPARATION", Colors.BRIGHT_YELLOW)
     
+    is_siglip2 = args.pretrained_weights == 'siglip2'
     # Prepare dataset
-    train_dset = CkpDataset(common_config["train_data_config_path"], class_names, is_crop=is_crop, label_type=label_type)
+    train_dset = CkpDataset(common_config["train_data_config_path"], class_names, is_crop=is_crop, label_type=label_type, is_siglip2=is_siglip2)
 
-    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type)
+    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type, is_siglip2=is_siglip2)
     if rare_path:
         log_info(f"Including rare evaluation data from {rare_path}, original evaluation data length: {len(eval_dset)}", Colors.CYAN)
-        rare_eval_dset = CkpDataset(rare_path, class_names, label_type=label_type)
+        rare_eval_dset = CkpDataset(rare_path, class_names, label_type=label_type, is_siglip2=is_siglip2)
         eval_dset.add_samples(rare_eval_dset.samples)
         log_info(f"New evaluation data length after adding rare data: {len(eval_dset)}", Colors.CYAN)
     
@@ -2235,8 +2236,11 @@ def parse_args():
 
     ###########################Model Configurations#########################
     parser.add_argument('--pretrained_weights', type=str, default='bioclip2',
-                        choices=['bioclip', 'bioclip2', 'openai-ViT-L-14'],
+                        choices=['bioclip', 'bioclip2', 'openai-ViT-L-14', 'siglip2'],
                         help='pretrained weights name')
+
+    parser.add_argument('--siglip2_dir', type=str, default='pretrained_weights/siglip2-base-patch16-224',
+                        help='Local directory containing SigLIP2 weights downloaded from HuggingFace (used when --pretrained_weights siglip2)')
 
     parser.add_argument('--class_type', type=str, default='common_name',
                         choices=['common_name', 'scientific_name'],
@@ -2261,7 +2265,7 @@ def parse_args():
                         help='text template type')
 
     ############################## Loss Type ##############################
-    parser.add_argument('--loss_type', type=str, default='ce',
+    parser.add_argument('--loss_type', type=str, default='bsm',
                         choices=['ce', 'focal', 'bsm','ldam', 'cdt', 'cb-focal', 'cb-ce', 'cb-bsm', 'cb-sigmoid', 'derpp', 'derpp_bsm', 'supcon'],
                         help='loss type')
     parser.add_argument('--loss_alpha', type=float, default=None,

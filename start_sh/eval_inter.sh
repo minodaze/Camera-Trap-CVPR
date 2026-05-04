@@ -9,10 +9,15 @@ if [ ! -f "train_list.txt" ]; then
 fi
 
 # Read datasets from file into array
-readarray -t ALL_DATASETS < uselist/CL_list.txt
+readarray -t ALL_DATASETS < uselist/best_accum_inter_list.txt
 
 # Read model directories from model_dirs.txt (one directory per line)
-readarray -t MODEL_DIRS < uselist/randrepold_eval_model_path.txt
+readarray -t MODEL_DIRS < uselist/eval_model_path.txt
+
+# Ratios to evaluate (Bash array syntax: no spaces around '=')
+# ratio=(0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9)
+ratio=(0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0)
+# ratio=(0.8)
 
 # Remove empty lines and trim whitespace
 TEMP_DATASETS=()
@@ -100,17 +105,21 @@ for lr in "${LEARNING_RATES[@]}"; do
         
         for i in "${!job_datasets[@]}"; do
             dataset="${job_datasets[$i]}"
-            dataset="${dataset/_//}"
+            # dataset="${dataset/_//}"
             model_dir="${job_model_dirs[$i]}"
             json_path="${model_dir}/final_training_summary.json"
             # Check if model directory exists
             if [ -f "$json_path" ]; then
                 echo "  ✓ Model directory exists: $json_path"
-
-                # sbatch script2/sbatch_reeval_best_replay.sh "${dataset}" "$lr" "${model_dir}"
-                sbatch script2/sbatch_reeval_best_randrepold.sh "${dataset}" "$lr" "${model_dir}"
-                    # sbatch script2/sbatch_eval_best_oracle.sh "${dataset}" "$lr" "${model_dir}" "$r"
-                    # sbatch script2/sbatch_eval_keep_head_lora_bsm_accu.sh "${dataset}" "$lr" "${model_dir}" "$r"
+                for r in "${ratio[@]}"; do
+                    echo "    Submitting eval for ratio $r"
+                    sbatch script3/sbatch_eval_best_accu_inter.sh "${dataset}" "$lr" "${model_dir}" "$r"
+                    # sbatch script3/sbatch_eval_oracle_inter.sh "${dataset}" "$lr" "${model_dir}" "$r"
+                    # sbatch script3/sbatch_eval_lora_oracle_inter.sh "${dataset}" "$lr" "${model_dir}" "$r"
+                    # sbatch script3/sbatch_eval_bsm_oracle_inter.sh "${dataset}" "$lr" "${model_dir}" "$r"
+                    # sbatch script3/sbatch_eval_best_oracle_inter.sh "${dataset}" "$lr" "${model_dir}" "$r"
+                    # sbatch script3/sbatch_eval_keep_head_lora_bsm_accu.sh "${dataset}" "$lr" "${model_dir}" "$r"
+                done
             else
                 echo "  ✗ Skipping ${dataset}: Model directory not found: $model_dir"
                 continue

@@ -3,8 +3,8 @@
 #SBATCH --job-name=bioclip2_upper_bound
 #SBATCH --output=logs/bioclip2_%j.out
 #SBATCH --error=logs/bioclip2_%j.err
-#SBATCH --time=00:30:00
-#SBATCH --nodes=1                 # Request 1 node
+#SBATCH --time=0:10:00
+#SBATCH --nodes=1                 # Request 1 nodes
 #SBATCH --ntasks-per-node=1       # One task per node
 #SBATCH --gpus-per-node=1         # One GPU per node
 #SBATCH --cpus-per-task=8
@@ -17,8 +17,7 @@ source ~/miniconda3/etc/profile.d/conda.sh
 conda activate ${CONDA_ENV}
 
 DATA_ROOT="/fs/scratch/PAS2099/camera-trap-benchmark/dataset"
-CONFIG_ROOT="/fs/ess/PAS2099/camera-trap-CVPR-configs"
-# /fs/scratch/PAS2099/camera-trap-final/configs
+CONFIG_ROOT="/fs/ess/PAS2099/camera-trap-CVPR-configs/best_accum_eval"
 # CSV_PATH="/fs/ess/PAS2099/${USER_NAME}/Documents/ICICLE/ICICLE-Benchmark/balanced_accuracy_common.csv"
 
 mkdir -p $CONFIG_ROOT
@@ -36,10 +35,12 @@ IFS=' ' read -ra BIG_FOLDERS <<< "$1"
 # Get learning rate from the second argument
 LEARNING_RATE="$2"
 MODEL_DIR="$3"
+ALPHA="$4"
 
 echo "Processing ${#BIG_FOLDERS[@]} datasets: ${BIG_FOLDERS[*]}"
 echo "Using learning rate: ${LEARNING_RATE}"
-
+echo "Using model directory: ${MODEL_DIR}"
+echo "Using alpha: ${ALPHA}"
 
 for DATASET in "${BIG_FOLDERS[@]}"; do
     echo "=== Processing ${DATASET} ==="
@@ -51,23 +52,13 @@ for DATASET in "${BIG_FOLDERS[@]}"; do
     HASH_INPUT="${DATASET}_${LEARNING_RATE}"
     PARENT_TIMESTAMP=$(echo -n "$HASH_INPUT" | sha256sum | cut -c1-16)
     PARENT_TIMESTAMP="$(date +%Y-%m-%d-%H)-$(echo $PARENT_TIMESTAMP | cut -c1-2)-$(echo $PARENT_TIMESTAMP | cut -c3-4)"
-    # === Extract class names ===
-#     CLASS_NAMES=$(python -c "
-# import json
-# with open('${ALL_JSON}') as f:
-#     data = json.load(f)
-# common = sorted(set(item['common'] for item in data['ckp_-1']))
-# print('\n'.join(['  - ' + s for s in common]))
-# ")
 
-    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}/accu_eval_best_accum_lr${LEARNING_RATE}.yaml"
-
-    mkdir -p "${CONFIG_ROOT}/${DATASET//\//_}"
-    mkdir -p "/fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/best_accum_accu_eval_all/${DATASET//\//_}"
+    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}_eval_lora_lr${LEARNING_RATE}.yaml"
+    mkdir -p "/fs/scratch/PAS2099/camera-trap-ECCV/ascend3/best_accum_inter/${DATASET//\//_}"
 
     cat <<EOF > $CONFIG_FILE
-module_name: best_accum_lora_bsm
-log_path: //fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/best_accum_accu_eval_all/${DATASET//\//_}
+module_name: eval_lora
+log_path: /fs/scratch/PAS2099/camera-trap-ECCV/ascend3/best_accum_inter/${DATASET//\//_}
 
 common_config:
   model: bioclip2
@@ -89,40 +80,14 @@ common_config:
 pretrain_config:
   pretrain: false
 ood_config:
-  method: all
+  method: none
 al_config:
-  method: all
+  method: none
 cl_config:
-  method: accumulative-scratch
-  epochs: 30
-  loss_type: bsm
-
+  method: none
 EOF
 
+    # Run pipeline for each interpolation alpha value
     echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
-    python run_pipeline.py --c $CONFIG_FILE --wandb --eval_only --model_dir "${MODEL_DIR}" --eval_per_epoch --accu_eval --save_best_model --pretrained_weights bioclip2 --lora_bottleneck 8
-
-#     # === Robust log path discovery ===
-#     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/zs_common/"
-
-#     echo "Searching for nested logs in: ${BASE_LOG_DIR}"
-#     echo "Contents:"
-#     ls -lah ${BASE_LOG_DIR}
-
-#     # Find the latest nested bioclip2/full_text_head/*/
-#     SUB_TS=$(ls -td ${BASE_LOG_DIR}bioclip2/full_text_head/*/ | head -n1)
-
-#     LOG_PATH="${SUB_TS}log/log.txt"
-
-#     echo "Latest log path: ${LOG_PATH}"
-
-#     if [ ! -f "$LOG_PATH" ]; then
-#       echo "Log file does not exist: ${LOG_PATH}"
-#       continue
-#     fi
-
-#     echo "Parsing and appending for ${DATASET}"
-#     python parse_and_append.py --dataset "${DATASET}" --log_path "${LOG_PATH}" --csv_path "${CSV_PATH}"
-
-#   done
+    python run_pipeline.py --c $CONFIG_FILE --wandb --eval_only --model_dir "${MODEL_DIR}" --pretrained_weights bioclip2 --lora_bottleneck 8 --loss_type bsm --lora_interpolate --lora_alpha ${ALPHA}
 done

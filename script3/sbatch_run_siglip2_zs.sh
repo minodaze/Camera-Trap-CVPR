@@ -3,8 +3,8 @@
 #SBATCH --job-name=bioclip2_upper_bound
 #SBATCH --output=logs/bioclip2_%j.out
 #SBATCH --error=logs/bioclip2_%j.err
-#SBATCH --time=00:30:00
-#SBATCH --nodes=1                 # Request 1 node
+#SBATCH --time=00:20:00
+#SBATCH --nodes=1                 # Request 4 nodes
 #SBATCH --ntasks-per-node=1       # One task per node
 #SBATCH --gpus-per-node=1         # One GPU per node
 #SBATCH --cpus-per-task=8
@@ -18,7 +18,6 @@ conda activate ${CONDA_ENV}
 
 DATA_ROOT="/fs/scratch/PAS2099/camera-trap-benchmark/dataset"
 CONFIG_ROOT="/fs/ess/PAS2099/camera-trap-CVPR-configs"
-# /fs/scratch/PAS2099/camera-trap-final/configs
 # CSV_PATH="/fs/ess/PAS2099/${USER_NAME}/Documents/ICICLE/ICICLE-Benchmark/balanced_accuracy_common.csv"
 
 mkdir -p $CONFIG_ROOT
@@ -35,7 +34,6 @@ fi
 IFS=' ' read -ra BIG_FOLDERS <<< "$1"
 # Get learning rate from the second argument
 LEARNING_RATE="$2"
-MODEL_DIR="$3"
 
 echo "Processing ${#BIG_FOLDERS[@]} datasets: ${BIG_FOLDERS[*]}"
 echo "Using learning rate: ${LEARNING_RATE}"
@@ -60,15 +58,15 @@ for DATASET in "${BIG_FOLDERS[@]}"; do
 # print('\n'.join(['  - ' + s for s in common]))
 # ")
 
-    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}/accu_eval_best_accum_lr${LEARNING_RATE}.yaml"
+    CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}/zs_lr${LEARNING_RATE}.yaml"
 
+    # Create the dataset-specific directory
     mkdir -p "${CONFIG_ROOT}/${DATASET//\//_}"
-    mkdir -p "/fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/best_accum_accu_eval_all/${DATASET//\//_}"
+    mkdir -p "/fs/scratch/PAS2099/camera-trap-ECCV/ascend3/siglip2_zs/${DATASET//\//_}"
 
     cat <<EOF > $CONFIG_FILE
-module_name: best_accum_lora_bsm
-log_path: //fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/best_accum_accu_eval_all/${DATASET//\//_}
-
+module_name: zs
+log_path: /fs/scratch/PAS2099/camera-trap-ECCV/ascend3/siglip2_zs/${DATASET//\//_}
 common_config:
   model: bioclip2
   train_data_config_path: ${TRAIN_JSON}
@@ -84,26 +82,24 @@ common_config:
   scheduler: CosineAnnealingLR
   scheduler_params:
     T_max: 60
-    eta_min: $(echo "${LEARNING_RATE} / 10" | bc -l)
+    eta_min: $(echo "${LEARNING_RATE} / 60" | bc -l)
 
 pretrain_config:
   pretrain: false
 ood_config:
-  method: all
+  method: none
 al_config:
-  method: all
+  method: none
 cl_config:
-  method: accumulative-scratch
-  epochs: 30
-  loss_type: bsm
+  method: none
 
 EOF
 
     echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
-    python run_pipeline.py --c $CONFIG_FILE --wandb --eval_only --model_dir "${MODEL_DIR}" --eval_per_epoch --accu_eval --save_best_model --pretrained_weights bioclip2 --lora_bottleneck 8
+    python run_pipeline.py --c $CONFIG_FILE --wandb --eval_per_epoch --save_best_model --pretrained_weights siglip2 --expand_head /users/PAS2099/mino/ICICLE/unique_species.txt --full
 
 #     # === Robust log path discovery ===
-#     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/zs_common/"
+#     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/zs_common/${PARENT_TIMESTAMP}/"
 
 #     echo "Searching for nested logs in: ${BASE_LOG_DIR}"
 #     echo "Contents:"

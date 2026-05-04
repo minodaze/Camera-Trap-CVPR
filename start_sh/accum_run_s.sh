@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Read datasets from file into array
-readarray -t ALL_DATASETS < uselist/best_accum_s2a.txt
+readarray -t ALL_DATASETS < uselist/best_all_class.txt
 
 # Remove empty lines and trim whitespace
 TEMP_DATASETS=()
@@ -59,12 +59,23 @@ for lr in "${LEARNING_RATES[@]}"; do
         # Create a space-separated string of datasets for this job
         IFS=' ' datasets_string="${job_datasets[*]}"
         # datasets_string="${datasets_string/_//}"  # Replace first _ with / to get original dataset names
+
+        # Give each job a dataset-specific name (and LR) so squeue is readable.
+        # Note: job-name must be set at submission time (sbatch -J/--job-name), not inside the script.
+        primary_dataset="${job_datasets[0]}"
+        dataset_safe="${primary_dataset//\//_}"
+        job_name="bioclip2_${dataset_safe}_lr${lr}"
         
         job_counter=$((job_counter + 1))
         echo "Job $job_counter/$TOTAL_SUBMISSIONS: LR=$lr, Processing datasets ${start_index}-${end_index}"
         echo "  Datasets: ${datasets_string}"
-        
-        sbatch script3/sbatch_run_best_accum_s_ascend.sh "${datasets_string}" "$lr"
+
+        # sbatch --job-name="${job_name}" script3/sbatch_run_best_accum_s_ascend.sh "${datasets_string}" "$lr"
+        # sbatch --job-name="${job_name}" script3/sbatch_run_accum_s_ascend.sh "${datasets_string}" "$lr"
+        # sbatch --job-name="${job_name}" script3/sbatch_run_accum_s_cardinal.sh "${datasets_string}" "$lr"
+        # sbatch --job-name="${job_name}" script3/sbatch_run_accum_s_ascend.sh "${datasets_string}" "$lr"
+        # sbatch --job-name="${job_name}" script3/sbatch_run_best_accum_all_class_ascend.sh "${datasets_string}" "$lr"
+        sbatch --job-name="${job_name}" script3/sbatch_run_best_oracle_all_class_ascend.sh "${datasets_string}" "$lr"
     done
 done
 

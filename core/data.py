@@ -6,6 +6,7 @@ from torchvision.transforms import Normalize, Compose, InterpolationMode, ToTens
 from collections import defaultdict
 import logging
 import copy
+from transformers import AutoModel, AutoProcessor
 # import datetime
 import random
 from datetime import datetime
@@ -15,6 +16,25 @@ from typing import Optional
 _IMAGENET_DEFAULT_MEAN = [0.485, 0.456, 0.406]
 _IMAGENET_DEFAULT_STD = [0.229, 0.224, 0.225]
 
+_SIGLIP2_MEAN = (0.5, 0.5, 0.5)
+_SIGLIP2_STD = (0.5, 0.5, 0.5)
+
+model_path = '/users/PAS2099/mino/ICICLE/pretrained_weights/siglip2-base-patch16-224'
+
+SIGLIP2_PREPROCESSOR = AutoProcessor.from_pretrained(model_path)
+
+SIGLIP2_TRAIN_TRANSFORM = Compose([
+    Resize((256, 256), interpolation=InterpolationMode.BICUBIC),
+    RandomHorizontalFlip(p=0.5),
+    ToTensor(),  # -> scales to [0,1], matches rescale_factor=1/255
+    Normalize(mean=_SIGLIP2_MEAN, std=_SIGLIP2_STD),
+])
+
+SIGLIP2_VAL_TRANSFORM = Compose([
+    Resize((256, 256), interpolation=InterpolationMode.BICUBIC),
+    ToTensor(),
+    Normalize(mean=_SIGLIP2_MEAN, std=_SIGLIP2_STD),
+])
 
 _TRAIN_TRANSFORM = Compose([
     Resize((224, 224), interpolation=InterpolationMode.BICUBIC),
@@ -109,16 +129,22 @@ class ClassBalancedSampler(Sampler):
 class CkpDataset(Dataset):
     _global_cache = {}
 
-    def __init__(self, json_path, class_names, is_train=True, is_speciesnet=False, is_crop=False, label_type='common'):
+    def __init__(self, json_path, class_names, is_train=True, is_speciesnet=False, is_crop=False, label_type='common', is_siglip2=False):
         self.cache = CkpDataset._global_cache
         self.json_path = json_path
         self.class_names = class_names
         self.is_train = is_train
         self.is_crop = is_crop
         self.label_type = label_type
+        self.siglip_train_transform = SIGLIP2_TRAIN_TRANSFORM
+        self.siglip_val_transform = SIGLIP2_VAL_TRANSFORM
         self.aug_train_transform = _AUG_TRAIN_TRANSFORM
         self.train_transform = _TRAIN_TRANSFORM
-        if is_speciesnet:
+        self.is_siglip2 = is_siglip2
+        if is_siglip2:
+            self.train_transform = SIGLIP2_PREPROCESSOR
+            self.val_transform = SIGLIP2_PREPROCESSOR
+        elif is_speciesnet:
             self.val_transform = _VAL_TRANSFORM_SPECIESNET
         else:
             self.val_transform = _VAL_TRANSFORM
@@ -229,14 +255,19 @@ class CkpDataset(Dataset):
         logits = sample.logits
         is_buf = sample.is_buf
         image = Image.open(file_path).convert("RGB")
+        # print(f"Loading image: {file_path}, label: {label}, is_buf: {is_buf}")
         # if file_path in self.cache:
         #     image = self.cache[file_path]
         # else:
         #     self.cache[file_path] = image
-        if self.is_crop and self.is_train:
-            image = [self.train_transform(image), self.aug_train_transform(image)]
+        if self.is_siglip2:
+            processed = self.transform(images=image, return_tensors="pt")
+            image = processed['pixel_values'].squeeze(0)  # [1,C,H,W] -> [C,H,W]
+        elif self.is_crop and self.is_train:
+            image = [self.train_transform(image), self.aug_train_transform(image)] 
         else:
             image = self.transform(image)
+        # print(f"Image path: {file_path}")
         return image, label, file_path, logits, is_buf
 
     def get_ckp_list(self):
@@ -269,6 +300,7 @@ class CkpDataset(Dataset):
         sub_dataset = CkpDataset.__new__(CkpDataset)
         sub_dataset.is_crop = self.is_crop
         sub_dataset.is_train = is_train
+        sub_dataset.is_siglip2 = self.is_siglip2
         sub_dataset.class_names = self.class_names
         sub_dataset.class_name_idx = self.class_name_idx
         if is_train:

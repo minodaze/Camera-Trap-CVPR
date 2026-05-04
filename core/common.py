@@ -286,8 +286,9 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
     if is_main and grad_accum_steps > 1:
         logging.info(f"Gradient accumulation enabled: {grad_accum_steps} steps → effective batch size ≈ {effective_batch}")
     # Initialize test logging structures to avoid unbound local errors
-    test_results_json = None
+    test_results_json = {}
     test_log_path = None
+    test_log_path = os.path.join(save_dir, f'{test_log_prefix}_log.json')
 
     if test_per_epoch and next_test_loader is not None and save_dir is not None:
         # Open test log file for appending
@@ -762,7 +763,7 @@ def train(classifier, optimizer, loader, epochs, device, f_loss, eval_per_epoch=
             pass
     
     test_results_json['best_epoch'] = best_epoch
-    if test_per_epoch and next_test_loader is not None and save_dir is not None:
+    if test_results_json is not None:
         logging.info(f'Test results logged to {test_log_path}')
         with open(test_log_path, 'w') as f:
             json.dump(test_results_json, f, indent=2)

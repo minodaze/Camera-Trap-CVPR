@@ -111,6 +111,185 @@ BIOCLIP_TEMPLATE = [
 CAMERA_TRAP_TEMPLATE = [
     'a camera trap photo of {CLZ_NAME}.',
 ]
+
+
+class HFVisualEncoder(nn.Module):
+    """Adapter to make HF SigLIP/SigLIP2 vision encoders look like an OpenCLIP visual model."""
+    def __init__(self, model: nn.Module):
+        super().__init__()
+        self.model = model
+
+    def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
+        if hasattr(self.model, "get_image_features"):
+            out = self.model.get_image_features(pixel_values=pixel_values)
+            return _hf_pooled_features(out)
+        out = self.model(pixel_values=pixel_values)
+        return _hf_pooled_features(out)
+
+
+def _hf_pooled_features(output: object) -> torch.Tensor:
+    """Extract a single pooled feature vector from a HF model output."""
+    if torch.is_tensor(output):
+        return output
+
+    # Generic encoder outputs
+    if hasattr(output, "pooler_output") and output.pooler_output is not None:
+        return output.pooler_output
+    if hasattr(output, "last_hidden_state") and output.last_hidden_state is not None:
+        return output.last_hidden_state[:, 0, :]  # CLS by convention
+
+    raise RuntimeError(f"HF model output does not contain pooled features: {type(output)}")
+
+
+def hf_get_text_features(model: nn.Module, inputs: dict) -> torch.Tensor:
+    """Get projected text features for HF CLIP/SigLIP(-2) style models.
+
+    Prefers `model.get_text_features()` when it returns a Tensor. If it returns a full
+    output object instead (e.g. BaseModelOutputWithPooling), we extract pooled features
+    and apply a projection layer when available.
+    """
+
+    if hasattr(model, "get_text_features"):
+        out = model.get_text_features(**inputs)
+        if torch.is_tensor(out):
+            return out
+        # Some implementations return a model output; fall through to extraction.
+        try:
+            pooled = _hf_pooled_features(out)
+        except Exception:
+            pooled = None
+        if pooled is not None:
+            if hasattr(model, "text_projection") and isinstance(model.text_projection, nn.Module):
+                return model.text_projection(pooled)
+            if hasattr(model, "text_proj") and isinstance(model.text_proj, nn.Module):
+                return model.text_proj(pooled)
+            return pooled
+
+    # Manual path via underlying text encoder
+    if hasattr(model, "text_model"):
+        out = model.text_model(**inputs)
+        pooled = _hf_pooled_features(out)
+        if hasattr(model, "text_projection") and isinstance(model.text_projection, nn.Module):
+            return model.text_projection(pooled)
+        if hasattr(model, "text_proj") and isinstance(model.text_proj, nn.Module):
+            return model.text_proj(pooled)
+        return pooled
+
+    # Last resort: try the main forward
+    out = model(**inputs)
+    return _hf_pooled_features(out)
+
+
+def infer_hf_embed_dim(model: nn.Module, processor=None) -> int:
+    """Infer the embedding dimension for HF SigLIP/SigLIP2-style models.
+
+    Different checkpoints/configs expose this as `projection_dim`, `projection_size`, or only
+    via nested `text_config`/`vision_config`. As a last resort, we run a tiny dummy forward
+    pass with text inputs to infer the final feature dimension.
+    """
+
+    cfg = getattr(model, "config", None)
+    checked = []
+
+    def _read_attr(obj, name: str):
+        if obj is None:
+            return None
+        if isinstance(obj, dict):
+            return obj.get(name)
+        return getattr(obj, name, None)
+
+    def _as_int(value):
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+        return None
+
+    # Common config fields across HF CLIP-like models
+    field_names = (
+        "projection_dim",
+        "projection_size",
+        "embed_dim",
+        "hidden_size",
+        "d_model",
+    )
+    for scope_name, scope_obj in (
+        ("config", cfg),
+        ("config.text_config", _read_attr(cfg, "text_config")),
+        ("config.vision_config", _read_attr(cfg, "vision_config")),
+    ):
+        for field in field_names:
+            value = _read_attr(scope_obj, field)
+            checked.append(f"{scope_name}.{field}")
+            dim = _as_int(value)
+            if dim is not None and dim > 0:
+                return dim
+
+    # Fallback: infer from a tiny forward pass on text
+    if processor is not None:
+        try:
+            device = next(model.parameters()).device
+            with torch.no_grad():
+                inputs = processor(text=["test"], padding=True, truncation=True, return_tensors="pt")
+                inputs = {k: v.to(device) for k, v in inputs.items()}
+                if hasattr(model, "get_text_features"):
+                    feats = model.get_text_features(**inputs)
+                else:
+                    out = model(**inputs)
+                    if hasattr(out, "text_embeds") and out.text_embeds is not None:
+                        feats = out.text_embeds
+                    else:
+                        feats = getattr(out, "pooler_output", None)
+                if feats is not None and hasattr(feats, "shape") and feats.ndim >= 2:
+                    return int(feats.shape[-1])
+        except Exception:
+            pass
+
+    raise RuntimeError(
+        "Could not infer HF embedding dimension from model config. "
+        f"Checked: {', '.join(checked)}"
+    )
+
+
+def get_class_embedding_hf(model: nn.Module, processor, embed_dim: int, class_name_idx, text_template: str = "openai"):
+    """Compute normalized per-class text embeddings using a HF model/processor.
+
+    This mirrors `get_class_embedding()` for OpenCLIP, but uses `processor` + HF forward.
+    """
+
+    device = next(model.parameters()).device
+    with torch.no_grad():
+        class_embedding = torch.empty(len(class_name_idx), embed_dim)
+        for class_name, class_idx in class_name_idx.items():
+            texts = get_texts(class_name, text_template)
+            inputs = processor(text=texts, padding=True, truncation=True, return_tensors="pt")
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+
+            text_feats = hf_get_text_features(model, inputs)
+
+            if not torch.is_tensor(text_feats):
+                raise RuntimeError(f"HF text features must be a Tensor, got: {type(text_feats)}")
+            if text_feats.ndim == 1:
+                text_feats = text_feats.unsqueeze(0)
+            if text_feats.shape[-1] != embed_dim:
+                raise RuntimeError(
+                    f"HF text feature dim ({int(text_feats.shape[-1])}) does not match embed_dim ({int(embed_dim)}). "
+                    "This usually indicates the wrong config field was used (projection vs hidden size) or the model "
+                    "returned unprojected pooled features."
+                )
+
+            text_feats = F.normalize(text_feats, dim=-1).mean(dim=0)
+            text_feats = F.normalize(text_feats, dim=-1)
+            class_embedding[class_idx] = text_feats.detach().cpu()
+    return class_embedding
+
+def _module_param_dtype(module: nn.Module) -> torch.dtype:
+    for p in module.parameters(recurse=True):
+        return p.dtype
+    return torch.float32
+
 class CLIPClassifier(nn.Module):
     def __init__(self, visual_model, hidden_size, device):
         super(CLIPClassifier, self).__init__()
@@ -152,8 +331,10 @@ class CLIPClassifier(nn.Module):
     
     def forward(self, images, return_feats=False):
         """Forward pass of the classifier."""
+        # import pdb; pdb.set_trace()
         x = self.visual_model(images)
         feats = F.normalize(x, dim=-1)  # Normalize the features
+        
         if self.init_text:
             class_embedding = self.get_class_embedding(self.text_model, self.tokenizer, self.text_embed_dim, self.class_name_idx, self.text_template).to(self.device)
             x = F.linear(feats, class_embedding, bias=None)  # Use the class embedding to compute logits
@@ -259,7 +440,7 @@ class CLIPClassifier(nn.Module):
         return class_embedding
 
     def get_texts(self, c, text_template='openai'):
-        texts = [template.format(CLZ_NAME=c) for template in OPENAI_IMAGENET_TEMPLATE]
+        texts = [template.format(CLZ_NAME=c) for template in BIOCLIP_TEMPLATE]
         return texts
     
     def interpolate_head(self, model, alpha=0.5):
@@ -343,10 +524,6 @@ class CLIPClassifier(nn.Module):
             class_embedding[class_idx] = _class_embedding
         return class_embedding
 
-    def get_texts(self, c, text_template='openai'):
-        texts = [template.format(CLZ_NAME=c) for template in OPENAI_IMAGENET_TEMPLATE]
-        return texts
-
 def build_classifier(params, class_name_idx, device): 
     if isinstance(class_name_idx, list):
         class_name_idx = {c: i for i, c in enumerate(class_name_idx)}
@@ -357,6 +534,67 @@ def build_classifier(params, class_name_idx, device):
         from utils.gpu_monitor import log_gpu_memory
         log_gpu_memory("model_build", "before_bioclip_load", device=device, enable_wandb=getattr(params, 'wandb', False))
     
+    # SigLIP2 (HF) path: zero-shot only, using precomputed text embeddings as linear head
+    if params.pretrained_weights == 'siglip2':
+        if getattr(params, 'text', 'head') != 'head':
+            raise ValueError("SigLIP2 currently supports only --text head (zero-shot head embeddings)")
+
+        from transformers import AutoModel, AutoProcessor
+
+        siglip2_dir = getattr(params, 'siglip2_dir', None) or 'pretrained_weights/siglip2-large-patch16-256'
+        if not isinstance(siglip2_dir, (str, os.PathLike)) or str(siglip2_dir).strip() == "":
+            raise ValueError(
+                "Invalid --siglip2_dir. Provide a local directory path, e.g. "
+                "--siglip2_dir pretrained_weights/siglip2-large-patch16-256"
+            )
+        # import pdb; pdb.set_trace()
+        logging.info(f"Using SigLIP2 model from local dir: {siglip2_dir}")
+
+        processor = AutoProcessor.from_pretrained(siglip2_dir)
+        # torch_dtype = torch.float16 if str(device).startswith('cuda') else torch.float32
+        siglip2 = AutoModel.from_pretrained(siglip2_dir)
+        siglip2 = siglip2.to(device)
+        siglip2.eval()
+
+        try:
+            embed_dim = infer_hf_embed_dim(siglip2, processor=processor)
+        except Exception as e:
+            raise RuntimeError(
+                f"Could not infer SigLIP2 embedding dimension for --siglip2_dir={siglip2_dir}. "
+                "This checkpoint likely stores the dim under nested config fields (e.g. text_config.projection_size). "
+                f"Original error: {e}"
+            )
+
+        visual_encoder = HFVisualEncoder(siglip2)
+        classifier = CLIPClassifier(visual_encoder, embed_dim, device)
+
+        class_embedding = get_class_embedding_hf(
+            siglip2,
+            processor,
+            embed_dim,
+            class_name_idx,
+            text_template=getattr(params, 'text_template', 'openai'),
+        )
+        print(f"Class embedding shape: {class_embedding.shape}")
+        print(f"Class embedding sample (first 5 values): {class_embedding[0][:10]}")
+        # import pdb; pdb.set_trace()
+        classifier.init_head(class_embedding)
+
+        # Freeze by default unless explicitly fine-tuning
+        for name, parameter in siglip2.named_parameters():
+            if getattr(params, 'full', False):
+                parameter.requires_grad = True
+            else:
+                parameter.requires_grad = False
+
+        classifier = classifier.to(device)
+
+        if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
+            from utils.gpu_monitor import log_gpu_memory
+            log_gpu_memory("model_build", "final", device=device, enable_wandb=getattr(params, 'wandb', False))
+
+        return classifier
+
     # Load the BIOCLIP model to get the class embeddings
     if params.pretrained_weights == 'bioclip':
         logging.info("Using Bioclip model. ")
@@ -484,31 +722,10 @@ def build_classifier(params, class_name_idx, device):
 # _lookup = json.load(open(_LOOKUP_PATH))
 
 def get_texts(c, text_template='openai'):
-    # use_bioclip_template = True
-    # if c not in _lookup:
-    #     use_bioclip_template = False
-    # else:
-    #     tax = _lookup[c]
-    #     for t in tax:
-    #         if not isinstance(t, str) and np.isnan(t):
-    #             use_bioclip_template = False
-    #             break
-    # if use_bioclip_template and text_template == 'bioclip':
-    #     tax = _lookup[c]
-    #     common = c
-    #     scientific = tax[-1]
-    #     taxonomic = ' '.join(tax)
-    #     scientific_common = f'{scientific} with common name {common}'
-    #     taxonomic_common = f'{taxonomic} with common name {common}'
-    #     names = [common, scientific, taxonomic, scientific_common, taxonomic_common]
-    #     texts = []
-    #     for n in names:
-    #         texts += [template.format(CLZ_NAME=n) for template in BIOCLIP_TEMPLATE]
-    # else:
     if text_template == 'customized':
         texts = [template.format(CLZ_NAME=c) for template in CAMERA_TRAP_TEMPLATE]
     else:
-        texts = [template.format(CLZ_NAME=c) for template in OPENAI_IMAGENET_TEMPLATE]
+        texts = [template.format(CLZ_NAME=c) for template in BIOCLIP_TEMPLATE]
     return texts
 
 

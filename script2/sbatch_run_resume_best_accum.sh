@@ -3,12 +3,11 @@
 #SBATCH --job-name=bioclip2_upper_bound
 #SBATCH --output=logs/bioclip2_%j.out
 #SBATCH --error=logs/bioclip2_%j.err
-#SBATCH --time=16:00:00
+#SBATCH --time=8:00:00
 #SBATCH --nodes=1                 # Request 1 node
 #SBATCH --ntasks-per-node=1       # One task per node
 #SBATCH --gpus-per-node=1         # One GPU per node
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=128G                 # Request 128GB total memory per node
 
 USER_NAME="mino"
 CONDA_ENV="ICICLE"
@@ -52,6 +51,7 @@ fi
 for idx in "${!BIG_FOLDERS[@]}"; do
   DATASET="${BIG_FOLDERS[$idx]}"
   MODEL_DIR="${MODEL_DIRS[$idx]}"
+  # DATASET="${DATASET//\//_}" # Replace slashes with underscores for file paths
   echo "=== Processing ${DATASET} ==="
   echo "Using model dir: ${MODEL_DIR}"
     TRAIN_JSON="${DATA_ROOT}/${DATASET}/30/train.json"
@@ -74,11 +74,11 @@ for idx in "${!BIG_FOLDERS[@]}"; do
     CONFIG_FILE="${CONFIG_ROOT}/${DATASET//\//_}/best_accum_lr${LEARNING_RATE}.yaml"
 
     mkdir -p "${CONFIG_ROOT}/${DATASET//\//_}"
-    mkdir -p "/fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/best_accum/${DATASET//\//_}"
+      mkdir -p "/fs/scratch/PAS2099/camera-trap-ECCV/ascend3/best_accum/${DATASET//\//_}"
 
     cat <<EOF > $CONFIG_FILE
 module_name: best_accum_lora_bsm
-log_path: /fs/ess/PAS2099/camera-trap-CVPR-logs/accum_80/best_accum/${DATASET//\//_}
+log_path: /fs/scratch/PAS2099/camera-trap-ECCV/ascend3/best_accum/${DATASET//\//_}
 
 common_config:
   model: bioclip2
@@ -111,7 +111,7 @@ cl_config:
 EOF
 
   echo "Running pipeline for ${DATASET} with LR=${LEARNING_RATE}"
-  python run_pipeline.py --c $CONFIG_FILE --wandb --resume --eval_per_epoch --save_best_model --pretrained_weights bioclip2 --lora_bottleneck 8
+  python run_pipeline.py --c $CONFIG_FILE --wandb --resume --eval_per_epoch --save_best_model --pretrained_weights bioclip2 --lora_bottleneck 8 --loss_type bsm
 
 #     # === Robust log path discovery ===
 #     BASE_LOG_DIR="/fs/scratch/PAS2099/${USER_NAME}/ICICLE/log_auto/pipeline/${DATASET//\//_}/zs_common/"
