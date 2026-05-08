@@ -207,7 +207,6 @@ class CLAccumulativeScratch(CLModule):
     """Accumulative training with scratch. Fine-tune the classifier on all samples seen so far, but use a new classifier each time.
     """
     def process(self, _, train_dset, eval_dset, train_mask, eval_per_epoch=True, eval_loader=None, ckp=None, gpu_monitor=None, next_test_loader=None):
-        # global idx
         classifier = copy.deepcopy(self._classifier)
         
         # VRAM check after classifier copy
@@ -365,7 +364,7 @@ class CLReplay(CLModule):
         if per_class < 30:
             logging.info(f'Buffer too small to keep class balance with {n_cls} classes. Increasing buffer size from {buf_size} to {buf_size*2}.')
             self.cl_config['buffer_size'] = buf_size*2  # increase the buffer size to keep at least 10 samples per class
-            buf_size = self.cl_config.get('buffer_size', 500)
+            buf_size = self.cl_config.get('buffer_size', 100)
             per_class = max(1, buf_size // n_cls)
 
         new_buf = []
@@ -386,7 +385,7 @@ class CLReplay(CLModule):
         for msk, sample in zip(train_mask, train_dset.samples):
             if not sample.is_buf:  # add only new samples, not buffer ones
                 self.buffer.append(sample)
-        buf_size = self.cl_config.get('buffer_size', 500)
+        buf_size = self.cl_config.get('buffer_size', int(len(train_dset.samples) * 0.1))
         self._rebalance_buffer(buf_size)                       # trim/balance
 
     def augmentation(self, train_dset):
@@ -429,6 +428,32 @@ class CLReplay(CLModule):
     def refresh_buffer(self, new_samples):
         pass
 
+class CLReplayAll(CLReplay):
+    """
+    Replay with full history:
+        • store ALL old samples seen so far (no size cap, no rebalancing)
+        • on every round randomly draw n_new samples from the full history
+          so the DataLoader sees a 50 : 50 new-vs-replay ratio per batch
+    """
+
+    def _sample_from_buffer(self, n, classifier, train_dset):
+        """Randomly draw `n` samples from the full history buffer."""
+        if len(self.buffer) == 0:
+            return []
+        if n <= len(self.buffer):
+            return random.sample(self.buffer, n)          # without replacement
+        else:
+            k    = n - len(self.buffer)
+            dup  = random.choices(self.buffer, k=k)       # with replacement
+            return self.buffer + dup
+
+    def _after_train(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
+        # add ALL new samples to the history buffer (no trimming/rebalancing)
+        for msk, sample in zip(train_mask, train_dset.samples):
+            if not sample.is_buf:
+                self.buffer.append(sample)
+        logging.info(f'CLReplayAll buffer size after update: {len(self.buffer)}')
+
 class CLLWF(CLReplay):
     """LWF-style replay:
         • keep a fixed-size, class-balanced buffer
@@ -451,7 +476,7 @@ class CLDerpp(CLReplay):
         # update the buffer with **new** data then re-balance it
         for msk, sample in zip(train_mask, train_dset.samples):
             self.buffer.append(sample)
-        buf_size = self.cl_config.get('buffer_size', 500)
+        buf_size = self.cl_config.get('buffer_size', int(len(train_dset.samples) * 0.1))
         self._rebalance_buffer(buf_size)                       # trim/balance
 
         # compute logits for the buffer samples
@@ -672,6 +697,7 @@ CL_METHODS = {
     'accumulative-scratch': CLAccumulativeScratch,
     'accumulative-scratch-lwf': CLAccumulativeScratchLWF,
     'replay': CLReplay,
+    'replay-all': CLReplayAll,
     'rand-replace-old': CLRandReplaceOld,
     'lwf': CLLWF,
     'mir': CLMIR,
