@@ -428,6 +428,8 @@ class CLReplay(CLModule):
     def refresh_buffer(self, new_samples):
         pass
 
+# class CLReplayER(CLModule):
+
 class CLReplayAll(CLReplay):
     """
     Replay with full history:
@@ -453,6 +455,28 @@ class CLReplayAll(CLReplay):
             if not sample.is_buf:
                 self.buffer.append(sample)
         logging.info(f'CLReplayAll buffer size after update: {len(self.buffer)}')
+
+class CLER(CLReplay):
+    """
+    Experience Replay (ER):
+        • keep ALL old samples seen so far (no size cap, no rebalancing)
+        • on every round sample replay_rate (default 10%) of the full history
+          buffer, regardless of how many new samples arrived
+        • replay_rate is configurable via cl_config['er_replay_rate'] (0.0–1.0)
+    """
+
+    def _rebalance_buffer(self, buf_size):
+        """Return replay_rate% of the full history buffer."""
+        if len(self.buffer) == 0:
+            return []
+        rate = self.cl_config.get('er_replay_rate', 0.1)
+        k = max(1, int(len(self.buffer) * rate))
+        selected = random.sample(self.buffer, min(k, len(self.buffer)))
+        logging.info(
+            f'CLER: sampling {len(selected)} replay samples '
+            f'({rate*100:.0f}% of buffer size {len(self.buffer)})')
+        return selected
+
 
 class CLLWF(CLReplay):
     """LWF-style replay:
@@ -698,6 +722,7 @@ CL_METHODS = {
     'accumulative-scratch-lwf': CLAccumulativeScratchLWF,
     'replay': CLReplay,
     'replay-all': CLReplayAll,
+    'er': CLER,
     'rand-replace-old': CLRandReplaceOld,
     'lwf': CLLWF,
     'mir': CLMIR,
