@@ -428,55 +428,21 @@ class CLReplay(CLModule):
     def refresh_buffer(self, new_samples):
         pass
 
-# class CLReplayER(CLModule):
-
-class CLReplayAll(CLReplay):
-    """
-    Replay with full history:
-        • store ALL old samples seen so far (no size cap, no rebalancing)
-        • on every round randomly draw n_new samples from the full history
-          so the DataLoader sees a 50 : 50 new-vs-replay ratio per batch
-    """
-
-    def _sample_from_buffer(self, n, classifier, train_dset):
-        """Randomly draw `n` samples from the full history buffer."""
-        if len(self.buffer) == 0:
-            return []
-        if n <= len(self.buffer):
-            return random.sample(self.buffer, n)          # without replacement
-        else:
-            k    = n - len(self.buffer)
-            dup  = random.choices(self.buffer, k=k)       # with replacement
-            return self.buffer + dup
-
+class CLReplayER(CLReplay):
     def _after_train(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
-        # add ALL new samples to the history buffer (no trimming/rebalancing)
-        for msk, sample in zip(train_mask, train_dset.samples):
-            if not sample.is_buf:
+        """Keep the buffer in a fixed size by randomly adding 10% new samples until full, then randomly remove old samples in the buffer to add new samples to the buffer."""
+        buf_size = self.cl_config.get('buffer_size', 100)
+        # Get only new samples that were actually trained on (respecting mask + not already in buffer)
+        new_candidates = [s for msk, s in zip(train_mask, train_dset.samples) if msk and not s.is_buf]
+        n_to_add = max(1, int(len(new_candidates) * 0.1))
+        new_samples = random.sample(new_candidates, k=min(n_to_add, len(new_candidates)))
+        
+        for sample in new_samples:
+            if len(self.buffer) < buf_size:
                 self.buffer.append(sample)
-        logging.info(f'CLReplayAll buffer size after update: {len(self.buffer)}')
-
-class CLER(CLReplay):
-    """
-    Experience Replay (ER):
-        • keep ALL old samples seen so far (no size cap, no rebalancing)
-        • on every round sample replay_rate (default 10%) of the full history
-          buffer, regardless of how many new samples arrived
-        • replay_rate is configurable via cl_config['er_replay_rate'] (0.0–1.0)
-    """
-
-    def _rebalance_buffer(self, buf_size):
-        """Return replay_rate% of the full history buffer."""
-        if len(self.buffer) == 0:
-            return []
-        rate = self.cl_config.get('er_replay_rate', 0.1)
-        k = max(1, int(len(self.buffer) * rate))
-        selected = random.sample(self.buffer, min(k, len(self.buffer)))
-        logging.info(
-            f'CLER: sampling {len(selected)} replay samples '
-            f'({rate*100:.0f}% of buffer size {len(self.buffer)})')
-        return selected
-
+            else:
+                self.buffer[random.randint(0, len(self.buffer) - 1)] = sample
+            sample.is_buf = True
 
 class CLLWF(CLReplay):
     """LWF-style replay:
