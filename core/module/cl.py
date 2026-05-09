@@ -48,6 +48,7 @@ class CLModule(ABC):
         self.common_config = common_config
         self.class_names = class_names
         self.buffer = []
+        self.old_samples = []
         self.args = args
         self.device = device
         self.ref_model = None
@@ -430,19 +431,9 @@ class CLReplay(CLModule):
 
 class CLReplayER(CLReplay):
     def _after_train(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
-        """Keep the buffer in a fixed size by randomly adding 10% new samples until full, then randomly remove old samples in the buffer to add new samples to the buffer."""
-        buf_size = self.cl_config.get('buffer_size', 100)
-        # Get only new samples that were actually trained on (respecting mask + not already in buffer)
-        new_candidates = [s for msk, s in zip(train_mask, train_dset.samples) if msk and not s.is_buf]
-        n_to_add = max(1, int(len(new_candidates) * 0.1))
-        new_samples = random.sample(new_candidates, k=min(n_to_add, len(new_candidates)))
-        
-        for sample in new_samples:
-            if len(self.buffer) < buf_size:
-                self.buffer.append(sample)
-            else:
-                self.buffer[random.randint(0, len(self.buffer) - 1)] = sample
-            sample.is_buf = True
+        for msk, sample in zip(train_mask, train_dset.samples):
+            self.old_samples.append(sample)
+        self.buffer = random.sample(self.old_samples, k=self.cl_config.get('buffer_size', 100))  # keep the most recent samples in the buffer
 
 class CLLWF(CLReplay):
     """LWF-style replay:
