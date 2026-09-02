@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Read datasets from file into array
-readarray -t ALL_DATASETS < uselist/wildlclip_ba.txt
+readarray -t ALL_DATASETS < uselist/CL_list.txt
 
 # Remove empty lines and trim whitespace
 TEMP_DATASETS=()
@@ -67,12 +67,16 @@ for lr in "${LEARNING_RATES[@]}"; do
         # sbatch script3/sbatch_run_best_accum_speciesnet_ascend.sh "${datasets_string}" "$lr"
         # sbatch script3/sbatch_run_accum_speciesnet_ascend.sh "${datasets_string}" "$lr"
         # sbatch script3/sbatch_run_wdilclip_zs.sh "${datasets_string}" "$lr"
-        sbatch script3/sbatch_run_best_accum_wildclip_ascend.sh "${datasets_string}" "$lr"
-        # sleep 1
+        # sbatch script3/sbatch_run_best_accum_wildclip_ascend.sh "${datasets_string}" "$lr"
         # sbatch script3/sbatch_run_best_oracle_wildclip_ascend.sh "${datasets_string}" "$lr"
         # sbatch script3/sbatch_run_15_zs.sh "${datasets_string}" "$lr"
         # sleep 1
-        # sbatch script3/sbatch_run_accum_wildclip_ascend.sh "${datasets_string}" "$lr" 
+        # sbatch script3/sbatch_run_accum_wildclip_ascend.sh "${datasets_string}" "$lr"
+        # sbatch script3/sbatch_run_best_replay.sh "${datasets_string}" "$lr" "${BUFFER_SIZE[$job_index]}"
+
+        sbatch script3/sbatch_run_best_seq.sh "${datasets_string}" "$lr"
+        # sbatch script3/sbatch_run_best_replay-er1.sh "${datasets_string}" "$lr" "${BUFFER_SIZE[$job_index]}"
+        # sbatch script3/sbatch_run_best_replay-er2.sh "${datasets_string}" "$lr"
         
         # sbatch script3/sbatch_run_60_zs.sh "${datasets_string}" "$lr"
     done

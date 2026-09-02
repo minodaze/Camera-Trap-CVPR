@@ -90,3 +90,7 @@ sbatch_run_1_acc.sh
 extract_train_log/compare_dataset_list.py
 extract_train_log/extract_final_logs.py
 extract_train_log/extract_final_ub.py
+
+# Local machine artifacts; restore weights separately on each system.
+my_weights
+__pycache__/

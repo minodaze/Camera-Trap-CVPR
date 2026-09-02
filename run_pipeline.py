@@ -1,28 +1,26 @@
 import argparse
-import code
+import copy
+import gc
+import json
 import logging
 import os
-import copy
-import time
-import json
-import re
+import pickle
 import random
-
-from datetime import datetime
+import re
+import time
 from collections import defaultdict
+from datetime import datetime
+
 import numpy as np
+import pprint
 import ruamel.yaml as yaml
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import DataLoader
-import pprint
-import pickle
-import wandb  # Ensure wandb is imported
+from torch.utils.data.distributed import DistributedSampler
+import wandb
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-from matplotlib.colors import LinearSegmentedColormap
 
 from core import *
 from core.module import get_al_module, get_cl_module, get_ood_module
@@ -133,6 +131,7 @@ def setup_logging(log_path, debug, params, rank=0):
     
     return log_path
 
+from core.speciesnet_model import get_speciesnet_skip_classes, filter_dataset_by_class_names
 
 def pretrain(classifier, class_names, pretrain_config, common_config, device, gpu_monitor=None, interpolation_model=False, interpolation_head=False, interpolation_alpha=0.5, eval_per_epoch=False, save_dir=None, args=None, test_per_epoch=False, eval_dset=None, ood_config=None, al_config=None):
     """
@@ -173,9 +172,6 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
         # Load all training data (across all checkpoints)
         full_dataset = CkpDataset(pretrain_data_config_path, class_names)
         full_dataset = full_dataset.get_subset(is_train=True, ckp_list=["ckp_-1", "ckp_1"])
-        
-        from collections import defaultdict
-        import random
         
         # Group samples by class
         class_to_samples = defaultdict(list)
@@ -253,60 +249,6 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
             val_class_counts[sample.label] += 1
         for sample in dataset.samples:
             train_class_counts[sample.label] += 1
-
-        AL_summary = None
-        if np.any(train_mask == 0):
-            label_to_cls = {v: k for k, v in dataset.class_name_idx.items()}
-            AL_summary = {
-                'train_class_counts': {label_to_cls[k]: v for k, v in train_class_counts.items()},
-                'total_val_samples': len(val_samples),
-                'total_train_samples': len(dataset),
-                'selected_stats': defaultdict(),
-                'filtered_stats': defaultdict(),
-                'selected_samples': defaultdict(list),
-                'filtered_samples': defaultdict(list)
-            }
-            selected_cls = set()
-            selected_cls_count = defaultdict(int)
-            filtered_cls = set()
-            filtered_cls_count = defaultdict(int)
-            selected_n_samples_at_night = 0
-            filtered_n_samples_at_night = 0
-            for m, sample in zip(train_mask, dataset.samples):
-                if m == 1:
-                    # Convert datetime to string for JSON serialization
-                    timestamp_str = sample.timestamp.isoformat() if sample.timestamp is not None else None
-                    AL_summary['selected_samples'][label_to_cls[sample.label]].append((sample.file_path, timestamp_str))
-                    if sample.timestamp is not None and (sample.timestamp.hour < 6 or sample.timestamp.hour > 20):
-                        selected_n_samples_at_night += 1
-                    selected_cls.add(label_to_cls[sample.label])
-                    selected_cls_count[label_to_cls[sample.label]] += 1
-                else:
-                    # Convert datetime to string for JSON serialization
-                    timestamp_str = sample.timestamp.isoformat() if sample.timestamp is not None else None
-                    AL_summary['filtered_samples'][label_to_cls[sample.label]].append((sample.file_path, timestamp_str))
-                    filtered_cls.add(label_to_cls[sample.label])
-                    filtered_cls_count[label_to_cls[sample.label]] += 1
-            total_selected = sum(len(samples) for samples in AL_summary['selected_samples'].values())
-            total_filtered = sum(len(samples) for samples in AL_summary['filtered_samples'].values())
-            AL_summary['selected_stats'] = {
-                'num_selected': total_selected,
-                'selected_cls': list(selected_cls),
-                'selected_cls_count': selected_cls_count,
-                'selected_n_samples_at_night': selected_n_samples_at_night
-            }
-            AL_summary['filtered_stats'] = {
-                'num_filtered': total_filtered,
-                'filtered_cls': list(filtered_cls),
-                'filtered_cls_count': filtered_cls_count,
-                'filtered_n_samples_at_night': filtered_n_samples_at_night
-            }
-
-        AL_summary_path = os.path.join(args.save_dir, 'active_learning_summary.json')
-        if AL_summary is not None:
-            with open(AL_summary_path, 'w') as f:
-                json.dump(AL_summary, f, indent=2)
-            log_success(f"Active Learning summary saved to {AL_summary_path}")
 
         # Create validation split summary with our theme
         log_subsection_start("📊 Validation Split Distribution", Colors.BRIGHT_CYAN)
@@ -459,7 +401,8 @@ def pretrain(classifier, class_names, pretrain_config, common_config, device, gp
             logging.info(f'Interpolating head with alpha {interpolation_alpha}. ')
             classifier.interpolate_head(_classifier, alpha=interpolation_alpha)
     del _classifier  # Clear the temporary classifier to free memory
-    return classifier, AL_summary
+    return classifier
+
 
 def run(args):
     """Main execution workflow for the adaptive learning pipeline.
@@ -600,10 +543,39 @@ def run(args):
     log_section_start("📊 DATASET PREPARATION", Colors.BRIGHT_YELLOW)
     
     is_siglip2 = args.pretrained_weights == 'siglip2'
+    is_speciesnet = args.pretrained_weights == "speciesnet"
     # Prepare dataset
-    train_dset = CkpDataset(common_config["train_data_config_path"], class_names, is_crop=is_crop, label_type=label_type, is_siglip2=is_siglip2)
+    train_dset = CkpDataset(common_config["train_data_config_path"], class_names, is_crop=is_crop, label_type=label_type, is_siglip2=is_siglip2, is_speciesnet=is_speciesnet)
 
-    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type, is_siglip2=is_siglip2)
+    eval_dset = CkpDataset(common_config["eval_data_config_path"], class_names, label_type=label_type, is_siglip2=is_siglip2, is_speciesnet=is_speciesnet)
+
+    logging.info(f"Initial training dataset size: {len(train_dset)} samples")
+    cl_config['buffer_size'] = cl_config.get('buffer_size', int(len(train_dset) * 0.1))
+    logging.info(f"Buffer size is set to {cl_config.get('buffer_size')} samples")
+
+    logging.info(f"Initial evaluation dataset size: {len(eval_dset)} samples")
+
+    # SpeciesNet: classes marked as ["skip"] in yaml should not participate in eval.
+    skip_classes = set()
+    if is_speciesnet:
+        speciesnet_aliases = getattr(args, "speciesnet_aliases", None)
+        if speciesnet_aliases is None:
+            speciesnet_aliases = getattr(args, "speciesnet_aliaes", None)
+
+        skip_classes = get_speciesnet_skip_classes(speciesnet_aliases)
+
+        if skip_classes:
+            train_dset = filter_dataset_by_class_names(
+                train_dset,
+                skip_classes,
+                tag="train_dset",
+            )
+            eval_dset = filter_dataset_by_class_names(
+                eval_dset,
+                skip_classes,
+                tag="eval_dset",
+            )
+
     if rare_path:
         log_info(f"Including rare evaluation data from {rare_path}, original evaluation data length: {len(eval_dset)}", Colors.CYAN)
         rare_eval_dset = CkpDataset(rare_path, class_names, label_type=label_type, is_siglip2=is_siglip2)
@@ -627,8 +599,6 @@ def run(args):
     logging.info(create_info_box("Dataset Information", dataset_summary))
     
     log_section_start("🎯 PRETRAINING PHASE", Colors.BRIGHT_GREEN)
-    
-    AL_summary = None
 
     if args.plot_features and pretrain_config['pretrain']:
         try:
@@ -717,7 +687,6 @@ def run(args):
         "num_cls": len(class_names),
         "class_dist": {c: 0 for c in class_names},
     }
-    AL_summary = {}
     if args.lora_interpolate:
         lora_inter_json = {ckp: {} for ckp in ckp_list}
 
@@ -796,17 +765,11 @@ def run(args):
             gpu_monitor.log_memory_usage("checkpoint", f"start_{ckp}")
         
         # Get training and evaluation dataset
-        # For accumulative training: use all previous checkpoints (ckp_1 to ckp_(i-1))
-        # prev_ckp_list = ckp_list[:i] if i > 0 else []
         ckp_train_dset = train_dset.get_subset(is_train=True, ckp_list=ckp_prev)
         ckp_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=ckp)
         logging.info(f'Training dataset size: {len(ckp_train_dset)}. ')
         logging.info(f'Evaluation dataset size: {len(ckp_eval_dset)}. ')
         
-        # if ckp 
-        # ckp_next_train_dset = train_dset.get_subset(is_train=True, ckp_list=ckp)
-        # logging.info(f'Next training dataset size (for Feature Resonance): {len(ckp_next_train_dset)}.')
-
         train_cls_count = {}
         for sample in ckp_train_dset.samples:
             label = sample.label
@@ -874,97 +837,19 @@ def run(args):
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("active_learning", f"before_{ckp}")
         if not pretrain_config['pretrain']:
-            if al_config.get('method') == 'fr':
-                # For FR: use the mask generated in the previous iteration for current training
-                al_mask = copy.deepcopy(FR_mask) if FR_mask is not None else ood_mask
-                
-                # Generate FR_mask for the NEXT checkpoint
-                next_train_dset = train_dset.get_subset(is_train=False, ckp_list=ckp)
-                prev_ckps = ckp_list[:i] if i > 0 else []
-                id_eval_dset = eval_dset.get_subset(is_train=False, ckp_list=prev_ckps) if ckp_prev else None
-                id_train_dset = copy.deepcopy(ckp_train_dset) if ckp_prev else None
-                if ckp_prev:
-                    id_train_dset.apply_mask(al_mask)
-                    id_train_dset.add_samples(cl_module.buffer)
-                    id_train_dset.eval()
-                log_info(f"(FR) Active learning mask applied for current checkpoint: {al_mask.sum()} / {len(al_mask)}", Colors.BLUE)
-                
-                classifier, FR_mask = al_module.process(
-                    classifier,
-                    id_train_dset,
-                    ckp_eval_dset,
-                    ood_mask,
-                    ckp=ckp,
-                    id_eval_dset=id_eval_dset,
-                    next_train_dset=next_train_dset
-                )
-                del id_train_dset, id_eval_dset, next_train_dset  # Clear to free memory
-                log_info(f"(FR) new Active learning mask generated for next checkpoint: {FR_mask.sum()} / {len(FR_mask)}", Colors.BLUE)
-            else:
-                classifier, al_mask = al_module.process(
+            classifier, al_mask = al_module.process(
                     classifier, 
                     ckp_train_dset, 
                     ckp_eval_dset, 
                     ood_mask, 
                     ckp=ckp,
                 )
-                log_info(f"Active learning samples selected: {al_mask.sum()} / {len(al_mask)}", Colors.BLUE)
+            log_info(f"Active learning samples selected: {al_mask.sum()} / {len(al_mask)}", Colors.BLUE)
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("active_learning", f"after_{ckp}")
 
         # Prepare evaluation dataloader
         cl_eval_loader = DataLoader(ckp_eval_dset, batch_size=common_config['eval_batch_size'], shuffle=False, worker_init_fn=worker_init_fn)
-
-        # Generate AL summary if active learning was applied
-        if not pretrain_config['pretrain'] and 'al_mask' in locals():
-            label_to_cls = {v: k for k, v in ckp_train_dset.class_name_idx.items()}
-            train_class_counts = {label_to_cls[s.label]: 0 for s in ckp_train_dset.samples}
-            for sample in ckp_train_dset.samples:
-                train_class_counts[label_to_cls[sample.label]] += 1
-            
-            AL_summary[ckp] = {
-                'train_class_counts': {k: v for k, v in train_class_counts.items()},
-                'total_train_samples': len(ckp_train_dset.samples),
-                'selected_stats': {},
-                'filtered_stats': {},
-                'selected_samples': defaultdict(list),
-                'filtered_samples': defaultdict(list)
-            }
-            selected_cls = set()
-            selected_cls_count = defaultdict(int)
-            filtered_cls = set()
-            filtered_cls_count = defaultdict(int)
-            selected_n_samples_at_night = 0
-            filtered_n_samples_at_night = 0
-            for m, sample in zip(al_mask, ckp_train_dset.samples):
-                if m == 1:
-                    # Convert datetime to string for JSON serialization
-                    timestamp_str = sample.timestamp.isoformat() if sample.timestamp is not None else None
-                    AL_summary[ckp]['selected_samples'][label_to_cls[sample.label]].append((sample.file_path, timestamp_str))
-                    if sample.timestamp is not None and (sample.timestamp.hour < 6 or sample.timestamp.hour > 20):
-                        selected_n_samples_at_night += 1
-                    selected_cls.add(label_to_cls[sample.label])
-                    selected_cls_count[label_to_cls[sample.label]] += 1
-                else:
-                    # Convert datetime to string for JSON serialization
-                    timestamp_str = sample.timestamp.isoformat() if sample.timestamp is not None else None
-                    AL_summary[ckp]['filtered_samples'][label_to_cls[sample.label]].append((sample.file_path, timestamp_str))
-                    filtered_cls.add(label_to_cls[sample.label])
-                    filtered_cls_count[label_to_cls[sample.label]] += 1
-            total_selected = sum(len(samples) for samples in AL_summary[ckp]['selected_samples'].values())
-            total_filtered = sum(len(samples) for samples in AL_summary[ckp]['filtered_samples'].values())
-            AL_summary[ckp]['selected_stats'] = {
-                'num_selected': total_selected,
-                'selected_cls': list(selected_cls),
-                'selected_cls_count': selected_cls_count,
-                'selected_n_samples_at_night': selected_n_samples_at_night
-            }
-            AL_summary[ckp]['filtered_stats'] = {
-                'num_filtered': total_filtered,
-                'filtered_cls': list(filtered_cls),
-                'filtered_cls_count': filtered_cls_count,
-                'filtered_n_samples_at_night': filtered_n_samples_at_night
-            }
 
         # Prepare validation loader for continual learning
         cl_validation_loader = None
@@ -989,12 +874,6 @@ def run(args):
         # Run continual learning
         log_step(3, f"Continual Learning ({cl_config.get('method', 'none')})", Colors.GREEN)
         
-        # Sanity check for parameters
-        # if args.debug:
-        #     for name, param in classifier.named_parameters():
-        #         if param.requires_grad:
-        #             logging.info(f"[DEBUG] Parameter to be updated in continual learning: {name}, {param.shape}")
-
         if args.test_per_epoch:
             log_info("Test per epoch enabled for continual learning", Colors.RED)
             eval_batch_size = common_config.get('eval_batch_size', 128)
@@ -1003,7 +882,6 @@ def run(args):
         if args.gpu_memory_monitor:
             gpu_monitor.log_memory_usage("continual_learning", f"before_{ckp}")
         if not pretrain_config['pretrain']:
-            # import pdb; pdb.set_trace()
             classifier = cl_module.process(
                 classifier, 
                 ckp_train_dset, 
@@ -1035,7 +913,6 @@ def run(args):
                     log_warning(f"Feature plotting failed for post-training train dataset {ckp_prev}: {str(e)}")
 
         # Force memory cleanup after continual learning
-        import gc
         gc.collect()
         torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
@@ -1145,7 +1022,6 @@ def run(args):
             'accuracy': float(acc),
             'balanced_accuracy': float(balanced_acc),
             'loss': float(eval_loss),
-            'num_samples': len(preds_arr)
         }
 
         preds_image[ckp]['balanced_accuracy'] = balanced_acc
@@ -1197,15 +1073,6 @@ def run(args):
             gpu_monitor.clear_cache_and_log(f"checkpoint_end_{ckp}")
         
         log_subsection_start(f"✅ Checkpoint {ckp} Complete", Colors.BRIGHT_GREEN)
-
-    # Save AL_summary after main loop completion
-    AL_summary_path = os.path.join(args.save_dir, 'active_learning_summary.json')
-    if AL_summary:
-        with open(AL_summary_path, 'w') as f:
-            json.dump(AL_summary, f, indent=2)
-        log_success(f"Active Learning summary saved to {AL_summary_path}")
-    else:
-        logging.info("No active learning summary to save (AL not used or accumulative-scratch mode)")
 
     if args.lora_interpolate and lora_inter_json is not None:
         lora_inter_path = os.path.join(args.save_dir, 'lora_interpolation_results.json')
@@ -1330,7 +1197,6 @@ def run_eval_only(args):
     # Initialize wandb if enabled
     if args.wandb:
         log_step(2, "Initializing Weights & Biases logging")
-        import re
         match = re.search(r"pipeline/([^/]+)/([^/]+)/([^/]+)", args.save_dir)
         wandb_run_name = "Eval Only Run"
         if match:
@@ -1821,22 +1687,6 @@ def run_eval_only(args):
                         'num_samples': int(len(ckp_eval_dset))
                     }
 
-                    # Compare with previous checkpoints that were also evaluated on the same data (accu_ckp)
-                    # Only compare if we're evaluating on the current checkpoint data (accu_ckp == ckp)
-                    # if accu_ckp == ckp:
-                    #     for pre in range(0, i):
-                    #         pre_ckp = ckp_list[pre]
-                    #         # Check if previous checkpoint was evaluated on this same data
-                    #         if pre_ckp in eval_results and ckp in eval_results[pre_ckp]:
-                    #             prev_balanced_acc = eval_results[pre_ckp][ckp]['balanced_accuracy']
-                    #             difference = balanced_acc - prev_balanced_acc
-                    #             eval_results[ckp][ckp]['improvement_over_' + pre_ckp] = difference
-                                    
-                    #             if difference > 0:
-                    #                 log_info(f"🎯 Model {ckp} improved over {pre_ckp} by {difference:.4f} on {ckp} data!", Colors.CYAN)
-                    #             else:
-                    #                 log_info(f"📊 Model {ckp} did not improve over {pre_ckp} on {ckp} data (Δ={difference:+.4f})", Colors.CYAN)
-
                     log_step(5, f"Saving results", Colors.BLUE)
                     # Save predictions if requested
                     if args.save_predictions:
@@ -1971,23 +1821,6 @@ def run_eval_only(args):
                                 'diff': float(diff)
                             })
 
-                # Compare with previous checkpoints that were also evaluated on the same data (accu_ckp)
-                # Only compare if we're evaluating on the current checkpoint data (accu_ckp == ckp)
-                # if accu_ckp == ckp:
-                #     for pre in range(0, i):
-                #         pre_ckp = ckp_list[pre]
-                #         # Check if previous checkpoint was evaluated on this same data
-                #         if pre_ckp in eval_results and ckp in eval_results[pre_ckp]:
-                #             prev_balanced_acc = eval_results[pre_ckp][ckp]['balanced_accuracy']
-                #             difference = balanced_acc - prev_balanced_acc
-                #             eval_results[ckp][ckp]['improvement_over_' + pre_ckp] = difference
-                                
-                #             if difference > 0:
-                #                 log_info(f"🎯 Model {ckp} improved over {pre_ckp} by {difference:.4f} on {ckp} data!", Colors.CYAN)
-                #             else:
-                #                 log_info(f"📊 Model {ckp} did not improve over {pre_ckp} on {ckp} data (Δ={difference:+.4f})", Colors.CYAN)
-
-                
                 # Log to wandb if enabled
                 if args.wandb:
                     log_info(f"📈 Logging metrics to W&B: {ckp}", Colors.CYAN)
@@ -2236,8 +2069,11 @@ def parse_args():
 
     ###########################Model Configurations#########################
     parser.add_argument('--pretrained_weights', type=str, default='bioclip2',
-                        choices=['bioclip', 'bioclip2', 'openai-ViT-L-14', 'siglip2'],
+                        choices=['bioclip', 'bioclip2', 'openai-ViT-L-14', 'siglip2', 'wildclip', 'speciesnet'],
                         help='pretrained weights name')
+
+    parser.add_argument('--speciesnet_dir', type=str, default='my_weights/speciesnet-pytorch-v4.0.1a-v1/always_crop_99710272_22x8_v12_epoch_00148.pt',
+                        help='Local directory containing SigLIP2 weights downloaded from HuggingFace (used when --pretrained_weights siglip2)')
 
     parser.add_argument('--siglip2_dir', type=str, default='pretrained_weights/siglip2-base-patch16-224',
                         help='Local directory containing SigLIP2 weights downloaded from HuggingFace (used when --pretrained_weights siglip2)')
@@ -2249,9 +2085,6 @@ def parse_args():
     parser.add_argument('--drop_path_rate', default=0.,
                         type=float,
                         help='Drop Path Rate (default: %(default)s)')
-    # parser.add_argument('--model', type=str, default='vit', choices=['vit', 'swin'],
-    #                     help='pretrained model name')
-
     ############################## TEST #################################
     parser.add_argument('--accu_eval', action='store_true',
                         help='whether to test all later checkpoints after training on each checkpoint')
@@ -2265,10 +2098,10 @@ def parse_args():
                         help='text template type')
 
     ############################## Loss Type ##############################
-    parser.add_argument('--loss_type', type=str, default='bsm',
+    parser.add_argument('--loss_type', type=str, default='ce',
                         choices=['ce', 'focal', 'bsm','ldam', 'cdt', 'cb-focal', 'cb-ce', 'cb-bsm', 'cb-sigmoid', 'derpp', 'derpp_bsm', 'supcon'],
                         help='loss type')
-    parser.add_argument('--loss_alpha', type=float, default=None,
+    parser.add_argument('--loss_alpha', type=float, default=None, 
                         help='balancing factor for loss (default: %(default)s)')
     parser.add_argument('--loss_beta', type=float, default=None,
                         help='scaling factor for loss (default: %(default)s)')
@@ -2386,9 +2219,6 @@ def parse_args():
     ########################full#########################
     parser.add_argument('--full', action='store_true',
                         help='whether turn on full finetune')
-    ########################loss#########################
-    # parser.add_argument('--loss', type=str, default='ce',
-    #                     choices=['ce', 'focal', 'kd', 'cb', 'supcon', 'cdt'])
 
     ########################block#########################
     parser.add_argument('--block_index', default=None, type=int, nargs='+',
@@ -2404,11 +2234,9 @@ def parse_args():
                         help='whether to use LoRA interpolation')
     parser.add_argument('--lora_alpha', default=0.5, type=float,
                         help='interpolation alpha for LoRA interpolation')
-    # parser.add_argument('--lora_interpolate', default=1, type=float,
-    #                     help='shift factor')
 
     ########################calibration#########################
-    parser.add_argument('--calibration', action='store_true', 
+    parser.add_argument('--calibration', action='store_true',
                         help='Enable paper calibration analysis for eval_only mode')
 
     args = parser.parse_args()

@@ -1,6 +1,7 @@
-import pandas
+import pandas as pd
 import json
 import os
+import numpy as np
 
 
 def extract_balanced_accuracy(summary: dict) -> float:
@@ -30,37 +31,60 @@ def extract_balanced_accuracy(summary: dict) -> float:
         weight_sum += w
     return total / weight_sum if weight_sum else float('nan')
 
-df = pandas.read_csv('/users/PAS2099/mino/ICICLE/csv/camera-trap-CVPR - ECCV (FINAL).csv')
-
 with open('/users/PAS2099/mino/ICICLE/other_codes/eecv2(f).txt', 'r') as f:
     datasets = [line.strip() for line in f.readlines()]
 
 ratios = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+ratio_cols = [f'BA_ratio_{r:.1f}' for r in ratios]
 
+rows = []
 for dataset in datasets:
     dataset_path = dataset.replace("/", "_")
-    max_ba = 0.0
-    max_ratio = 0.0
-    for ratio in ratios:
-        json_path = f'/fs/scratch/PAS2099/camera-trap-ECCV/ascend3/best_accum_inter/{dataset_path}/bioclip2/lora_8_text_head_loss_bsm_lora_interpolate_{ratio}/log/eval_only_summary.json'
-        # /fs/scratch/PAS2099/camera-trap-ECCV/ascend3/best_accum_inter/KGA_KGA_KHOGC05/bioclip2/lora_8_text_head_loss_bsm_lora_interpolate_0.1/log/eval_only_predictions.json
-        # import pdb; pdb.set_trace()
+    row = {'dataset': dataset}
+    best_ba = 0.0
+    best_ratio = float('nan')
+
+    for ratio, col in zip(ratios, ratio_cols):
+        json_path = (
+            f'/fs/scratch/PAS2099/camera-trap-ECCV/ascend3/best_accum_inter/'
+            f'{dataset_path}/bioclip2/lora_8_text_head_loss_bsm_lora_interpolate_{ratio}'
+            f'/log/eval_only_summary.json'
+        )
         if not os.path.isfile(json_path):
             print(f"[WARN] JSON not found for dataset {dataset} at ratio {ratio}")
+            row[col] = float('nan')
             continue
         try:
             with open(json_path, 'r') as f:
                 data = json.load(f)
             ba = extract_balanced_accuracy(data)
-            if ba > max_ba:
-                max_ba = ba
-                max_ratio = ratio
+            row[col] = ba
+            if ba > best_ba:
+                best_ba = ba
+                best_ratio = ratio
         except Exception as e:
-            print(f"[ERROR] Failed to read JSON for dataset {dataset} at ratio {ratio}: {e}")
-            continue
-    print(f"Dataset: {dataset}, Max Balanced Accuracy: {max_ba:.4f} at Ratio: {max_ratio:.1f}")
-    # df.loc[df['dataset'] == dataset, 'best accum best inter ratio'] = max_ratio
-    print(f"Best ratio for dataset {dataset}: {max_ratio}")
-    df.loc[df['dataset'] == dataset, 'Best Interpolation (Hongjie)'] = max_ba
+            print(f"[ERROR] Dataset {dataset} ratio {ratio}: {e}")
+            row[col] = float('nan')
 
-df.to_csv('/users/PAS2099/mino/ICICLE/csv/camera-trap-CVPR - ECCV (loaded FINAL).csv', index=False)
+    row['Best Interpolation'] = best_ba
+    row['Best Ratio'] = best_ratio
+    rows.append(row)
+    print(f"{dataset}: best BA={best_ba:.4f} at ratio={best_ratio:.1f}")
+
+df = pd.DataFrame(rows, columns=['dataset'] + ratio_cols + ['Best Interpolation', 'Best Ratio'])
+
+# Last row: average improvement of each ratio vs no-interpolation (ratio=1.0)
+no_interp_col = 'BA_ratio_1.0'
+avg_row = {'dataset': 'Avg improvement vs ratio=1.0'}
+for col in ratio_cols:
+    diff = df[col] - df[no_interp_col]
+    avg_row[col] = round(float(diff.mean(skipna=True)), 4)
+avg_row['Best Interpolation'] = round(float((df['Best Interpolation'] - df[no_interp_col]).mean(skipna=True)), 4)
+avg_row['Best Ratio'] = ''
+
+df = pd.concat([df, pd.DataFrame([avg_row])], ignore_index=True)
+
+out_path = '/users/PAS2099/mino/ICICLE/csv/best_accum_inter_results.csv'
+df.to_csv(out_path, index=False)
+print(f"\nSaved → {out_path}")
+print(df.to_string(index=False))

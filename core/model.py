@@ -16,7 +16,7 @@ import os
 
 import timm
 from .petl_model.vision_transformer import VisionTransformerPETL
-from .open_clip import create_model_and_transforms, get_cast_dtype, get_tokenizer
+from .open_clip import create_model_and_transforms, get_cast_dtype, get_tokenizer, get_tokenizer
 
 TUNE_MODULES = ['ft_attn_module', 'ft_mlp_module', 'head', 'vpt', 'ssf_scale', 'ssf_shift', 'lora', 'fact', 'vqt',
                 'difffit']
@@ -440,7 +440,14 @@ class CLIPClassifier(nn.Module):
         return class_embedding
 
     def get_texts(self, c, text_template='openai'):
-        texts = [template.format(CLZ_NAME=c) for template in BIOCLIP_TEMPLATE]
+        if text_template == 'customized':
+            texts = [template.format(CLZ_NAME=c) for template in OPENAI_IMAGENET_TEMPLATE]
+        elif text_template == 'camera_trap':
+            texts = [template.format(CLZ_NAME=c) for template in CAMERA_TRAP_TEMPLATE]
+        elif text_template == 'bioclip':
+            texts = [template.format(CLZ_NAME=c) for template in BIOCLIP_TEMPLATE]
+        else:
+            raise ValueError(f"Unknown text template: {text_template}")
         return texts
     
     def interpolate_head(self, model, alpha=0.5):
@@ -534,6 +541,33 @@ def build_classifier(params, class_name_idx, device):
         from utils.gpu_monitor import log_gpu_memory
         log_gpu_memory("model_build", "before_bioclip_load", device=device, enable_wandb=getattr(params, 'wandb', False))
     
+    if params.pretrained_weights == 'speciesnet':
+        logging.info("Using SpeciesNet model.")
+
+        from .speciesnet_model import SpeciesNetClassifier
+
+        aliases = getattr(params, "speciesnet_aliases", None)
+
+        # speciesnet_aliaes typo also fine
+        if aliases is None:
+            aliases = getattr(params, "speciesnet_aliaes", None)
+
+        if aliases is None:
+            raise ValueError(
+                "common_config.model='speciesnet' requires speciesnet_aliases in yaml."
+            )
+
+        classifier = SpeciesNetClassifier(
+            checkpoint_path=params.speciesnet_dir,
+            dataset_class_name_idx=class_name_idx,
+            speciesnet_aliases=aliases,
+            device=device,
+            trainable=getattr(params, 'full', False),
+            lora_r=0 if getattr(params, 'full', False) else getattr(params, 'lora_bottleneck', 0),
+        )
+
+        return classifier.to(device)
+
     # SigLIP2 (HF) path: zero-shot only, using precomputed text embeddings as linear head
     if params.pretrained_weights == 'siglip2':
         if getattr(params, 'text', 'head') != 'head':
@@ -598,7 +632,7 @@ def build_classifier(params, class_name_idx, device):
     # Load the BIOCLIP model to get the class embeddings
     if params.pretrained_weights == 'bioclip':
         logging.info("Using Bioclip model. ")
-        bioclip_model, preprocess_train, preprocess_val = create_model_and_transforms(
+        model, preprocess_train, preprocess_val = create_model_and_transforms(
                 'ViT-B-16',
                 'pretrained_weights/bioclip/open_clip_pytorch_model.bin',
                 precision='amp',
@@ -618,7 +652,7 @@ def build_classifier(params, class_name_idx, device):
     elif params.pretrained_weights == 'bioclip2':
         logging.info("Using Bioclip-2 model. ")
         weight_path = 'pretrained_weights/bioclip-2/open_clip_pytorch_model.bin'
-        bioclip_model, preprocess_train, preprocess_val = create_model_and_transforms(
+        model, preprocess_train, preprocess_val = create_model_and_transforms(
             'ViT-L-14',
             weight_path,
             precision='amp',
@@ -638,7 +672,7 @@ def build_classifier(params, class_name_idx, device):
         tokenizer = AutoTokenizer.from_pretrained('pretrained_weights/bioclip-2')
     elif params.pretrained_weights == 'openai-ViT-L-14':
         logging.info("Using OpenAI ViT-L-14 model. ")
-        bioclip_model, preprocess_train, preprocess_val = create_model_and_transforms(
+        model, preprocess_train, preprocess_val = create_model_and_transforms(
             'ViT-L-14',
             'openai',
             precision='amp',
@@ -656,6 +690,26 @@ def build_classifier(params, class_name_idx, device):
             params=params
         )
         tokenizer = AutoTokenizer.from_pretrained('pretrained_weights/clip-vit-large-patch14')
+    elif params.pretrained_weights == 'wildclip':
+        logging.info("Using WildCLIP model. ")
+        model, preprocess_train, preprocess_val = create_model_and_transforms(
+            'ViT-B-16',
+            pretrained='pretrained_weights/wildclip/wildclip_vitb16_t1.pth',
+            precision='amp',
+            device=device,
+            jit=False,
+            force_quick_gelu=False,
+            force_custom_text=False,
+            force_patch_dropout=None,
+            force_image_size=None,
+            pretrained_image=False,
+            image_mean=None,
+            image_std=None,
+            aug_cfg={},
+            output_dict=True,
+            params=params
+        )
+        tokenizer = get_tokenizer('ViT-B-16')
     else:
         raise NotImplementedError(f"Pretrained weights {params.pretrained_weights} not supported. ")
     
@@ -663,31 +717,31 @@ def build_classifier(params, class_name_idx, device):
     if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
         log_gpu_memory("model_build", "after_bioclip_load", device=device, enable_wandb=getattr(params, 'wandb', False))
     
-    # del bioclip_model.visual
+    # del model.visual
     
     # Log memory after deleting visual model
     if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
         log_gpu_memory("model_build", "after_visual_delete", device=device, enable_wandb=getattr(params, 'wandb', False))
     
     # Get the model and tune parameters
-    # model, tune_parameters, model_grad_params_no_head = get_model(params, class_num, bioclip_model)
+    # model, tune_parameters, model_grad_params_no_head = get_model(params, class_num, model)
     
     # Log memory after getting PETL model
     if hasattr(params, 'gpu_memory_monitor') and params.gpu_memory_monitor:
         log_gpu_memory("model_build", "after_petl_model", device=device, enable_wandb=getattr(params, 'wandb', False))
 
     ###################################################################
-    classifier = CLIPClassifier(bioclip_model.visual, bioclip_model.embed_dim, device)
+    classifier = CLIPClassifier(model.visual, model.embed_dim, device)
 
-    text_embed_dim = bioclip_model.embed_dim
+    text_embed_dim = model.embed_dim
     if params.text == 'head':
-        class_embedding = get_class_embedding(bioclip_model, tokenizer, text_embed_dim, class_name_idx, text_template=params.text_template)
+        class_embedding = get_class_embedding(model, tokenizer, text_embed_dim, class_name_idx, text_template=params.text_template)
         classifier.init_head(class_embedding)
 
     else:
-        classifier.set_text(bioclip_model, tokenizer, text_embed_dim, class_name_idx, params.text_template)
+        classifier.set_text(model, tokenizer, text_embed_dim, class_name_idx, params.text_template)
         
-    for name, parameter in bioclip_model.named_parameters():
+    for name, parameter in model.named_parameters():
         if params.full:
             parameter.requires_grad = True
             if params.debug:
@@ -724,8 +778,14 @@ def build_classifier(params, class_name_idx, device):
 def get_texts(c, text_template='openai'):
     if text_template == 'customized':
         texts = [template.format(CLZ_NAME=c) for template in CAMERA_TRAP_TEMPLATE]
-    else:
+    elif text_template == 'openai':
+        texts = [template.format(CLZ_NAME=c) for template in OPENAI_IMAGENET_TEMPLATE]
+    elif text_template == 'camera_trap':
+        texts = [template.format(CLZ_NAME=c) for template in CAMERA_TRAP_TEMPLATE]
+    elif text_template == 'bioclip':
         texts = [template.format(CLZ_NAME=c) for template in BIOCLIP_TEMPLATE]
+    else:
+        raise ValueError(f"Unknown text template: {text_template}")
     return texts
 
 
@@ -733,21 +793,39 @@ def get_class_embedding(model, tokenizer, embed_dim, class_name_idx, text_templa
     device = next(model.parameters()).device
     context_length = model.context_length
     with torch.no_grad():
-        class_embedding = torch.empty(len(class_name_idx), embed_dim)
+        # Compute on the model device to avoid device-mismatch during assignment,
+        # but return on CPU for compatibility with `init_head()` (head is created on CPU).
+        class_embedding = torch.empty(len(class_name_idx), embed_dim, device=device)
         for class_name, class_idx in class_name_idx.items():
             # logging.info(f'Getting class embedding for {class_name}... ')
             texts = get_texts(class_name, text_template)
-            # logging.info('Texts: ')
-            # for t in texts:
-            #     logging.info(f'\t{t}')
-            texts = tokenizer(
-                texts, 
-                padding='max_length', 
-                truncation=True, 
-                max_length=context_length, 
-                return_tensors='pt'
-            )
-            input_ids = texts['input_ids'].to(device)
+            # Tokenizer can be either:
+            # - HuggingFace (returns BatchEncoding / dict), or
+            # - open_clip tokenizer (returns a torch.LongTensor directly)
+            try:
+                tokenized = tokenizer(
+                    texts,
+                    padding='max_length',
+                    truncation=True,
+                    max_length=context_length,
+                    return_tensors='pt',
+                )
+            except TypeError:
+                tokenized = tokenizer(texts)
+
+            if isinstance(tokenized, torch.Tensor):
+                input_ids = tokenized
+            elif hasattr(tokenized, 'input_ids'):
+                input_ids = tokenized.input_ids
+            elif isinstance(tokenized, dict) and 'input_ids' in tokenized:
+                input_ids = tokenized['input_ids']
+            else:
+                input_ids = torch.as_tensor(tokenized)
+
+            if not isinstance(input_ids, torch.Tensor):
+                input_ids = torch.as_tensor(input_ids)
+            input_ids = input_ids.to(device=device, dtype=torch.long)
+
             _class_embedding = model.encode_text(input_ids)
             _class_embedding = F.normalize(_class_embedding, dim=-1).mean(dim=0)
             _class_embedding = F.normalize(_class_embedding, dim=-1)

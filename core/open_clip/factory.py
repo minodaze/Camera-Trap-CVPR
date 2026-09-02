@@ -84,13 +84,28 @@ def get_tokenizer(model_name):
 
 
 def load_state_dict(checkpoint_path: str, map_location='cpu'):
-    checkpoint = torch.load(checkpoint_path, map_location=map_location)
+    if 'wildclip' in checkpoint_path:
+        checkpoint = torch.load(checkpoint_path, map_location=map_location, weights_only=False)
+    else:
+        checkpoint = torch.load(checkpoint_path, map_location=map_location)
     if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
         state_dict = checkpoint['state_dict']
     else:
         state_dict = checkpoint
     if next(iter(state_dict.items()))[0].startswith('module'):
         state_dict = {k[7:]: v for k, v in state_dict.items()}
+
+    if 'wildclip' in checkpoint_path:
+        new_state_dict = {}
+        for k, v in state_dict.items():
+            if k.startswith("model.clip_model."):
+                new_k = k.replace("model.clip_model.", "")
+                
+                if "adapter" in new_k:
+                    continue
+                    
+                new_state_dict[new_k] = v
+        state_dict = new_state_dict
     return state_dict
 
 

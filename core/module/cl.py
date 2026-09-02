@@ -175,36 +175,6 @@ class CLNaiveFT(CLModule):
         pass
 
 class CLAccumulative(CLModule):
-    """Accumulative training. Fine-tune the classifier on all samples seen so far.
-    """
-    def process(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None, gpu_monitor=None, next_test_loader=None):
-        # Process data
-        cl_train_dset = copy.deepcopy(train_dset)
-        cl_train_dset.apply_mask(train_mask)
-        cl_train_dset.add_samples(self.buffer)
-        # Train
-        self._train(classifier, cl_train_dset, eval_dset, eval_per_epoch, eval_loader, gpu_monitor, ckp=ckp, save_best_model=True, next_test_loader=next_test_loader)
-        # Process buffer
-        for msk, sample in zip(train_mask, train_dset.samples):
-            if msk:
-                self.buffer.append(sample)
-        
-        # Memory cleanup
-        del cl_train_dset
-        conditional_cache_clear()
-        
-        return classifier
-
-    def refresh_buffer(self, new_samples):
-        pass
-
-    def incremental_step(self, model):
-        pass
-    
-    def _after_train(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
-        pass
-
-class CLAccumulativeScratch(CLModule):
     """Accumulative training with scratch. Fine-tune the classifier on all samples seen so far, but use a new classifier each time.
     """
     def process(self, _, train_dset, eval_dset, train_mask, eval_per_epoch=True, eval_loader=None, ckp=None, gpu_monitor=None, next_test_loader=None):
@@ -297,7 +267,7 @@ class CLAccumWithALFR(CLModule):
         pass
 
 
-class CLAccumulativeScratchLWF(CLModule):
+class CLAccumulativeLWF(CLModule):
     """Accumulative training with scratch. Fine-tune the classifier on all samples seen so far, but use a new classifier each time.
     """
     def process(self, _, train_dset, eval_dset, train_mask, eval_per_epoch=True, eval_loader=None, ckp=None, gpu_monitor=None):
@@ -433,7 +403,12 @@ class CLReplayER(CLReplay):
     def _after_train(self, classifier, train_dset, eval_dset, train_mask, eval_per_epoch=False, eval_loader=None, ckp=None):
         for msk, sample in zip(train_mask, train_dset.samples):
             self.old_samples.append(sample)
-        self.buffer = random.sample(self.old_samples, k=self.cl_config.get('buffer_size', 100))  # keep the most recent samples in the buffer
+        buffer_size = self.cl_config.get('buffer_size', 100)
+        logging.info(f'Buffer size is set to {buffer_size} samples.')
+        if len(self.old_samples) > buffer_size:
+            self.buffer = random.sample(self.old_samples, k=buffer_size)  # keep the most recent samples in the buffer
+        else:
+            self.buffer = self.old_samples.copy()  # if not enough, keep them all in the buffer
 
 class CLLWF(CLReplay):
     """LWF-style replay:
@@ -675,11 +650,9 @@ CL_METHODS = {
     'none': CLNone,
     'naive-ft': CLNaiveFT,
     'accumulative': CLAccumulative,
-    'accumulative-scratch': CLAccumulativeScratch,
-    'accumulative-scratch-lwf': CLAccumulativeScratchLWF,
+    'accumulative-lwf': CLAccumulativeLWF,
     'replay': CLReplay,
-    'replay-all': CLReplayAll,
-    'er': CLER,
+    'er2': CLReplayER,
     'rand-replace-old': CLRandReplaceOld,
     'lwf': CLLWF,
     'mir': CLMIR,

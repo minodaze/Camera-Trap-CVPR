@@ -42,6 +42,13 @@ _TRAIN_TRANSFORM = Compose([
     ToTensor(),
     Normalize(mean=_IMAGENET_DEFAULT_MEAN, std=_IMAGENET_DEFAULT_STD),
 ])
+
+_TRAIN_TRANSFORM_SPECIESNET = Compose([
+    Resize((480, 480), interpolation=InterpolationMode.BICUBIC),
+    RandomHorizontalFlip(p=0.5),
+    ToTensor(),
+])
+
 _AUG_TRAIN_TRANSFORM = Compose([
     RandomResizedCrop(224,                     # final H × W
                       scale=(0.7, 1.0),        # crop covers 70 – 100 % of image area
@@ -69,7 +76,7 @@ _VAL_TRANSFORM = Compose([
 ])
 
 _VAL_TRANSFORM_SPECIESNET = Compose([
-    Resize((480, 480), interpolation=InterpolationMode.BICUBIC),
+    Resize((480, 480), interpolation=InterpolationMode.BILINEAR),
     ToTensor(),
 ])
 
@@ -145,6 +152,7 @@ class CkpDataset(Dataset):
             self.train_transform = SIGLIP2_PREPROCESSOR
             self.val_transform = SIGLIP2_PREPROCESSOR
         elif is_speciesnet:
+            self.train_transform = _TRAIN_TRANSFORM_SPECIESNET
             self.val_transform = _VAL_TRANSFORM_SPECIESNET
         else:
             self.val_transform = _VAL_TRANSFORM
@@ -260,10 +268,10 @@ class CkpDataset(Dataset):
         #     image = self.cache[file_path]
         # else:
         #     self.cache[file_path] = image
-        if self.is_siglip2:
-            processed = self.transform(images=image, return_tensors="pt")
-            image = processed['pixel_values'].squeeze(0)  # [1,C,H,W] -> [C,H,W]
-        elif self.is_crop and self.is_train:
+        # if self.is_siglip2:
+        #     processed = self.transform(images=image, return_tensors="pt")
+        #     image = processed['pixel_values'].squeeze(0)  # [1,C,H,W] -> [C,H,W]
+        if self.is_crop and self.is_train:
             image = [self.train_transform(image), self.aug_train_transform(image)] 
         else:
             image = self.transform(image)

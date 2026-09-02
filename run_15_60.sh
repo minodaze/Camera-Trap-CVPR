@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Read datasets from file into array
-readarray -t ALL_DATASETS < best_accum_list.txt
+readarray -t ALL_DATASETS < uselist/15_60_new.txt
 
 # Remove empty lines and trim whitespace
 TEMP_DATASETS=()
@@ -64,7 +64,22 @@ for lr in "${LEARNING_RATES[@]}"; do
         echo "Job $job_counter/$TOTAL_SUBMISSIONS: LR=$lr, Processing datasets ${start_index}-${end_index}"
         echo "  Datasets: ${datasets_string}"
 
-        sbatch script2/sbatch_run_best_accum.sh "${datasets_string}" "$lr"
+        # sbatch script3/sbatch_run_best_accum_15_bio.sh "${datasets_string}" "$lr"
+
+        # sbatch script3/sbatch_run_accum_ascend_30_bio.sh "${datasets_string}" "$lr"
+        # sleep 1
+        sbatch script3/sbatch_run_best_accum_60_bio.sh "${datasets_string}" "$lr"
+        # sleep 1
+        # sbatch script3/sbatch_run_best_oracle_60.sh "${datasets_string}" "$lr"
+        # sleep 1
+        # sbatch script3/sbatch_run_best_oracle_15.sh "${datasets_string}" "$lr" 
+        # sleep 1
+        # sbatch script3/sbatch_run_accum_ascend_15_bio.sh "${datasets_string}" "$lr"
+        # sleep 1
+        sbatch script3/sbatch_run_accum_ascend_60_bio.sh "${datasets_string}" "$lr"
+        # # sleep 1
+        # sbatch script3/sbatch_run_best_accum_30_bio.sh "${datasets_string}" "$lr"
+        
     done
 done
 
